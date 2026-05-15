@@ -1,0 +1,165 @@
+//
+//  MultiTalkViewModel.swift
+//  pocket-tts-macos
+//
+//  Drives the Multi-Talk tab. Parses the script into chunks (text + pauses),
+//  feeds each text chunk through the engine, and stitches them into a single
+//  AsyncStream that the player consumes for gap-free playback. Silence frames
+//  cover `[Xs]` markers.
+
+import Foundation
+import Observation
+import SwiftData
+
+@MainActor
+@Observable
+final class MultiTalkViewModel {
+
+    // MARK: - Inputs
+    var speakers: [MultiTalkSpeaker] = [
+        MultiTalkSpeaker(name: "Speaker 1", voiceID: Voice.default.id)
+    ]
+    var script: String = ""
+
+    // MARK: - Outputs
+    var status: SynthesisStatus = .idle
+    var lastResultSamples: [Float]? = nil
+    var lastError: String? = nil
+
+    // MARK: - Deps
+    private let engine: TTSEngine
+    private let player: StreamingPlayer
+    private var modelContext: ModelContext?
+    private var currentTask: Task<Void, Never>?
+
+    init(engine: TTSEngine, player: StreamingPlayer) {
+        self.engine = engine
+        self.player = player
+    }
+
+    func setModelContext(_ ctx: ModelContext) { self.modelContext = ctx }
+
+    func applyReuse(script: String, speakers: [SpeakerRef]) {
+        self.script = script
+        self.speakers = speakers.enumerated().map { (i, ref) in
+            MultiTalkSpeaker(name: ref.name, voiceID: ref.voiceID)
+        }
+        if self.speakers.isEmpty {
+            self.speakers = [MultiTalkSpeaker(name: "Speaker 1", voiceID: Voice.default.id)]
+        }
+    }
+
+    // MARK: - Speaker editing
+    func addSpeaker() {
+        let n = speakers.count + 1
+        speakers.append(MultiTalkSpeaker(name: "Speaker \(n)", voiceID: Voice.default.id))
+    }
+
+    func removeSpeaker(at idx: Int) {
+        guard speakers.count > 1, speakers.indices.contains(idx) else { return }
+        speakers.remove(at: idx)
+    }
+
+    func insertSpeakerTag(_ name: String) {
+        let tag = "{\(name)} "
+        script.append(tag)
+    }
+
+    func insertPause(seconds: Double) {
+        script.append("[\(String(format: "%.1f", seconds))s]")
+    }
+
+    // MARK: - Synthesis
+
+    func synthesize() {
+        guard status.canSynthesize else { return }
+        let chunks = MultiTalkScriptParser.parse(script, speakers: speakers)
+
+        // Validate: must have at least one non-pause chunk and no unknown speakers
+        let textChunks = chunks.compactMap { c -> (String, String, String)? in
+            if case let .text(vID, name, body) = c { return (vID, name, body) } else { return nil }
+        }
+        guard !textChunks.isEmpty else {
+            status = .error("Script has no spoken text (only pauses or speaker tags).")
+            return
+        }
+        if let unknown = chunks.first(where: { if case .unknownSpeaker = $0 { return true } else { return false } }),
+           case let .unknownSpeaker(name) = unknown
+        {
+            status = .error("Unknown speaker \"\(name)\". Add a speaker card for it.")
+            return
+        }
+
+        lastResultSamples = nil
+        lastError = nil
+        status = .generating
+        let startTime = Date()
+        var firstAudioAt: Date? = nil
+
+        let speakersSnapshot: [SpeakerRef] = speakers.map { SpeakerRef(name: $0.name, voiceID: $0.voiceID) }
+        let scriptSnapshot = script
+
+        currentTask = Task { [weak self] in
+            guard let self else { return }
+
+            let (relay, relayCont) = AsyncStream<PCMFrame>.makeStream(of: PCMFrame.self)
+            let player = self.player
+            async let playerResult: Void = {
+                do { try await player.play(stream: relay) }
+                catch { FileHandle.standardError.write(Data("multi-talk player error: \(error)\n".utf8)) }
+            }()
+
+            var collected: [Float] = []
+            for chunk in chunks {
+                switch chunk {
+                case let .text(voiceID, _, body):
+                    for await frame in self.engine.synthesize(text: body, voiceID: voiceID) {
+                        collected.append(contentsOf: frame.samples)
+                        relayCont.yield(PCMFrame(samples: frame.samples, isFinal: false))
+                        if firstAudioAt == nil {
+                            firstAudioAt = Date()
+                            self.status = .streaming
+                        }
+                    }
+                case let .pause(seconds):
+                    let n = Int(seconds * 24_000)
+                    let silence = [Float](repeating: 0, count: n)
+                    collected.append(contentsOf: silence)
+                    relayCont.yield(PCMFrame(samples: silence, isFinal: false))
+                case .unknownSpeaker:
+                    continue
+                }
+            }
+            // Final marker so StreamingPlayer wakes its drain continuation.
+            relayCont.yield(PCMFrame(samples: [0.0], isFinal: true))
+            relayCont.finish()
+            _ = await playerResult
+
+            let ttfa = firstAudioAt.map { $0.timeIntervalSince(startTime) } ?? 0
+            let total = Date().timeIntervalSince(startTime)
+            self.lastResultSamples = collected
+            self.status = .complete(timeToFirstAudioSec: ttfa, totalSec: total)
+
+            if let ctx = self.modelContext {
+                HistoryStore.appendMulti(script: scriptSnapshot, speakers: speakersSnapshot, context: ctx)
+                try? ctx.save()
+            }
+        }
+    }
+
+    func stop() {
+        Task { await player.stop() }
+        currentTask?.cancel()
+        status = .cancelled
+    }
+
+    func pause() {
+        Task { await player.pause() }
+        if case .streaming = status { status = .paused }
+    }
+
+    func resume() {
+        Task { try? await player.resume() }
+        if case .paused = status { status = .streaming }
+    }
+}

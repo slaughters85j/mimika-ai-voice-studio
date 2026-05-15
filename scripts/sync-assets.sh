@@ -59,9 +59,17 @@ cp "$CONVERSION_ROOT/voice_kv_states"/*.safetensors "$RESOURCES/voice_kv_states/
 voice_count=$(ls "$RESOURCES/voice_kv_states"/*.safetensors | wc -l | tr -d ' ')
 echo "  copied $voice_count voice KV files"
 
-# 3. Tokenizer model
+# 3. Tokenizer model + vocab JSON (the JSON is what the Swift tokenizer reads;
+#    the .model is kept in the bundle for future native-SentencePiece work).
 cp "$SNAPSHOT_DIR/tokenizer.model" "$RESOURCES/tokenizer.model"
 echo "  copied tokenizer.model from snapshot $(basename "$SNAPSHOT_DIR")"
+
+if [[ -f "$CONVERSION_ROOT/tokenizer_vocab.json" ]]; then
+    cp "$CONVERSION_ROOT/tokenizer_vocab.json" "$RESOURCES/tokenizer_vocab.json"
+    echo "  copied tokenizer_vocab.json"
+else
+    echo "warning: tokenizer_vocab.json not found; run scripts/07_export_tokenizer_vocab.py in the conversion project" >&2
+fi
 
 # Summary
 total_mb=$(du -sh "$RESOURCES" | awk '{print $1}')

@@ -2,33 +2,135 @@
 //  ContentView.swift
 //  pocket-tts-macos
 //
-//  Created by John Saunders on 5/15/26.
-//
 
+import SwiftData
 import SwiftUI
 
-// MARK: - Placeholder ContentView
-// Phase 0c only proves the engine layer end-to-end (via XCTest).
-// Phase 2 replaces this with the real SwiftUI shell: NavigationSplitView
-// + SingleVoiceView/MultiTalkView/HistoryView per the road map.
-
 struct ContentView: View {
-    var body: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "waveform.circle")
-                .font(.system(size: 48))
-                .foregroundStyle(.tint)
-            Text("Pocket TTS macOS")
-                .font(.title2.weight(.semibold))
-            Text("Phase 0c — engine ready. UI lands in Phase 2.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-        }
-        .padding(40)
-        .frame(minWidth: 400, minHeight: 240)
-    }
-}
+    @Bindable var appState: AppState
+    @Environment(\.modelContext) private var modelContext
 
-#Preview {
-    ContentView()
+    // View models — created lazily once the engine + player are ready.
+    @State private var singleVM: SingleVoiceViewModel?
+    @State private var multiVM: MultiTalkViewModel?
+    @State private var historyVM = HistoryViewModel()
+
+    @State private var voices: [Voice] = []
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            TabBar(selected: $appState.selectedTab)
+
+            Group {
+                switch appState.engineStatus {
+                case .loading:
+                    loadingView
+                case let .failed(msg):
+                    failureView(msg)
+                case .ready:
+                    readyView
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .background(Theme.bgPrimary)
+        .frame(
+            minWidth: Theme.windowMinWidth,
+            idealWidth: Theme.windowDefaultWidth,
+            minHeight: Theme.windowMinHeight,
+            idealHeight: Theme.windowDefaultHeight
+        )
+        .onChange(of: appState.engineStatus) { _, newStatus in
+            if case .ready = newStatus { spinUpViewModels() }
+        }
+    }
+
+    // MARK: - Header (drag region + title)
+
+    private var header: some View {
+        VStack(spacing: 2) {
+            Text("Pocket TTS")
+                .font(Theme.font2XL)
+                .foregroundStyle(Theme.textPrimary)
+            Text("High-quality text-to-speech that runs on your CPU")
+                .font(Theme.fontSM)
+                .foregroundStyle(Theme.textSecondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, Theme.space4)
+        .padding(.bottom, Theme.space3)
+        .background(Theme.bgPrimary)
+    }
+
+    // MARK: - Loading / failure
+
+    private var loadingView: some View {
+        VStack(spacing: Theme.space4) {
+            ProgressView().controlSize(.large).tint(Theme.accent)
+            Text("Loading Core ML models…")
+                .font(Theme.fontSM)
+                .foregroundStyle(Theme.textSecondary)
+        }
+    }
+
+    private func failureView(_ msg: String) -> some View {
+        VStack(spacing: Theme.space3) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 48))
+                .foregroundStyle(Theme.errorFG)
+            Text("Engine failed to load")
+                .font(Theme.fontLG)
+                .foregroundStyle(Theme.textPrimary)
+            Text(msg)
+                .font(Theme.fontXS)
+                .foregroundStyle(Theme.textSecondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, Theme.space6)
+        }
+    }
+
+    // MARK: - Ready
+
+    @ViewBuilder
+    private var readyView: some View {
+        if let singleVM, let multiVM {
+            switch appState.selectedTab {
+            case .single:
+                SingleVoiceView(
+                    viewModel: singleVM,
+                    voices: voices,
+                    pendingReuse: $appState.pendingReuse
+                )
+            case .multi:
+                MultiTalkView(
+                    viewModel: multiVM,
+                    voices: voices,
+                    pendingReuse: $appState.pendingReuse
+                )
+            case .history:
+                HistoryView(
+                    viewModel: historyVM,
+                    voices: voices,
+                    onReuse: { payload in appState.queueReuse(payload) }
+                )
+            }
+        } else {
+            loadingView
+        }
+    }
+
+    // MARK: - VM bootstrap
+
+    private func spinUpViewModels() {
+        guard let engine = appState.engine, let player = appState.player else { return }
+        if singleVM == nil { singleVM = SingleVoiceViewModel(engine: engine, player: player) }
+        if multiVM == nil  { multiVM  = MultiTalkViewModel(engine: engine, player: player) }
+        // Voice catalog: discovered by VoiceLoader at engine init; map IDs → Voice.
+        let ids = engine.availableVoiceIDs()
+        voices = ids.map { id in
+            let type = Voice.voiceType(forID: id)
+            return type == .predefined ? Voice(predefined: id) : Voice(custom: id)
+        }
+    }
 }

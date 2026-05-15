@@ -71,7 +71,10 @@ actor TTSEngine {
 
     // MARK: - Init
     init(tokenizer: Tokenizer? = nil) async throws {
-        self.tokenizer = tokenizer ?? FixedPhraseTokenizer()
+        // Default to the real vendored SentencePiece tokenizer (Phase 2+3
+        // upgrade from the Phase 0c FixedPhraseTokenizer). Tests can still
+        // inject a FixedPhraseTokenizer for hermetic engine validation.
+        self.tokenizer = try tokenizer ?? SentencePieceTokenizer()
 
         // Per-model compute units, matching what the conversion proved works:
         //   prompt_phase rejects ANE (multi-position SDPA → ANECompile FAILED)
