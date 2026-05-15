@@ -6,54 +6,29 @@
 //
 
 import SwiftUI
-import SwiftData
+
+// MARK: - Placeholder ContentView
+// Phase 0c only proves the engine layer end-to-end (via XCTest).
+// Phase 2 replaces this with the real SwiftUI shell: NavigationSplitView
+// + SingleVoiceView/MultiTalkView/HistoryView per the road map.
 
 struct ContentView: View {
-    @Environment(\.modelContext) private var modelContext
-    @Query private var items: [Item]
-
     var body: some View {
-        NavigationSplitView {
-            List {
-                ForEach(items) { item in
-                    NavigationLink {
-                        Text("Item at \(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))")
-                    } label: {
-                        Text(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))
-                    }
-                }
-                .onDelete(perform: deleteItems)
-            }
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200)
-            .toolbar {
-                ToolbarItem {
-                    Button(action: addItem) {
-                        Label("Add Item", systemImage: "plus")
-                    }
-                }
-            }
-        } detail: {
-            Text("Select an item")
+        VStack(spacing: 12) {
+            Image(systemName: "waveform.circle")
+                .font(.system(size: 48))
+                .foregroundStyle(.tint)
+            Text("Pocket TTS macOS")
+                .font(.title2.weight(.semibold))
+            Text("Phase 0c — engine ready. UI lands in Phase 2.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
         }
-    }
-
-    private func addItem() {
-        withAnimation {
-            let newItem = Item(timestamp: Date())
-            modelContext.insert(newItem)
-        }
-    }
-
-    private func deleteItems(offsets: IndexSet) {
-        withAnimation {
-            for index in offsets {
-                modelContext.delete(items[index])
-            }
-        }
+        .padding(40)
+        .frame(minWidth: 400, minHeight: 240)
     }
 }
 
 #Preview {
     ContentView()
-        .modelContainer(for: Item.self, inMemory: true)
 }

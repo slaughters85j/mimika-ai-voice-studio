@@ -1,0 +1,44 @@
+# macOS
+.DS_Store
+
+# Xcode — user-specific state
+xcuserdata/
+*.xcuserstate
+*.xcuserdatad/
+
+# Xcode — build output
+build/
+DerivedData/
+*.xcarchive
+*.xcframework
+
+# Swift Package Manager
+.swiftpm/
+.build/
+# Package.resolved is intentionally committed so dependency versions are reproducible
+
+# Bundled Core ML pipeline assets — populated by scripts/sync-assets.sh
+# (~724 MB; some weight blobs exceed GitHub's 100 MB single-file cap).
+# To rebuild Resources/ locally: run `./scripts/sync-assets.sh` from the
+# project root, which copies mlpackages, voice_kv_states, and tokenizer.model
+# from /Users/system-backup/dev_local/pocket-tts-core-ml-conversion/.
+pocket-tts-macos/Resources/
+
+# Test output / scratch files
+*.wav
+*.aiff
+
+# Profiles
+*.trace
+*.app.dSYM
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Misc
+*.log
+.env
+.env.local
