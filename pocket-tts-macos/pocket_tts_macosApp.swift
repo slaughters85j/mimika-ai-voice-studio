@@ -29,6 +29,14 @@ struct pocket_tts_macosApp: App {
         .windowResizability(.contentSize)
         .defaultSize(width: Theme.windowDefaultWidth, height: Theme.windowDefaultHeight)
         .modelContainer(historyContainer)
+        .commands {
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings…") {
+                    appState.showsSettingsSheet = true
+                }
+                .keyboardShortcut(",", modifiers: .command)
+            }
+        }
     }
 
     /// SwiftData container for the History schema.

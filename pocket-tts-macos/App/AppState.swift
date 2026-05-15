@@ -16,6 +16,7 @@ enum AppTab: String, CaseIterable, Identifiable, Hashable {
     case single
     case multi
     case history
+    case chat
 
     var id: String { rawValue }
 
@@ -24,6 +25,7 @@ enum AppTab: String, CaseIterable, Identifiable, Hashable {
         case .single:  return "Single Voice"
         case .multi:   return "Multi-Talk"
         case .history: return "History"
+        case .chat:    return "Chat"
         }
     }
 
@@ -54,6 +56,12 @@ final class AppState {
     var selectedTab: AppTab = .single
     var pendingReuse: PendingReuse?
 
+    /// Settings sheet visibility (toggled by Cmd+, or the gear icon).
+    var showsSettingsSheet: Bool = false
+
+    /// LM Studio chat settings. Persisted via UserDefaults; loaded once at init.
+    var chatSettings: ChatSettings
+
     /// One-shot loading state for the shared engine. UI surfaces this on first
     /// launch so the user knows something is happening during cold start.
     enum EngineStatus: Equatable {
@@ -66,7 +74,9 @@ final class AppState {
     private(set) var engine: TTSEngine?
     private(set) var player: StreamingPlayer?
 
-    init() {}
+    init() {
+        self.chatSettings = SettingsStore.load()
+    }
 
     /// Build the engine + player once at app launch. Safe to call multiple
     /// times; only the first call does work.

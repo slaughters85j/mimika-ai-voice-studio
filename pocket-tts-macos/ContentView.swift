@@ -14,6 +14,7 @@ struct ContentView: View {
     @State private var singleVM: SingleVoiceViewModel?
     @State private var multiVM: MultiTalkViewModel?
     @State private var historyVM = HistoryViewModel()
+    @State private var chatVM: ChatViewModel?
 
     @State private var voices: [Voice] = []
 
@@ -43,6 +44,18 @@ struct ContentView: View {
         )
         .onChange(of: appState.engineStatus) { _, newStatus in
             if case .ready = newStatus { spinUpViewModels() }
+        }
+        .sheet(isPresented: $appState.showsSettingsSheet) {
+            SettingsView(
+                isPresented: $appState.showsSettingsSheet,
+                settings: $appState.chatSettings,
+                voices: voices,
+                onSave: { newSettings in
+                    SettingsStore.save(newSettings)
+                    chatVM?.settings = newSettings
+                    Task { await chatVM?.checkConnection() }
+                }
+            )
         }
     }
 
@@ -94,7 +107,7 @@ struct ContentView: View {
 
     @ViewBuilder
     private var readyView: some View {
-        if let singleVM, let multiVM {
+        if let singleVM, let multiVM, let chatVM {
             switch appState.selectedTab {
             case .single:
                 SingleVoiceView(
@@ -114,6 +127,11 @@ struct ContentView: View {
                     voices: voices,
                     onReuse: { payload in appState.queueReuse(payload) }
                 )
+            case .chat:
+                ChatView(
+                    viewModel: chatVM,
+                    onOpenSettings: { appState.showsSettingsSheet = true }
+                )
             }
         } else {
             loadingView
@@ -126,6 +144,9 @@ struct ContentView: View {
         guard let engine = appState.engine, let player = appState.player else { return }
         if singleVM == nil { singleVM = SingleVoiceViewModel(engine: engine, player: player) }
         if multiVM == nil  { multiVM  = MultiTalkViewModel(engine: engine, player: player) }
+        if chatVM == nil {
+            chatVM = ChatViewModel(engine: engine, player: player, settings: appState.chatSettings)
+        }
         // Voice catalog: discovered by VoiceLoader at engine init; map IDs → Voice.
         let ids = engine.availableVoiceIDs()
         voices = ids.map { id in
