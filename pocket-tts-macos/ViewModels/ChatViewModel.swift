@@ -51,12 +51,23 @@ final class ChatViewModel {
     private var ttsTask: Task<Void, Never>?
     private var healthCheckTask: Task<Void, Never>?
 
-    private let dictationController = DictationController()
+    /// Erased so this class doesn't itself need an `@available` guard.
+    /// On macOS 26+ this is a `DictationController`; otherwise nil and
+    /// `isDictationAvailable` returns false.
+    private var dictationControllerErased: AnyObject?
+
     /// Text captured by the recognizer for the current listening cycle.
     /// Tracked separately from `draft` so we can detect the empty-stop case
     /// without clobbering anything the user typed before pressing the mic.
     private var dictationStartingDraft: String = ""
     private var dictationCapturedText: String = ""
+
+    var isDictationAvailable: Bool {
+        if #available(macOS 26.0, *) {
+            return dictationControllerErased is DictationController
+        }
+        return false
+    }
 
     private static let fallbackURL = URL(string: "http://localhost:1234")!
 
@@ -66,6 +77,9 @@ final class ChatViewModel {
         self.player = player
         self.settings = settings
         self.client = LMStudioClient(baseURL: URL(string: settings.baseURL) ?? Self.fallbackURL)
+        if #available(macOS 26.0, *) {
+            self.dictationControllerErased = DictationController()
+        }
     }
 
     // MARK: - Lifecycle hooks
@@ -181,37 +195,43 @@ final class ChatViewModel {
     }
 
     // MARK: - Dictation
+    // Gated behind macOS 26 — uses SpeechTranscriber (on-device, no
+    // SFSpeechRecognizer / no "data sent to Apple" prompt). On older
+    // macOS, isDictationAvailable returns false and the view hides the mic
+    // button entirely.
 
     /// The single tap handler for the mic button — drives the 3-state cycle.
     func dictationButtonTapped() {
+        guard #available(macOS 26.0, *),
+              let controller = dictationControllerErased as? DictationController
+        else { return }
+
         switch dictation {
         case .idle:
-            Task { await startDictation() }
+            Task { await startDictation(controller: controller) }
         case .listening:
-            stopDictation()
+            stopDictation(controller: controller)
         case .ready:
-            // Submit. send() handles the rest; we just return the mic to idle.
             dictation = .idle
             if canSendDraft { send() }
         case .unavailable:
-            // Re-attempt: maybe the user granted permission in System Settings.
-            Task { await startDictation() }
+            Task { await startDictation(controller: controller) }
         }
     }
 
-    private func startDictation() async {
-        // First-launch (or every-launch if undetermined) permission prompt.
-        if dictationController.authState != .authorized {
-            await dictationController.requestAuthorization()
+    @available(macOS 26.0, *)
+    private func startDictation(controller: DictationController) async {
+        if controller.authState != .authorized {
+            await controller.requestAuthorization()
         }
-        switch dictationController.authState {
+        switch controller.authState {
         case .authorized:
             break
         case .denied:
-            dictation = .unavailable("Microphone or speech access denied. Enable in System Settings → Privacy & Security.")
+            dictation = .unavailable("Microphone access denied. Enable in System Settings → Privacy & Security.")
             return
         case .restricted:
-            dictation = .unavailable("Speech recognition is restricted on this device.")
+            dictation = .unavailable("Microphone access is restricted on this device.")
             return
         case .notDetermined:
             dictation = .unavailable("Permission prompt was dismissed; click the mic again to retry.")
@@ -224,32 +244,29 @@ final class ChatViewModel {
         dictationStartingDraft = draft
         dictationCapturedText = ""
 
-        dictationController.onTranscript = { [weak self] partial in
+        controller.onTranscript = { [weak self] partial in
             guard let self else { return }
             self.dictationCapturedText = partial
-            // Real-time feedback: replace the draft with starting-prefix + recognized text.
             let separator = self.dictationStartingDraft.isEmpty || self.dictationStartingDraft.hasSuffix(" ") ? "" : " "
             self.draft = self.dictationStartingDraft + separator + partial
         }
-        dictationController.onError = { [weak self] err in
+        controller.onError = { [weak self] err in
             self?.dictation = .unavailable(String(describing: err))
         }
 
         do {
-            try dictationController.start()
+            try controller.start()
             dictation = .listening
         } catch {
             dictation = .unavailable(String(describing: error))
         }
     }
 
-    private func stopDictation() {
-        dictationController.stop()
+    @available(macOS 26.0, *)
+    private func stopDictation(controller: DictationController) {
+        controller.stop()
         let captured = dictationCapturedText.trimmingCharacters(in: .whitespacesAndNewlines)
         if captured.isEmpty {
-            // Nothing recognized — clean cancel back to idle.
-            // Restore the draft to whatever it was before listening started so
-            // we don't leave a stray space behind.
             draft = dictationStartingDraft
             dictation = .idle
         } else {

@@ -111,7 +111,12 @@ struct ChatView: View {
                     .onSubmit { if canSend { viewModel.send() } }
                     .accessibilityIdentifier("chat.composer.field")
 
-                micButton
+                // Mic button is macOS 26+ only — the dictation backend uses
+                // SpeechTranscriber, which doesn't exist on macOS 15-25. On
+                // those versions the slot collapses cleanly.
+                if viewModel.isDictationAvailable {
+                    micButton
+                }
 
                 if isWorking {
                     Button(action: { viewModel.cancel() }) {
