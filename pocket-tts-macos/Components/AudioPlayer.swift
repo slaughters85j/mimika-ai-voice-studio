@@ -165,7 +165,10 @@ struct AudioPlayer: View {
             let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
                 .appendingPathComponent("pocket-tts-export-\(UUID().uuidString).wav")
             try WAVEncoder.write(samples: samples, to: tmp, sampleRate: 24_000)
-            saveExporter = SaveExporter(sourceURL: tmp, contentType: .wav, suggestedName: "pocket-tts-output.wav")
+            // Bare filename — SwiftUI's fileExporter appends the extension
+            // matching `contentType`. Embedding ".wav" in the name causes
+            // a double-extension display in the Save sheet.
+            saveExporter = SaveExporter(sourceURL: tmp, contentType: .wav, suggestedName: "pocket-tts-output")
         } catch {
             FileHandle.standardError.write(Data("WAV export failed: \(error)\n".utf8))
         }
@@ -178,7 +181,9 @@ struct AudioPlayer: View {
             do {
                 try await AACEncoder.write(samples: samples, to: tmp, sampleRate: 24_000)
                 await MainActor.run {
-                    saveExporter = SaveExporter(sourceURL: tmp, contentType: UTType("public.mpeg-4-audio") ?? .audio, suggestedName: "pocket-tts-output.m4a")
+                    // .mpeg4Audio is `public.mpeg-4-audio` — drives the Save
+                    // sheet to use a `.m4a` extension.
+                    saveExporter = SaveExporter(sourceURL: tmp, contentType: .mpeg4Audio, suggestedName: "pocket-tts-output")
                 }
             } catch {
                 FileHandle.standardError.write(Data("AAC export failed: \(error)\n".utf8))
@@ -200,7 +205,9 @@ struct AudioPlayer: View {
 
 private struct SaveExporter: FileDocument {
     static let readableContentTypes: [UTType] = []
-    static let writableContentTypes: [UTType] = [.wav, .audio]
+    // Both formats declared here so SwiftUI's fileExporter can route to the
+    // right Save-sheet extension based on the `contentType` param.
+    static let writableContentTypes: [UTType] = [.wav, .mpeg4Audio]
 
     let sourceURL: URL
     let contentType: UTType
