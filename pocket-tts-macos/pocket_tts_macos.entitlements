@@ -8,5 +8,14 @@
 	<true/>
 	<key>com.apple.security.network.client</key>
 	<true/>
+	<!-- SpeechAnalyzer / SpeechTranscriber (macOS 26) talks to a system
+	     daemon for on-device inference. Without this mach-lookup exception
+	     the sandbox precondition-fails when start() runs, crashing the
+	     audio thread (EXC_BREAKPOINT). The runtime error message names
+	     the entitlement key + service to add. -->
+	<key>com.apple.security.temporary-exception.mach-lookup.global-name</key>
+	<array>
+		<string>com.apple.audioanalyticsd</string>
+	</array>
 </dict>
 </plist>
