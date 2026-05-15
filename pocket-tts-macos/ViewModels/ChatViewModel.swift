@@ -17,6 +17,17 @@ enum ChatStatus: Equatable, Sendable {
     case error(String)
 }
 
+/// Three-state dictation flow driven by the mic button:
+///   click 1 (idle → listening) — open mic, stream partial transcripts to draft
+///   click 2 (listening → ready) — stop mic. If nothing was spoken, return to idle.
+///   click 3 (ready → submitting) — send the draft as a message.
+enum DictationStatus: Equatable, Sendable {
+    case idle
+    case listening
+    case ready                       // transcript captured, next click submits
+    case unavailable(String)         // permission denied or framework error
+}
+
 @MainActor
 @Observable
 final class ChatViewModel {
@@ -26,6 +37,7 @@ final class ChatViewModel {
     var draft: String = ""
     var connectionState: ConnectionState = .checking
     var status: ChatStatus = .idle
+    var dictation: DictationStatus = .idle
 
     // MARK: - Deps
     private let engine: TTSEngine
@@ -38,6 +50,13 @@ final class ChatViewModel {
     private var llmTask: Task<Void, Never>?
     private var ttsTask: Task<Void, Never>?
     private var healthCheckTask: Task<Void, Never>?
+
+    private let dictationController = DictationController()
+    /// Text captured by the recognizer for the current listening cycle.
+    /// Tracked separately from `draft` so we can detect the empty-stop case
+    /// without clobbering anything the user typed before pressing the mic.
+    private var dictationStartingDraft: String = ""
+    private var dictationCapturedText: String = ""
 
     private static let fallbackURL = URL(string: "http://localhost:1234")!
 
@@ -159,6 +178,90 @@ final class ChatViewModel {
         } else {
             status = .idle
         }
+    }
+
+    // MARK: - Dictation
+
+    /// The single tap handler for the mic button — drives the 3-state cycle.
+    func dictationButtonTapped() {
+        switch dictation {
+        case .idle:
+            Task { await startDictation() }
+        case .listening:
+            stopDictation()
+        case .ready:
+            // Submit. send() handles the rest; we just return the mic to idle.
+            dictation = .idle
+            if canSendDraft { send() }
+        case .unavailable:
+            // Re-attempt: maybe the user granted permission in System Settings.
+            Task { await startDictation() }
+        }
+    }
+
+    private func startDictation() async {
+        // First-launch (or every-launch if undetermined) permission prompt.
+        if dictationController.authState != .authorized {
+            await dictationController.requestAuthorization()
+        }
+        switch dictationController.authState {
+        case .authorized:
+            break
+        case .denied:
+            dictation = .unavailable("Microphone or speech access denied. Enable in System Settings → Privacy & Security.")
+            return
+        case .restricted:
+            dictation = .unavailable("Speech recognition is restricted on this device.")
+            return
+        case .notDetermined:
+            dictation = .unavailable("Permission prompt was dismissed; click the mic again to retry.")
+            return
+        case .unavailable(let msg):
+            dictation = .unavailable(msg)
+            return
+        }
+
+        dictationStartingDraft = draft
+        dictationCapturedText = ""
+
+        dictationController.onTranscript = { [weak self] partial in
+            guard let self else { return }
+            self.dictationCapturedText = partial
+            // Real-time feedback: replace the draft with starting-prefix + recognized text.
+            let separator = self.dictationStartingDraft.isEmpty || self.dictationStartingDraft.hasSuffix(" ") ? "" : " "
+            self.draft = self.dictationStartingDraft + separator + partial
+        }
+        dictationController.onError = { [weak self] err in
+            self?.dictation = .unavailable(String(describing: err))
+        }
+
+        do {
+            try dictationController.start()
+            dictation = .listening
+        } catch {
+            dictation = .unavailable(String(describing: error))
+        }
+    }
+
+    private func stopDictation() {
+        dictationController.stop()
+        let captured = dictationCapturedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if captured.isEmpty {
+            // Nothing recognized — clean cancel back to idle.
+            // Restore the draft to whatever it was before listening started so
+            // we don't leave a stray space behind.
+            draft = dictationStartingDraft
+            dictation = .idle
+        } else {
+            dictation = .ready
+        }
+    }
+
+    private var canSendDraft: Bool {
+        if case .connected = connectionState {
+            return !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        return false
     }
 
     // MARK: - Internals

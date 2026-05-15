@@ -94,6 +94,11 @@ struct ChatView: View {
             }
 
             HStack(spacing: Theme.space3) {
+                // Field is only disabled while synthesis is actively running.
+                // Disabling on !canSend trapped the user: when LM Studio is
+                // .checking / .disconnected (or the draft is empty), the field
+                // would lock and the user couldn't type to make it non-empty.
+                // Send button below stays gated by canSend.
                 TextField("Send a message…", text: $viewModel.draft, axis: .vertical)
                     .lineLimit(1...4)
                     .textFieldStyle(.plain)
@@ -102,9 +107,11 @@ struct ChatView: View {
                     .padding(.horizontal, Theme.space4)
                     .padding(.vertical, Theme.space3)
                     .themeInputField()
-                    .disabled(!canSend)
-                    .onSubmit { viewModel.send() }
+                    .disabled(isWorking)
+                    .onSubmit { if canSend { viewModel.send() } }
                     .accessibilityIdentifier("chat.composer.field")
+
+                micButton
 
                 if isWorking {
                     Button(action: { viewModel.cancel() }) {
@@ -137,6 +144,63 @@ struct ChatView: View {
         .padding(.horizontal, Theme.space6)
         .padding(.vertical, Theme.space3)
         .background(Theme.bgPrimary)
+    }
+
+    // MARK: - Mic button
+
+    private var micButton: some View {
+        Button(action: { viewModel.dictationButtonTapped() }) {
+            ZStack {
+                Circle()
+                    .fill(micButtonBG)
+                    .frame(width: 36, height: 36)
+                if viewModel.dictation == .listening {
+                    // Pulse ring while listening.
+                    TimelineView(.animation(minimumInterval: 1.0 / 20.0)) { context in
+                        let t = context.date.timeIntervalSinceReferenceDate
+                        let scale = 1.0 + 0.25 * (0.5 + 0.5 * sin(t * 4))
+                        Circle()
+                            .stroke(Theme.errorFG.opacity(0.5), lineWidth: 2)
+                            .frame(width: 36, height: 36)
+                            .scaleEffect(scale)
+                            .opacity(2.0 - scale)
+                    }
+                }
+                Image(systemName: micButtonIcon)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+        }
+        .buttonStyle(.plain)
+        .help(micButtonHelp)
+        .accessibilityIdentifier("chat.composer.micButton")
+        .accessibilityLabel(micButtonHelp)
+    }
+
+    private var micButtonIcon: String {
+        switch viewModel.dictation {
+        case .idle, .unavailable: return "mic.fill"
+        case .listening:          return "stop.fill"
+        case .ready:              return "paperplane.fill"
+        }
+    }
+
+    private var micButtonBG: Color {
+        switch viewModel.dictation {
+        case .idle:        return Theme.bgTertiary
+        case .listening:   return Theme.errorFG
+        case .ready:       return Theme.accent
+        case .unavailable: return Color.gray.opacity(0.5)
+        }
+    }
+
+    private var micButtonHelp: String {
+        switch viewModel.dictation {
+        case .idle:                  return "Start dictating"
+        case .listening:             return "Stop listening"
+        case .ready:                 return "Send dictated message"
+        case let .unavailable(msg):  return msg
+        }
     }
 
     // MARK: - Helpers
