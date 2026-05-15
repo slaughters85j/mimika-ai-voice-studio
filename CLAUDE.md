@@ -64,47 +64,67 @@ Located at `/Users/system-backup/dev_local/pocket-tts-core-ml-conversion/mlpacka
 |------|-----:|------------------|
 | `calm_stateful.mlpackage` | 162 MB fp16 | Autoregressive single-step decoder; 12 `ct.StateType` KV buffers; called once per 80 ms frame |
 | `mimi_stateful.mlpackage` | 20 MB fp16 | Streaming Mimi decoder; converts one latent frame → 1920 PCM samples |
-| `prompt_phase.mlpackage` | **TBD** | **Phase 0 deliverable** — variable-length token ingest, writes initial KV state in one shot |
+| `prompt_phase.mlpackage` | **140 MB fp16** | Text-encoding prompt: takes padded SentencePiece tokens + voice_offset + text_length → writes positions `voice_offset..voice_offset+T_TEXT_MAX` into the 12 KV state buffers. `T_TEXT_MAX = 128`. **Built and numerically validated** (1.84% worst K rel-err vs PyTorch). |
 | `calm_step.mlpackage` | 325 MB fp32 | Stateless dev artifact (KV passed in/out). Keep around for debugging, do **not** bundle. |
 | `mimi_decoder.mlpackage` | 39 MB fp32 | Stateless dev artifact. Do **not** bundle. |
 
 ### Model assets (also bundle inside the app)
 
 - **Tokenizer:** `~/.cache/huggingface/hub/models--kyutai--pocket-tts-without-voice-cloning/snapshots/<hash>/tokenizer.model` — SentencePiece BPE
-- **Voice embeddings:** `~/.cache/huggingface/hub/models--kyutai--pocket-tts-without-voice-cloning/snapshots/<hash>/embeddings/*.safetensors`
-  - Available: `alba`, `azelma`, `cosette`, `fantine`, `javert`, `jean`, `marius`
+- **Voice KV state (precomputed):** `/Users/system-backup/dev_local/pocket-tts-core-ml-conversion/voice_kv_states/*.safetensors` — **bundle these, not the raw embeddings**
+  - One file per voice: `alba.safetensors`, `azelma.safetensors`, `cosette.safetensors`, `fantine.safetensors`, `javert.safetensors`, `jean.safetensors`, `marius.safetensors`
+  - Each file: 12 fp16 tensors (`kv_k_0..kv_k_5`, `kv_v_0..kv_v_5`) of shape `[1, 512, 16, 64]`, zero-padded beyond `T_voice`
+  - Per-file size: ~12 MB. Total for 7 voices: ~84 MB
+  - JSON metadata in each file's safetensors header carries `T_voice`, `n_layers`, `n_heads`, `d_head`, `max_seq`, `dtype` — Swift reads `T_voice` from metadata to know where to start writing in `prompt_phase`
+  - Swift loads these directly via `MLState.write_state(name, fp32_view)` — coremltools' Python API requires fp32 input, but the Swift API accepts the native fp16 directly via `MLState.withMultiArray`
 
-Resolve `<hash>` via glob at bundling time.
-
-**Total bundled app size target:** ~250 MB (acceptable for a Mac app).
+**Bundle size budget (Phase 0 artifacts):**
+- 3 × `.mlpackage` (prompt_phase 140 + calm_stateful 162 + mimi_stateful 20) = ~320 MB
+- 7 × voice KV files = ~84 MB
+- Tokenizer + assets = ~5 MB
+- **Total: ~410 MB** (revised up from initial ~250 MB estimate — note for App Store size warnings)
 
 ---
 
 ## Architecture (Core ML pipeline)
 
 ```
-User text → SentencePiece (Swift) → token IDs
+At app launch (once per voice selection):
+  voice_kv_states/<voice>.safetensors  →  load fp16 K/V tensors
+                                       →  MLState.write_state into all 4 mlpackage states
+                                          (prompt_phase + calm_stateful share state contents
+                                           by re-using the same KV layout; mimi_stateful has
+                                           its own separate per-frame state)
+
+Per synthesis call:
+  User text → SentencePiece (Swift) → token IDs (padded to T_TEXT_MAX=128)
                                          ↓
-        voice embedding (from .safetensors)
+        prompt_phase.mlpackage(text_tokens, voice_offset=T_voice, text_length=N)
                                          ↓
-        prompt_phase.mlpackage ──► initial KV state (12 layers × K/V, fp16)
+                       state buffers now contain voice KV (pos 0..T_voice)
+                       + text KV (pos T_voice..T_voice+N)
                                          ↓
-        ┌──────── per-frame autoregressive loop ────────┐
-        │                                                │
-        │  calm_stateful.mlpackage ──► one latent frame │
-        │              (KV state mutated in-place)       │
-        │                            │                   │
-        │                            ▼                   │
-        │  mimi_stateful.mlpackage ──► 1920 PCM samples │
-        │                            │                   │
-        └────────────────────────────┼───────────────────┘
-                                     ▼
-                            AsyncStream<PCMFrame>
-                                     ↓
-                            StreamingPlayer (AVAudioEngine)
-                                     ↓
-                       speakers + WAV/AAC/MP3 encoder
+                       returns t_prompt = T_voice + N
+                                         ↓
+        ┌──────── per-frame autoregressive loop (frame_idx = 0, 1, 2, ...) ────────┐
+        │                                                                           │
+        │  calm_stateful.mlpackage(prev_latent, offset=t_prompt + frame_idx, noise) │
+        │                          ──► one latent frame, EOS flag                   │
+        │                          (KV state mutated in-place at the offset slot)   │
+        │                                       │                                   │
+        │                                       ▼                                   │
+        │  mimi_stateful.mlpackage(latent)  ──► 1920 PCM samples (80 ms @ 24 kHz)  │
+        │                                       │                                   │
+        └───────────────────────────────────────┼───────────────────────────────────┘
+                                                ▼
+                                       AsyncStream<PCMFrame>
+                                                ↓
+                                       StreamingPlayer (AVAudioEngine)
+                                                ↓
+                                  speakers + WAV/AAC/MP3 encoder
 ```
+
+**State-sharing note:** `prompt_phase` and `calm_stateful` were converted with **identical state-buffer shapes and names** (12 buffers: `kv_k_0..5`, `kv_v_0..5`, each `[1, 512, 16, 64]` fp16). Swift maintains ONE logical KV cache and writes it into both models' state objects. The first call (`prompt_phase`) populates positions `0..t_prompt`; subsequent calls (`calm_stateful`) extend it one slot per frame.
 
 - **Frame rate:** 12.5 Hz (80 ms / frame)
 - **Sample rate:** 24 kHz mono
@@ -274,7 +294,10 @@ See `pocket-tts-macos/road-map.md` for the canonical phased plan with hour estim
 Quick status:
 
 - [x] Phase −1: project bootstrap (Xcode project, git, GitHub remote, road-map, CLAUDE.md)
-- [ ] Phase 0: foundation (prompt_phase.mlpackage, Tokenizer, VoiceLoader, TTSEngine, end-to-end Swift unit test)
+- [x] Phase 0a — voice KV state precompute: 7 voices exported to `/Users/system-backup/dev_local/pocket-tts-core-ml-conversion/voice_kv_states/*.safetensors` (T_voice 125–161 per voice)
+- [x] Phase 0b — `prompt_phase.mlpackage` converted, 140 MB, validated against PyTorch at 1.84% worst K rel-err (passing 5% threshold). Notable: ANE compile rejects multi-position SDPA; runs CPU+GPU
+- [ ] Phase 0c — Swift engine: Tokenizer, VoiceLoader, TTSEngine + Xcode project scaffolding
+- [ ] Phase 0d — end-to-end Swift unit test (text → wav, no Python)
 - [ ] Phase 1: streaming audio (StreamingPlayer, WAVEncoder, AAC/MP3 encoder)
 - [ ] Phase 2: MVP SwiftUI shell (single-voice mode → v0.1 shippable)
 - [ ] Phase 3: MultiTalk + History (SwiftData)
