@@ -7,8 +7,10 @@
 //  stream and enqueueing sentences, one consuming the queue and feeding the
 //  TTS engine + player. Cancellation halts both.
 
+import AppKit
 import Foundation
 import Observation
+import UniformTypeIdentifiers
 
 enum ChatStatus: Equatable, Sendable {
     case idle
@@ -266,6 +268,61 @@ final class ChatViewModel {
             return !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
         return false
+    }
+
+    // MARK: - Transcript export
+
+    var canSaveTranscript: Bool {
+        messages.contains { $0.role != .system && !$0.content.isEmpty }
+    }
+
+    func saveTranscript() {
+        let panel = NSSavePanel()
+        panel.title = "Save Chat Transcript"
+        panel.nameFieldStringValue = "chat-transcript.md"
+        panel.allowedContentTypes = [.plainText]
+        panel.allowsOtherFileTypes = true
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        let text = formatTranscriptMarkdown()
+        do {
+            try text.write(to: url, atomically: true, encoding: .utf8)
+        } catch {
+            status = .error("Failed to save: \(shortError(error))")
+        }
+    }
+
+    /// Build a PendingReuse payload that opens the transcript in Multi-Talk.
+    func multiTalkPayload() -> PendingReuse {
+        let script = formatTranscriptMultiTalk()
+        let voiceID = settings.ttsVoiceID
+        let altVoice = voiceID == "cosette" ? "jean" : "cosette"
+        let speakers: [SpeakerRef] = [
+            SpeakerRef(name: "Speaker 1", voiceID: altVoice),
+            SpeakerRef(name: "Speaker 2", voiceID: voiceID)
+        ]
+        return .multi(script: script, speakers: speakers)
+    }
+
+    // MARK: - Transcript formatting
+
+    private func formatTranscriptMarkdown() -> String {
+        var lines: [String] = []
+        for msg in messages where msg.role != .system {
+            let label = msg.role == .user ? "**You**" : "**Assistant**"
+            lines.append("\(label):\n\(msg.content)")
+        }
+        return lines.joined(separator: "\n\n---\n\n") + "\n"
+    }
+
+    private func formatTranscriptMultiTalk() -> String {
+        var lines: [String] = []
+        for msg in messages where msg.role != .system && !msg.content.isEmpty {
+            let tag = msg.role == .user ? "{Speaker 1}" : "{Speaker 2}"
+            lines.append("\(tag) \(msg.content)")
+        }
+        return lines.joined(separator: "\n")
     }
 
     // MARK: - Internals

@@ -4,15 +4,9 @@
 <dict>
 	<key>com.apple.security.app-sandbox</key>
 	<true/>
-	<key>com.apple.security.network.client</key>
-	<true/>
-	<!-- BOTH mic keys are required: `audio-input` is the Hardened Runtime
-	     key, `microphone` is the Sandbox key. macOS treats them as separate
-	     gates and having one without the other has caused crashes on
-	     SFSpeechRecognizer + AVAudioEngine paths. -->
 	<key>com.apple.security.device.audio-input</key>
 	<true/>
-	<key>com.apple.security.device.microphone</key>
+	<key>com.apple.security.network.client</key>
 	<true/>
 </dict>
 </plist>

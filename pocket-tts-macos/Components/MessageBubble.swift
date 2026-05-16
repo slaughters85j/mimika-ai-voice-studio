@@ -19,6 +19,7 @@ struct MessageBubble: View {
                 Text(message.content)
                     .font(Theme.fontSM)
                     .foregroundStyle(textColor)
+                    .textSelection(.enabled)
                     .padding(.horizontal, Theme.space4)
                     .padding(.vertical, Theme.space3)
                     .frame(maxWidth: .infinity, alignment: alignment)

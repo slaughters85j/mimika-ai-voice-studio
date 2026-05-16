@@ -8,6 +8,7 @@ import SwiftUI
 struct ChatView: View {
     @Bindable var viewModel: ChatViewModel
     let onOpenSettings: () -> Void
+    var onOpenInMultiTalk: ((PendingReuse) -> Void)?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -26,6 +27,24 @@ struct ChatView: View {
         HStack {
             ConnectionStatusPill(state: viewModel.connectionState)
             Spacer()
+            Button(action: { viewModel.saveTranscript() }) {
+                Image(systemName: "square.and.arrow.down")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            .buttonStyle(.plain)
+            .disabled(!viewModel.canSaveTranscript)
+            .help("Save transcript")
+
+            Button(action: { onOpenInMultiTalk?(viewModel.multiTalkPayload()) }) {
+                Image(systemName: "person.2.wave.2")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            .buttonStyle(.plain)
+            .disabled(!viewModel.canSaveTranscript)
+            .help("Open in Multi-Talk")
+
             Button(action: { Task { await viewModel.checkConnection() } }) {
                 Image(systemName: "arrow.clockwise")
                     .font(.system(size: 13))
