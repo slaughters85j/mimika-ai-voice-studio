@@ -58,17 +58,14 @@ final class ChatViewModel {
     private var dictationStartingDraft: String = ""
     private var dictationCapturedText: String = ""
 
-    /// Default false — but the entitlements + format fix in this commit
-    /// are believed to address the crash:
-    ///   * Added `com.apple.security.device.microphone` (Sandbox key)
-    ///     alongside `audio-input` (Hardened Runtime key); both are needed.
-    ///   * Audio tap uses `outputFormat(forBus:0)` not `inputFormat(...)`
-    ///     per Apple's SpokenWord sample.
-    /// XCTest UI infrastructure couldn't be exercised reliably in this
-    /// session to verify ("automation mode timed out" — unrelated to our
-    /// code). To test manually: flip this to `true`, run the app from
-    /// Xcode, click the mic. If it doesn't crash, leave it true.
-    var isDictationAvailable: Bool { false }
+    /// The earlier "audioanalyticsd sandbox" hypothesis was a misread of an
+    /// older crash log. Today's actual crash was a Swift 6 actor-isolation
+    /// trap: `SFSpeechRecognizer.requestAuthorization`'s callback is
+    /// delivered on a background queue, and the inline closure inside a
+    /// `@MainActor` class inherited MainActor isolation → runtime
+    /// `_dispatch_assert_queue_fail`. Fixed by routing the call through a
+    /// `nonisolated static` helper in `DictationController`.
+    var isDictationAvailable: Bool { true }
 
     private static let fallbackURL = URL(string: "http://localhost:1234")!
 

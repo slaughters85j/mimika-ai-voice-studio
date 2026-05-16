@@ -76,9 +76,18 @@ final class DictationController {
         }
 
         // Speech recognition permission.
-        let speechStatus: SFSpeechRecognizerAuthorizationStatus = await withCheckedContinuation { cont in
-            SFSpeechRecognizer.requestAuthorization { status in cont.resume(returning: status) }
-        }
+        //
+        // The callback is delivered on a background queue (TCC reply, then
+        // dispatch root.default-qos), NOT the main actor. Because this class
+        // is `@MainActor`, Swift 6 infers `@MainActor` isolation on any
+        // closure literal we write inline here, and the runtime then trips
+        // `_dispatch_assert_queue_fail` / `_swift_task_checkIsolatedSwift`
+        // when the system calls it on the wrong queue.
+        //
+        // Routing through a `nonisolated static` helper detaches the inner
+        // closure from MainActor inference so it can run wherever the
+        // framework wants. The async result is awaited back on MainActor.
+        let speechStatus = await Self.requestSpeechRecognitionAuthorization()
         switch speechStatus {
         case .notDetermined: authState = .notDetermined; return
         case .denied:        authState = .denied; return
@@ -104,6 +113,18 @@ final class DictationController {
         }
     }
 
+    /// Detached wrapper around SFSpeechRecognizer's callback-based auth API.
+    /// MUST stay `nonisolated` (and ideally `static`) so the inner closure
+    /// doesn't inherit MainActor isolation from the enclosing class — see
+    /// the long comment in `requestAuthorization()`.
+    private nonisolated static func requestSpeechRecognitionAuthorization() async -> SFSpeechRecognizerAuthorizationStatus {
+        await withCheckedContinuation { (cont: CheckedContinuation<SFSpeechRecognizerAuthorizationStatus, Never>) in
+            SFSpeechRecognizer.requestAuthorization { status in
+                cont.resume(returning: status)
+            }
+        }
+    }
+
     // MARK: - Start / stop
 
     func start() throws {
@@ -114,40 +135,55 @@ final class DictationController {
 
         teardown()
 
-        // Fresh engine each start. See note on the audioEngine property.
-        let engine = AVAudioEngine()
-        self.audioEngine = engine
+        // Build @Sendable callbacks here (on MainActor) so the nonisolated
+        // helper doesn't need a reference to `self`. Weak-self + @MainActor
+        // Task hop keeps the access safe.
+        let onResult: @Sendable (String) -> Void = { [weak self] text in
+            Task { @MainActor in self?.onTranscript?(text) }
+        }
+        let onErr: @Sendable (Error) -> Void = { [weak self] error in
+            Task { @MainActor in self?.onError?(.recognitionFailed(error)) }
+        }
 
+        // The entire audio pipeline setup runs through a nonisolated static
+        // helper so that the installTap closure and recognitionTask handler
+        // do NOT inherit @MainActor isolation. Swift 6 infers @MainActor on
+        // closures declared inside a @MainActor method, and the runtime
+        // traps when the system calls them on a background queue.
+        let pipeline = try Self.setupAudioPipeline(
+            recognizer: recognizer,
+            onResult: onResult,
+            onError: onErr
+        )
+        self.audioEngine = pipeline.engine
+        self.request = pipeline.request
+        self.task = pipeline.task
+    }
+
+    /// Builds the AVAudioEngine → SFSpeechRecognizer pipeline in a
+    /// nonisolated context so that all closures (audio tap, recognition
+    /// result handler) are free of @MainActor isolation inference.
+    private nonisolated static func setupAudioPipeline(
+        recognizer: SFSpeechRecognizer,
+        onResult: @Sendable @escaping (String) -> Void,
+        onError: @Sendable @escaping (Error) -> Void
+    ) throws -> (engine: AVAudioEngine, request: SFSpeechAudioBufferRecognitionRequest, task: SFSpeechRecognitionTask) {
+        let engine = AVAudioEngine()
         let input = engine.inputNode
-        // Use `outputFormat` not `inputFormat`. `outputFormat` is what the
-        // node emits to its consumers (us, via the tap); `inputFormat` is
-        // what the hardware feeds in. AVAudioEngine converts between the
-        // two internally. Installing a tap with `inputFormat` was the
-        // source of the EXC_BREAKPOINT crashes — Apple's official
-        // SpokenWord sample uses `outputFormat` here for exactly this
-        // reason. Hardware-input format and tap format must match the
-        // direction of audio flow.
+        // Use `outputFormat` not `inputFormat` — see Apple's SpokenWord
+        // sample. `outputFormat` is what the node emits to the tap;
+        // `inputFormat` is the raw hardware side. Mismatch triggers a
+        // CoreAudio precondition.
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else {
-            self.audioEngine = nil
             throw DictationError.noMicrophone
         }
 
         let req = SFSpeechAudioBufferRecognitionRequest()
         req.shouldReportPartialResults = true
-        // Note: NOT setting `requiresOnDeviceRecognition = true` here.
-        // Forcing on-device routes through `com.apple.audioanalyticsd`, which
-        // the sandbox blocks → audio-thread precondition crash
-        // ("'com.apple.security.exception.mach-lookup.global-name' doesn't
-        // contain 'com.apple.audioanalyticsd'"). The mach-lookup exception
-        // entitlement that ostensibly fixes this didn't take effect under our
-        // signing setup. Server-side recognition uses a different IPC path
-        // that's permitted out of the box. Trade-off: dictation audio goes
-        // to Apple for transcription (covered by NSSpeechRecognitionUsageDescription).
-        self.request = req
 
-        input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak req] buffer, _ in
-            req?.append(buffer)
+        input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
+            req.append(buffer)
         }
 
         engine.prepare()
@@ -155,25 +191,23 @@ final class DictationController {
             try engine.start()
         } catch {
             input.removeTap(onBus: 0)
-            self.request = nil
-            self.audioEngine = nil
             throw DictationError.audioEngineFailed(error)
         }
 
-        task = recognizer.recognitionTask(with: req) { [weak self] result, error in
-            guard let self else { return }
+        let task = recognizer.recognitionTask(with: req) { result, error in
             if let result {
-                let text = result.bestTranscription.formattedString
-                Task { @MainActor in self.onTranscript?(text) }
+                onResult(result.bestTranscription.formattedString)
             }
             if let error {
                 let nsErr = error as NSError
-                // `kAFAssistantErrorDomain` 203 is what stop() induces; not a real error.
+                // Code 203 is the normal "stop() was called" signal, not a real error.
                 if !(nsErr.code == 203 && nsErr.domain == "kAFAssistantErrorDomain") {
-                    Task { @MainActor in self.onError?(.recognitionFailed(error)) }
+                    onError(error)
                 }
             }
         }
+
+        return (engine, req, task)
     }
 
     func stop() {
