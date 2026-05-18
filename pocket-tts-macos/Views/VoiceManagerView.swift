@@ -74,7 +74,7 @@ struct VoiceManagerView: View {
                 }
                 .buttonStyle(.plain)
             }
-            Text("Import a voice recording (.wav, .mp3, .aiff). The voice will be processed for Fish Speech voice cloning.")
+            Text("Import a voice recording (.wav, .mp3, .aiff). The voice will be enhanced and codec-encoded for Fish Speech voice cloning. Pocket TTS uses bundled voices only.")
                 .font(Theme.fontXS)
                 .foregroundStyle(Theme.textSecondary)
 

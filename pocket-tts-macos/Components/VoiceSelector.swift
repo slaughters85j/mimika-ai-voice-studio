@@ -3,11 +3,10 @@
 //  pocket-tts-macos
 //
 //  Backend-aware voice picker. Shows predefined/custom Pocket-TTS voices
-//  when Pocket-TTS is active; shows saved reference WAV voices + import
-//  button when Fish is active.
+//  when Pocket-TTS is active; shows Fish voices when Fish is active.
+//  Voice import is handled by the Voice Manager (app-level).
 
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct VoiceSelector: View {
     @Binding var selectedVoiceID: String
@@ -15,49 +14,20 @@ struct VoiceSelector: View {
     var activeBackend: TTSBackendType = .pocketTTS
     var disabled: Bool = false
     var label: String = "Voice"
-    var onVoiceImported: ((String) -> Void)?
-
-    @State private var showImporter = false
-    @State private var importMessage: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.space3) {
-            HStack {
-                Text(label)
-                    .font(Theme.fontSMBold)
-                    .foregroundStyle(Theme.textPrimary)
-                Spacer()
-                if activeBackend == .fishSpeech {
-                    Button(action: { showImporter = true }) {
-                        Text("+ Import Voice")
-                            .font(Theme.fontXS)
-                            .foregroundStyle(Theme.accent)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(disabled)
-                }
-            }
+            Text(label)
+                .font(Theme.fontSMBold)
+                .foregroundStyle(Theme.textPrimary)
 
             if activeBackend == .pocketTTS {
                 pocketTTSPicker
             } else {
                 fishPicker
             }
-
-            if let importMessage {
-                Text(importMessage)
-                    .font(Theme.fontXS)
-                    .foregroundStyle(Theme.successFG)
-            }
         }
         .themePanel()
-        .fileImporter(
-            isPresented: $showImporter,
-            allowedContentTypes: [.wav, .mp3, .aiff, .audio],
-            allowsMultipleSelection: false
-        ) { result in
-            handleImport(result)
-        }
     }
 
     // MARK: - Pocket-TTS picker
@@ -110,41 +80,11 @@ struct VoiceSelector: View {
             .themeInputField()
             .accessibilityIdentifier("fish.voicePicker")
 
-            if selectedVoiceID != "fish-default",
-               let voice = FishVoiceManager.shared.voice(for: selectedVoiceID) {
-                if voice.cachedCodesPath != nil {
-                    Text("Voice ready")
-                        .font(.system(size: 10))
-                        .foregroundStyle(Theme.successFG)
-                }
-            }
-
             if fishVoices.isEmpty {
-                Text("Import a WAV recording to clone a voice")
+                Text("Add voices via the Voice Manager (header icon)")
                     .font(.system(size: 10))
                     .foregroundStyle(Theme.textSecondary)
             }
-        }
-    }
-
-    // MARK: - Import handler
-
-    private func handleImport(_ result: Result<[URL], Error>) {
-        guard case .success(let urls) = result, let url = urls.first else { return }
-        let name = url.deletingPathExtension().lastPathComponent
-
-        guard url.startAccessingSecurityScopedResource() else { return }
-        defer { url.stopAccessingSecurityScopedResource() }
-
-        do {
-            let voice = try FishVoiceManager.shared.importVoice(from: url, name: name)
-            selectedVoiceID = voice.id
-            importMessage = "Encoding voice..."
-            onVoiceImported?(voice.id)
-            importMessage = "Imported \"\(name)\""
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { importMessage = nil }
-        } catch {
-            print("[VoiceSelector] import failed: \(error)")
         }
     }
 }

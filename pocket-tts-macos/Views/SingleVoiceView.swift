@@ -14,7 +14,6 @@ struct SingleVoiceView: View {
     let voices: [Voice]
     @Binding var pendingReuse: PendingReuse?
     @Binding var chatSettings: ChatSettings
-    var onEncodeVoice: ((String) -> Void)?
     @Environment(\.modelContext) private var modelContext
 
     @State private var showGenerator = false
@@ -34,8 +33,7 @@ struct SingleVoiceView: View {
                         selectedVoiceID: $viewModel.selectedVoiceID,
                         voices: voices,
                         activeBackend: chatSettings.activeBackend,
-                        disabled: viewModel.status.isWorking,
-                        onVoiceImported: onEncodeVoice
+                        disabled: viewModel.status.isWorking
                     )
 
                     SynthesizeButton(

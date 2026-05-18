@@ -7,7 +7,6 @@
 
 import SwiftUI
 import SwiftData
-import UniformTypeIdentifiers
 
 struct MultiTalkView: View {
     @Bindable var viewModel: MultiTalkViewModel
@@ -16,12 +15,9 @@ struct MultiTalkView: View {
     @Environment(\.modelContext) private var modelContext
 
     @Binding var chatSettings: ChatSettings
-    var onEncodeVoice: ((String) -> Void)?
 
     @State private var showPauseModal = false
     @State private var showGenerator = false
-    @State private var showVoiceImporter = false
-    @State private var voiceImportMessage: String?
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -106,37 +102,6 @@ struct MultiTalkView: View {
                 pendingReuse = nil
             }
         }
-        .fileImporter(
-            isPresented: $showVoiceImporter,
-            allowedContentTypes: [.wav, .mp3, .aiff, .audio],
-            allowsMultipleSelection: false
-        ) { result in
-            handleVoiceImport(result)
-        }
-    }
-
-    // MARK: - Voice import
-
-    private func handleVoiceImport(_ result: Result<[URL], Error>) {
-        guard case .success(let urls) = result, let url = urls.first else { return }
-        let name = url.deletingPathExtension().lastPathComponent
-
-        guard url.startAccessingSecurityScopedResource() else { return }
-        defer { url.stopAccessingSecurityScopedResource() }
-
-        do {
-            let voice = try FishVoiceManager.shared.importVoice(from: url, name: name)
-            voiceImportMessage = "Encoding voice..."
-            onEncodeVoice?(voice.id)
-            voiceImportMessage = "Imported \"\(name)\""
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { voiceImportMessage = nil }
-            // Set all speakers to the new voice
-            for i in viewModel.speakers.indices {
-                viewModel.speakers[i].voiceID = voice.id
-            }
-        } catch {
-            print("[MultiTalkView] voice import failed: \(error)")
-        }
     }
 
     // MARK: - Speakers panel
@@ -148,15 +113,6 @@ struct MultiTalkView: View {
                     .font(Theme.fontSMBold)
                     .foregroundStyle(Theme.textPrimary)
                 Spacer()
-                if chatSettings.activeBackend == .fishSpeech {
-                    Button(action: { showVoiceImporter = true }) {
-                        Text("+ Import Voice")
-                            .font(Theme.fontXS)
-                            .foregroundStyle(Theme.accent)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(viewModel.status.isWorking)
-                }
                 Button(action: { viewModel.addSpeaker() }) {
                     Text("+ Add Speaker")
                         .font(Theme.fontXS)
@@ -165,12 +121,6 @@ struct MultiTalkView: View {
                 .buttonStyle(.plain)
                 .disabled(viewModel.status.isWorking)
                 .accessibilityIdentifier("multi.addSpeakerButton")
-            }
-
-            if let voiceImportMessage {
-                Text(voiceImportMessage)
-                    .font(Theme.fontXS)
-                    .foregroundStyle(Theme.successFG)
             }
 
             VStack(spacing: Theme.space2) {
