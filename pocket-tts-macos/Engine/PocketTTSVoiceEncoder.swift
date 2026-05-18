@@ -97,7 +97,7 @@ actor PocketTTSVoiceEncoder {
         // RMS normalize to -16 dB (matches Python _encode_audio's _normalize_audio_rms)
         let normalized = Self.rmsNormalize(samples, targetDB: -16.0)
         let audioMLX = MLXArray(normalized).reshaped(1, 1, normalized.count)
-        let conditioning = encoder.encode(audioMLX)
+        let conditioning = encoder.encode(audioMLX, debug: true)
         eval(conditioning)
         let tFrames = conditioning.shape[1]
         let condData0 = conditioning.asArray(Float.self)

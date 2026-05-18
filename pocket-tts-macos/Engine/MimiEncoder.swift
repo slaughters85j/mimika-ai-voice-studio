@@ -55,37 +55,51 @@ class MimiEncoder: Module {
         super.init()
     }
 
-    nonisolated func encode(_ audio: MLXArray) -> MLXArray {
+    nonisolated func encode(_ audio: MLXArray, debug: Bool = false) -> MLXArray {
         // audio: [1, 1, N] → channels-last [1, N, 1] for MLX conv
         var x = audio.transposed(0, 2, 1)
 
         // pad_for_conv1d: right-pad for frame alignment (called ONCE on raw audio)
         x = padForFrameAlignment(x, kernelSize: 1920, stride: 1920)
+        if debug { logStats("after_pad", x) }
 
         // SEANet encoder — each conv has causal left-padding built in
-        x = conv0(x)    // [0] Conv(1→64, k=7, s=1)
-        x = res1(x)     // [1] ResBlock(64)
-        x = elu(x)      // [2] ELU
-        x = conv3(x)    // [3] Conv(64→128, k=8, s=4)
-        x = res4(x)     // [4] ResBlock(128)
-        x = elu(x)      // [5] ELU
-        x = conv6(x)    // [6] Conv(128→256, k=10, s=5)
-        x = res7(x)     // [7] ResBlock(256)
-        x = elu(x)      // [8] ELU
-        x = conv9(x)    // [9] Conv(256→512, k=12, s=6)
-        x = elu(x)      // [10] ELU
-        x = conv11(x)   // [11] Conv(512→512, k=3, s=1)
+        x = conv0(x);    if debug { logStats("conv0", x) }
+        x = res1(x);     if debug { logStats("res1", x) }
+        x = elu(x);      if debug { logStats("elu2", x) }
+        x = conv3(x);    if debug { logStats("conv3", x) }
+        x = res4(x);     if debug { logStats("res4", x) }
+        x = elu(x);      if debug { logStats("elu5", x) }
+        x = conv6(x);    if debug { logStats("conv6", x) }
+        x = res7(x);     if debug { logStats("res7", x) }
+        x = elu(x);      if debug { logStats("elu8", x) }
+        x = conv9(x);    if debug { logStats("conv9", x) }
+        x = elu(x);      if debug { logStats("elu10", x) }
+        x = conv11(x);   if debug { logStats("conv11", x) }
 
         // Encoder transformer (channels-last [B, T, C])
         x = transformer(x)
+        if debug { logStats("transformer", x) }
 
-        // Downsample 200Hz → 12.5Hz (causal padding built into conv)
+        // Downsample 200Hz → 12.5Hz
         x = downsampleConv(x)
+        if debug { logStats("downsample", x) }
 
         // Speaker projection: [B, T, 512] → [B, T, 1024]
         x = MLX.matmul(x, speakerProjWeight.T)
+        if debug { logStats("conditioning", x) }
 
-        return x  // [1, T_frames, 1024]
+        return x
+    }
+
+    private nonisolated func logStats(_ label: String, _ x: MLXArray) {
+        eval(x)
+        let data = x.asArray(Float.self)
+        let mean = data.reduce(0, +) / Float(data.count)
+        var sumSq: Float = 0
+        for v in data { sumSq += (v - mean) * (v - mean) }
+        let std = sqrt(sumSq / Float(data.count))
+        print("[MimiEncoder] \(label): shape=\(x.shape), mean=\(String(format: "%.6f", mean)), std=\(String(format: "%.6f", std))")
     }
 
     // MARK: - Padding
