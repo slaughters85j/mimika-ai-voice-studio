@@ -75,6 +75,8 @@ actor FishEngine: TTSEngineProtocol {
 
     // MARK: - TTSEngineProtocol
 
+    nonisolated var prefersBatchPlayback: Bool { true }
+
     nonisolated func availableVoiceIDs() -> [String] {
         // "fish-default" = no reference audio (Fish's built-in voice).
         // Saved voices are discovered via FishVoiceManager at the UI layer.

@@ -119,57 +119,126 @@ final class MultiTalkViewModel {
         lastError = nil
         status = .generating
         let startTime = Date()
-        var firstAudioAt: Date? = nil
 
         let speakersSnapshot: [SpeakerRef] = speakers.map { SpeakerRef(name: $0.name, voiceID: $0.voiceID) }
         let scriptSnapshot = script
+        let batchMode = engine.prefersBatchPlayback
 
         currentTask = Task { [weak self] in
             guard let self else { return }
 
-            let (relay, relayCont) = AsyncStream<PCMFrame>.makeStream(of: PCMFrame.self)
-            let player = self.player
-            async let playerResult: Void = {
-                do { try await player.play(stream: relay) }
-                catch { FileHandle.standardError.write(Data("multi-talk player error: \(error)\n".utf8)) }
-            }()
-
-            var collected: [Float] = []
-            for chunk in chunks {
-                switch chunk {
-                case let .text(voiceID, _, body):
-                    for await frame in self.engine.synthesize(text: body, voiceID: voiceID, options: SynthesisOptions()) {
-                        collected.append(contentsOf: frame.samples)
-                        relayCont.yield(PCMFrame(samples: frame.samples, isFinal: false))
-                        if firstAudioAt == nil {
-                            firstAudioAt = Date()
-                            self.status = .streaming
-                        }
-                    }
-                case let .pause(seconds):
-                    let n = Int(seconds * 24_000)
-                    let silence = [Float](repeating: 0, count: n)
-                    collected.append(contentsOf: silence)
-                    relayCont.yield(PCMFrame(samples: silence, isFinal: false))
-                case .unknownSpeaker:
-                    continue
+            do {
+                if batchMode {
+                    try await self.synthesizeBatch(chunks: chunks, startTime: startTime)
+                } else {
+                    await self.synthesizeStreaming(chunks: chunks, startTime: startTime)
                 }
+            } catch {
+                self.lastError = error.localizedDescription
+                self.status = .idle
             }
-            // Final marker so StreamingPlayer wakes its drain continuation.
-            relayCont.yield(PCMFrame(samples: [0.0], isFinal: true))
-            relayCont.finish()
-            _ = await playerResult
-
-            let ttfa = firstAudioAt.map { $0.timeIntervalSince(startTime) } ?? 0
-            let total = Date().timeIntervalSince(startTime)
-            self.lastResultSamples = collected
-            self.status = .complete(timeToFirstAudioSec: ttfa, totalSec: total)
 
             if let ctx = self.modelContext {
                 HistoryStore.appendMulti(script: scriptSnapshot, speakers: speakersSnapshot, context: ctx)
                 try? ctx.save()
             }
         }
+    }
+
+    // MARK: - Streaming mode (Pocket-TTS — play chunks as they generate)
+
+    private func synthesizeStreaming(chunks: [MultiTalkChunk], startTime: Date) async {
+        var firstAudioAt: Date? = nil
+
+        let (relay, relayCont) = AsyncStream<PCMFrame>.makeStream(of: PCMFrame.self)
+        let player = self.player
+        async let playerResult: Void = {
+            do { try await player.play(stream: relay) }
+            catch { FileHandle.standardError.write(Data("multi-talk player error: \(error)\n".utf8)) }
+        }()
+
+        var collected: [Float] = []
+        for chunk in chunks {
+            switch chunk {
+            case let .text(voiceID, _, body):
+                for await frame in self.engine.synthesize(text: body, voiceID: voiceID, options: SynthesisOptions()) {
+                    collected.append(contentsOf: frame.samples)
+                    relayCont.yield(PCMFrame(samples: frame.samples, isFinal: false))
+                    if firstAudioAt == nil {
+                        firstAudioAt = Date()
+                        self.status = .streaming
+                    }
+                }
+            case let .pause(seconds):
+                let n = Int(seconds * 24_000)
+                let silence = [Float](repeating: 0, count: n)
+                collected.append(contentsOf: silence)
+                relayCont.yield(PCMFrame(samples: silence, isFinal: false))
+            case .unknownSpeaker:
+                continue
+            }
+        }
+        relayCont.yield(PCMFrame(samples: [0.0], isFinal: true))
+        relayCont.finish()
+        _ = await playerResult
+
+        let ttfa = firstAudioAt.map { $0.timeIntervalSince(startTime) } ?? 0
+        let total = Date().timeIntervalSince(startTime)
+        self.lastResultSamples = collected
+        self.status = .complete(timeToFirstAudioSec: ttfa, totalSec: total)
+    }
+
+    // MARK: - Batch mode (Fish — generate all chunks first, then play)
+
+    private func synthesizeBatch(chunks: [MultiTalkChunk], startTime: Date) async throws {
+        let textChunkCount = chunks.filter { if case .text = $0 { return true } else { return false } }.count
+        var chunkIndex = 0
+        var collected: [Float] = []
+
+        // Phase 1: generate all audio
+        for chunk in chunks {
+            switch chunk {
+            case let .text(voiceID, name, body):
+                chunkIndex += 1
+                print("[MultiTalk-Batch] generating chunk \(chunkIndex)/\(textChunkCount): {\(name)} \"\(body.prefix(40))…\"")
+                for await frame in self.engine.synthesize(text: body, voiceID: voiceID, options: SynthesisOptions()) {
+                    collected.append(contentsOf: frame.samples)
+                }
+            case let .pause(seconds):
+                let n = Int(seconds * 24_000)
+                collected.append(contentsOf: [Float](repeating: 0, count: n))
+            case .unknownSpeaker:
+                continue
+            }
+        }
+
+        let genTime = Date().timeIntervalSince(startTime)
+        let audioDuration = Double(collected.count) / 24_000.0
+        print("[MultiTalk-Batch] all \(textChunkCount) chunks generated in \(String(format: "%.1f", genTime))s → \(String(format: "%.1f", audioDuration))s audio")
+
+        // Phase 2: play the full result
+        let (relay, relayCont) = AsyncStream<PCMFrame>.makeStream(of: PCMFrame.self)
+        let player = self.player
+        async let playerResult: Void = {
+            do { try await player.play(stream: relay) }
+            catch { FileHandle.standardError.write(Data("multi-talk player error: \(error)\n".utf8)) }
+        }()
+
+        self.status = .streaming
+        let frameSize = 1920
+        var offset = 0
+        while offset < collected.count {
+            let end = min(offset + frameSize, collected.count)
+            let isFinal = end >= collected.count
+            relayCont.yield(PCMFrame(samples: Array(collected[offset..<end]), isFinal: isFinal))
+            offset = end
+        }
+        relayCont.finish()
+        _ = await playerResult
+
+        let total = Date().timeIntervalSince(startTime)
+        self.lastResultSamples = collected
+        self.status = .complete(timeToFirstAudioSec: genTime, totalSec: total)
     }
 
     func stop() {
