@@ -24,6 +24,12 @@ struct MultiTalkView: View {
             HStack(alignment: .top, spacing: Theme.space6) {
                 // Left sidebar
                 VStack(spacing: Theme.space4) {
+                    BackendSelector(
+                        activeBackend: $chatSettings.activeBackend,
+                        fishParams: $chatSettings.fishParams,
+                        disabled: viewModel.status.isWorking
+                    )
+
                     speakersPanel
 
                     SynthesizeButton(

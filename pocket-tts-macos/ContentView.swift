@@ -45,6 +45,28 @@ struct ContentView: View {
         .onChange(of: appState.engineStatus) { _, newStatus in
             if case .ready = newStatus { spinUpViewModels() }
         }
+        .onChange(of: appState.chatSettings.activeBackend) { _, newBackend in
+            SettingsStore.save(appState.chatSettings)
+            // Reset voice selection to avoid picker tag mismatch
+            if newBackend == .fishSpeech {
+                singleVM?.selectedVoiceID = "fish-default"
+            } else if let firstVoice = voices.first {
+                singleVM?.selectedVoiceID = firstVoice.id
+            }
+            let engine = appState.activeEngine
+            singleVM?.setEngine(engine)
+            multiVM?.setEngine(engine)
+            print("[Backend] switched to \(newBackend.displayName)")
+            if newBackend == .fishSpeech {
+                Task {
+                    await appState.bootstrapFishIfNeeded()
+                    let fish = appState.activeEngine
+                    singleVM?.setEngine(fish)
+                    multiVM?.setEngine(fish)
+                    print("[Backend] Fish bootstrap complete — engine is now \(type(of: fish))")
+                }
+            }
+        }
         .sheet(isPresented: $appState.showsSettingsSheet) {
             SettingsView(
                 isPresented: $appState.showsSettingsSheet,
@@ -148,6 +170,18 @@ struct ContentView: View {
         guard let engine = appState.engine, let player = appState.player else { return }
         if singleVM == nil { singleVM = SingleVoiceViewModel(engine: engine, player: player) }
         if multiVM == nil  { multiVM  = MultiTalkViewModel(engine: engine, player: player) }
+
+        // If the persisted backend is Fish, bootstrap it and swap engines.
+        if appState.chatSettings.activeBackend == .fishSpeech {
+            singleVM?.selectedVoiceID = "fish-default"
+            Task {
+                await appState.bootstrapFishIfNeeded()
+                let active = appState.activeEngine
+                singleVM?.setEngine(active)
+                multiVM?.setEngine(active)
+                print("[Backend] cold start — restored Fish engine")
+            }
+        }
         if chatVM == nil {
             chatVM = ChatViewModel(engine: engine, player: player, settings: appState.chatSettings)
         }

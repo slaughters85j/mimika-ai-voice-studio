@@ -23,9 +23,16 @@ struct SingleVoiceView: View {
             HStack(alignment: .top, spacing: Theme.space6) {
                 // Left sidebar
                 VStack(spacing: Theme.space4) {
+                    BackendSelector(
+                        activeBackend: $chatSettings.activeBackend,
+                        fishParams: $chatSettings.fishParams,
+                        disabled: viewModel.status.isWorking
+                    )
+
                     VoiceSelector(
                         selectedVoiceID: $viewModel.selectedVoiceID,
                         voices: voices,
+                        activeBackend: chatSettings.activeBackend,
                         disabled: viewModel.status.isWorking
                     )
 
