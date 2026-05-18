@@ -23,6 +23,7 @@ nonisolated struct MultiTalkSpeaker: Identifiable, Equatable, Hashable, Sendable
 struct SpeakerCard: View {
     @Binding var speaker: MultiTalkSpeaker
     let voices: [Voice]
+    var activeBackend: TTSBackendType = .pocketTTS
     let canRemove: Bool
     var disabled: Bool = false
     let onInsertToScript: (String) -> Void
@@ -71,15 +72,34 @@ struct SpeakerCard: View {
                     .font(Theme.fontXS)
                     .foregroundStyle(Theme.textSecondary)
 
-                Picker("", selection: $speaker.voiceID) {
-                    Section("Built-in") {
-                        ForEach(voices.filter { $0.type == .predefined }, id: \.id) { v in
-                            Text(v.name).tag(v.id)
+                Group {
+                    if activeBackend == .pocketTTS {
+                        let importedVoices = FishVoiceManager.shared.voices.filter { $0.pocketTTSKVPath != nil }
+                        Picker("", selection: $speaker.voiceID) {
+                            Section("Built-in") {
+                                ForEach(voices.filter { $0.type == .predefined }, id: \.id) { v in
+                                    Text(v.name).tag(v.id)
+                                }
+                            }
+                            if !importedVoices.isEmpty {
+                                Section("My Voices") {
+                                    ForEach(importedVoices) { v in
+                                        Text(v.name).tag("imported:\(v.id)")
+                                    }
+                                }
+                            }
                         }
-                    }
-                    Section("Custom") {
-                        ForEach(voices.filter { $0.type == .custom }, id: \.id) { v in
-                            Text(v.name).tag(v.id)
+                    } else {
+                        let fishVoices = FishVoiceManager.shared.voices
+                        Picker("", selection: $speaker.voiceID) {
+                            Text("Default Voice").tag("fish-default")
+                            if !fishVoices.isEmpty {
+                                Section("My Voices") {
+                                    ForEach(fishVoices) { v in
+                                        Text(v.name).tag(v.id)
+                                    }
+                                }
+                            }
                         }
                     }
                 }

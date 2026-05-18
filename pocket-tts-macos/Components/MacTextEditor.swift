@@ -68,9 +68,11 @@ struct MacTextEditor: NSViewRepresentable {
         guard let tv = scroll.documentView as? NSTextView else { return }
         tv.isEditable = isEditable
         if tv.string != text {
-            // External text change (e.g. .applyReuse from history). Update
-            // the view without clobbering an in-flight edit if avoidable.
+            // External text change (e.g. .applyReuse from history, AI script
+            // generation). Setting tv.string resets the NSTextStorage's
+            // attributes to system defaults (black text). Re-apply our color.
             tv.string = text
+            tv.textColor = NSColor(Theme.textPrimary)
         }
         // Re-wire the bridge in case the view recreated the bridge instance.
         bridge?.coordinator = context.coordinator

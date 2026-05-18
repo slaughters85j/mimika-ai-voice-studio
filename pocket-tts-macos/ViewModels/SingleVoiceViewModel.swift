@@ -15,7 +15,7 @@ import SwiftData
 final class SingleVoiceViewModel {
 
     // MARK: - Inputs
-    var text: String = ""
+    var text: String = "This is a test. It's only a test. Practice makes perfect."
     var selectedVoiceID: String = Voice.default.id
 
     // MARK: - Outputs
@@ -25,14 +25,18 @@ final class SingleVoiceViewModel {
     var lastResultSamples: [Float]? = nil
 
     // MARK: - Deps
-    private let engine: TTSEngine
+    private var engine: any TTSEngineProtocol
     private let player: StreamingPlayer
     private var modelContext: ModelContext?
     private var currentTask: Task<Void, Never>?
 
-    init(engine: TTSEngine, player: StreamingPlayer) {
+    init(engine: any TTSEngineProtocol, player: StreamingPlayer) {
         self.engine = engine
         self.player = player
+    }
+
+    func setEngine(_ engine: any TTSEngineProtocol) {
+        self.engine = engine
     }
 
     func setModelContext(_ ctx: ModelContext) {
@@ -72,7 +76,7 @@ final class SingleVoiceViewModel {
             }()
 
             var collected: [Float] = []
-            let engineStream = self.engine.synthesize(text: snapshotText, voiceID: snapshotVoice)
+            let engineStream = self.engine.synthesize(text: snapshotText, voiceID: snapshotVoice, options: SynthesisOptions())
             for await frame in engineStream {
                 collected.append(contentsOf: frame.samples)
                 relayCont.yield(frame)

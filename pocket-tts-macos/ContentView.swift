@@ -45,6 +45,33 @@ struct ContentView: View {
         .onChange(of: appState.engineStatus) { _, newStatus in
             if case .ready = newStatus { spinUpViewModels() }
         }
+        .onChange(of: appState.chatSettings.activeBackend) { _, newBackend in
+            SettingsStore.save(appState.chatSettings)
+            // Reset voice selection to avoid picker tag mismatch
+            if newBackend == .fishSpeech {
+                singleVM?.selectedVoiceID = "fish-default"
+            } else if let firstVoice = voices.first {
+                singleVM?.selectedVoiceID = firstVoice.id
+            }
+            let engine = appState.activeEngine
+            singleVM?.setEngine(engine)
+            multiVM?.setEngine(engine)
+            print("[Backend] switched to \(newBackend.displayName)")
+            if newBackend == .fishSpeech {
+                Task {
+                    await appState.bootstrapFishIfNeeded()
+                    let fish = appState.activeEngine
+                    singleVM?.setEngine(fish)
+                    multiVM?.setEngine(fish)
+                    print("[Backend] Fish bootstrap complete — engine is now \(type(of: fish))")
+                }
+            } else {
+                // Switching away from Fish — unload to free memory (~6-7 GB)
+                Task {
+                    await appState.fishEngine?.unload()
+                }
+            }
+        }
         .sheet(isPresented: $appState.showsSettingsSheet) {
             SettingsView(
                 isPresented: $appState.showsSettingsSheet,
@@ -57,18 +84,144 @@ struct ContentView: View {
                 }
             )
         }
+        .sheet(isPresented: $appState.showsVoiceManager) {
+            VoiceManagerView(
+                isPresented: $appState.showsVoiceManager,
+                onEncodeVoice: { voiceID in
+                    Task {
+                        // Fish codec encode (bootstrap lazily if needed)
+                        if let fish = appState.fishEngine {
+                            await appState.bootstrapFishIfNeeded()
+                            do {
+                                try await fish.encodeVoice(voiceID: voiceID)
+                                print("[ContentView] Fish encode complete for \(voiceID)")
+                            } catch {
+                                print("[ContentView] Fish encode failed: \(error)")
+                            }
+                        }
+                        // Pocket-TTS KV bake
+                        let pttsEncoder = PocketTTSVoiceEncoder.shared
+                        await pttsEncoder.bootstrap()
+                        let pttsWAV: URL? = {
+                            let voice = FishVoiceManager.shared.voice(for: voiceID)
+                            if voice?.isEnhanced == true {
+                                let enhanced = FishVoiceManager.shared.enhancedWAVURL(for: voiceID)
+                                if FileManager.default.fileExists(atPath: enhanced.path) { return enhanced }
+                            }
+                            return FishVoiceManager.shared.wavURL(for: voiceID)
+                        }()
+                        if let wavURL = pttsWAV {
+                            let kvDir = FishVoiceManager.shared.codesDir()
+                            let kvURL = kvDir.appendingPathComponent("\(voiceID)_kv.safetensors")
+                            do {
+                                try await pttsEncoder.encodeVoice(wavURL: wavURL, outputURL: kvURL)
+                                FishVoiceManager.shared.setPocketTTSKVPath(kvURL.path, for: voiceID)
+                                print("[ContentView] Pocket-TTS KV bake complete for \(voiceID)")
+                            } catch {
+                                print("[ContentView] Pocket-TTS KV bake failed: \(error)")
+                            }
+                        }
+
+                        // Unload Fish if not active
+                        if appState.chatSettings.activeBackend != .fishSpeech {
+                            await appState.fishEngine?.unload()
+                        }
+                        let voiceName = FishVoiceManager.shared.voice(for: voiceID)?.name ?? "Voice"
+                        showVoiceReadyToast(voiceName)
+                        print("[ContentView] import pipeline complete, memory released")
+                    }
+                },
+                onEnhanceVoice: { voiceID in
+                    Task {
+                        // Step 1: Enhance
+                        let enhancer = VoiceEnhancer.shared
+                        await enhancer.bootstrapIfNeeded()
+                        guard let wavURL = FishVoiceManager.shared.wavURL(for: voiceID) else { return }
+                        let outURL = FishVoiceManager.shared.enhancedWAVURL(for: voiceID)
+                        do {
+                            try await enhancer.enhance(inputURL: wavURL, outputURL: outURL)
+                            FishVoiceManager.shared.setEnhanced(for: voiceID)
+                        } catch {
+                            print("[VoiceEnhancer] enhance failed: \(error)")
+                        }
+
+                        // Step 2: Fish codec encode (bootstrap lazily if needed)
+                        if let fish = appState.fishEngine {
+                            await appState.bootstrapFishIfNeeded()
+                            do {
+                                try await fish.encodeVoice(voiceID: voiceID)
+                                print("[ContentView] Fish encode complete for \(voiceID)")
+                            } catch {
+                                print("[ContentView] Fish encode failed: \(error)")
+                            }
+                        }
+
+                        // Step 3: Pocket-TTS KV state bake
+                        let pttsEncoder = PocketTTSVoiceEncoder.shared
+                        await pttsEncoder.bootstrap()
+                        let pttsWAV: URL? = {
+                            let voice = FishVoiceManager.shared.voice(for: voiceID)
+                            if voice?.isEnhanced == true {
+                                let enhanced = FishVoiceManager.shared.enhancedWAVURL(for: voiceID)
+                                if FileManager.default.fileExists(atPath: enhanced.path) { return enhanced }
+                            }
+                            return FishVoiceManager.shared.wavURL(for: voiceID)
+                        }()
+                        if let wavURL = pttsWAV {
+                            let kvDir = FishVoiceManager.shared.codesDir()
+                            let kvURL = kvDir.appendingPathComponent("\(voiceID)_kv.safetensors")
+                            do {
+                                try await pttsEncoder.encodeVoice(wavURL: wavURL, outputURL: kvURL)
+                                FishVoiceManager.shared.setPocketTTSKVPath(kvURL.path, for: voiceID)
+                                print("[ContentView] Pocket-TTS KV bake complete for \(voiceID)")
+                            } catch {
+                                print("[ContentView] Pocket-TTS KV bake failed: \(error)")
+                            }
+                        }
+
+                        // Unload Fish if it's not the active backend (loaded only for codec encoding)
+                        if appState.chatSettings.activeBackend != .fishSpeech {
+                            await appState.fishEngine?.unload()
+                        }
+                        let voiceName = FishVoiceManager.shared.voice(for: voiceID)?.name ?? "Voice"
+                        showVoiceReadyToast(voiceName)
+                        print("[ContentView] import pipeline complete, memory released")
+                    }
+                }
+            )
+        }
+        .overlay(alignment: .top) {
+            if let message = appState.toastMessage {
+                toastBanner(message)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .padding(.top, Theme.space4)
+            }
+        }
+        .animation(.easeInOut(duration: 0.3), value: appState.toastMessage)
     }
 
     // MARK: - Header (drag region + title)
 
     private var header: some View {
-        VStack(spacing: 2) {
-            Text("Pocket TTS")
-                .font(Theme.font2XL)
-                .foregroundStyle(Theme.textPrimary)
-            Text("High-quality text-to-speech that runs on your CPU")
-                .font(Theme.fontSM)
-                .foregroundStyle(Theme.textSecondary)
+        HStack {
+            Spacer()
+            VStack(spacing: 2) {
+                Text("Pocket TTS")
+                    .font(Theme.font2XL)
+                    .foregroundStyle(Theme.textPrimary)
+                Text("High-quality text-to-speech that runs on your CPU")
+                    .font(Theme.fontSM)
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            Spacer()
+            Button(action: { appState.showsVoiceManager = true }) {
+                Image(systemName: "waveform.circle")
+                    .font(.system(size: 18))
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            .buttonStyle(.plain)
+            .help("Voice Manager")
+            .padding(.trailing, Theme.space4)
         }
         .frame(maxWidth: .infinity)
         .padding(.top, Theme.space4)
@@ -113,13 +266,15 @@ struct ContentView: View {
                 SingleVoiceView(
                     viewModel: singleVM,
                     voices: voices,
-                    pendingReuse: $appState.pendingReuse
+                    pendingReuse: $appState.pendingReuse,
+                    chatSettings: $appState.chatSettings
                 )
             case .multi:
                 MultiTalkView(
                     viewModel: multiVM,
                     voices: voices,
-                    pendingReuse: $appState.pendingReuse
+                    pendingReuse: $appState.pendingReuse,
+                    chatSettings: $appState.chatSettings
                 )
             case .history:
                 HistoryView(
@@ -146,6 +301,18 @@ struct ContentView: View {
         guard let engine = appState.engine, let player = appState.player else { return }
         if singleVM == nil { singleVM = SingleVoiceViewModel(engine: engine, player: player) }
         if multiVM == nil  { multiVM  = MultiTalkViewModel(engine: engine, player: player) }
+
+        // If the persisted backend is Fish, bootstrap it and swap engines.
+        if appState.chatSettings.activeBackend == .fishSpeech {
+            singleVM?.selectedVoiceID = "fish-default"
+            Task {
+                await appState.bootstrapFishIfNeeded()
+                let active = appState.activeEngine
+                singleVM?.setEngine(active)
+                multiVM?.setEngine(active)
+                print("[Backend] cold start — restored Fish engine")
+            }
+        }
         if chatVM == nil {
             chatVM = ChatViewModel(engine: engine, player: player, settings: appState.chatSettings)
         }
@@ -154,6 +321,31 @@ struct ContentView: View {
         voices = ids.map { id in
             let type = Voice.voiceType(forID: id)
             return type == .predefined ? Voice(predefined: id) : Voice(custom: id)
+        }
+    }
+
+    // MARK: - Toast
+
+    private func toastBanner(_ message: String) -> some View {
+        HStack(spacing: Theme.space2) {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(Theme.successFG)
+            Text(message)
+                .font(Theme.fontSM)
+                .foregroundStyle(Theme.textPrimary)
+        }
+        .padding(.horizontal, Theme.space4)
+        .padding(.vertical, Theme.space3)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
+        .shadow(color: .black.opacity(0.25), radius: 8, y: 4)
+    }
+
+    private func showVoiceReadyToast(_ name: String) {
+        appState.toastMessage = "\"\(name)\" is ready for synthesis"
+        Task {
+            try? await Task.sleep(for: .seconds(4))
+            appState.toastMessage = nil
         }
     }
 }

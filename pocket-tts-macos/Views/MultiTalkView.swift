@@ -14,13 +14,22 @@ struct MultiTalkView: View {
     @Binding var pendingReuse: PendingReuse?
     @Environment(\.modelContext) private var modelContext
 
+    @Binding var chatSettings: ChatSettings
+
     @State private var showPauseModal = false
+    @State private var showGenerator = false
 
     var body: some View {
         ZStack(alignment: .topLeading) {
             HStack(alignment: .top, spacing: Theme.space6) {
                 // Left sidebar
                 VStack(spacing: Theme.space4) {
+                    BackendSelector(
+                        activeBackend: $chatSettings.activeBackend,
+                        fishParams: $chatSettings.fishParams,
+                        disabled: viewModel.status.isWorking
+                    )
+
                     speakersPanel
 
                     SynthesizeButton(
@@ -33,7 +42,9 @@ struct MultiTalkView: View {
                         accessibilityIDPrefix: "multi"
                     )
 
-                    StatusIndicator(status: viewModel.status)
+                    if chatSettings.activeBackend == .pocketTTS {
+                        StatusIndicator(status: viewModel.status)
+                    }
 
                     if let samples = viewModel.lastResultSamples {
                         AudioPlayer(samples: samples, accessibilityIDPrefix: "multi")
@@ -51,6 +62,7 @@ struct MultiTalkView: View {
                     label: "Script",
                     placeholder: "Use {SpeakerName} to tag speakers and [Xs] for pauses.\n\nExample:\n{Alice} Hello there!\n[1.5s]\n{Bob} Hi, Alice.",
                     disabled: viewModel.status.isWorking,
+                    onGenerateClick: { showGenerator = true },
                     onPauseClick: { showPauseModal = true },
                     accessibilityID: "multi.scriptEditor",
                     editorBridge: viewModel.editorBridge
@@ -65,11 +77,28 @@ struct MultiTalkView: View {
                     onInsert: { dur in viewModel.insertPause(seconds: dur) }
                 )
             }
+
+            if showGenerator {
+                ScriptGeneratorModal(
+                    isPresented: $showGenerator,
+                    mode: .multiTalk,
+                    chatSettings: $chatSettings,
+                    onAccept: { script, speakerNames in
+                        viewModel.script = script
+                        viewModel.applySpeakersFromGeneration(names: speakerNames, voices: voices)
+                    }
+                )
+            }
         }
         .onAppear {
             viewModel.setModelContext(modelContext)
             if case let .multi(script, speakers) = pendingReuse {
-                viewModel.applyReuse(script: script, speakers: speakers)
+                if chatSettings.activeBackend == .fishSpeech {
+                    let fishSpeakers = speakers.map { SpeakerRef(name: $0.name, voiceID: "fish-default") }
+                    viewModel.applyReuse(script: script, speakers: fishSpeakers)
+                } else {
+                    viewModel.applyReuse(script: script, speakers: speakers)
+                }
                 pendingReuse = nil
             }
         }
@@ -99,6 +128,7 @@ struct MultiTalkView: View {
                     SpeakerCard(
                         speaker: $viewModel.speakers[idx],
                         voices: voices,
+                        activeBackend: chatSettings.activeBackend,
                         canRemove: viewModel.speakers.count > 1,
                         disabled: viewModel.status.isWorking,
                         onInsertToScript: { name in viewModel.insertSpeakerTag(name) },

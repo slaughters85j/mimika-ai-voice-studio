@@ -40,6 +40,30 @@ enum ViewMode: String, Sendable {
     case orb
 }
 
+// MARK: - TTS Backend
+
+enum TTSBackendType: String, Codable, Sendable, CaseIterable, Identifiable {
+    case pocketTTS = "pocket-tts"
+    case fishSpeech = "fish-speech"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .pocketTTS:  return "Pocket TTS (100M, CPU)"
+        case .fishSpeech: return "Fish Audio S2 Pro (5B, MLX)"
+        }
+    }
+}
+
+nonisolated struct FishGenParams: Codable, Equatable, Sendable {
+    var temperature: Float = 0.7
+    var topP: Float = 0.7
+    var topK: Int = 30
+
+    static let `default` = FishGenParams()
+}
+
 // MARK: - ChatSettings
 
 nonisolated struct ChatSettings: Codable, Equatable, Sendable {
@@ -47,14 +71,46 @@ nonisolated struct ChatSettings: Codable, Equatable, Sendable {
     var model: String
     var systemPrompt: String
     var ttsVoiceID: String
+    var singleVoiceSystemPrompt: String
+    var multiTalkSystemPrompt: String
+    var activeBackend: TTSBackendType
+    var fishParams: FishGenParams
 
     static let `default` = ChatSettings(
         baseURL: "http://localhost:1234",
         model: "",
         systemPrompt: "",
-        ttsVoiceID: "cosette"   // matches Voice.default; literal to keep this
-                                // initializer nonisolated for use in defaults.
+        ttsVoiceID: "cosette",
+        singleVoiceSystemPrompt: defaultSingleVoicePrompt,
+        multiTalkSystemPrompt: defaultMultiTalkPrompt,
+        activeBackend: .pocketTTS,
+        fishParams: .default
     )
+
+    static let defaultSingleVoicePrompt = """
+    You are a script writer for a text-to-speech system. Generate ONLY the spoken \
+    text — no stage directions, no speaker tags, no markdown, no quotation marks, \
+    no parentheticals. Write natural, conversational speech that sounds good when \
+    read aloud. Keep punctuation minimal and natural. Do NOT include any formatting \
+    or metadata. Avoid ellipses.
+    """
+
+    static let defaultMultiTalkPrompt = """
+    You are a script writer for a multi-voice text-to-speech system. Format your \
+    output EXACTLY like this:
+
+    {Speaker 1} Their dialogue here.
+    {Speaker 2} Their response here.
+
+    Rules:
+    - Use EXACTLY the tags {Speaker 1} through {Speaker N} where N is the speaker count
+    - Each speaker turn must start with a speaker tag on its own line
+    - Write natural conversational dialogue
+    - No stage directions, no parentheticals, no markdown
+    - No quotation marks around dialogue
+    - Avoid ellipses (use commas or dashes for pauses instead)
+    - You may include [Xs] pause markers between lines for dramatic pauses (e.g. [1.5s])
+    """
 }
 
 // MARK: - SettingsStore

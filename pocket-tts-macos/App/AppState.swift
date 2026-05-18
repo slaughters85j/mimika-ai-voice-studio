@@ -15,8 +15,8 @@ import Observation
 enum AppTab: String, CaseIterable, Identifiable, Hashable {
     case single
     case multi
-    case history
     case chat
+    case history
 
     var id: String { rawValue }
 
@@ -59,6 +59,12 @@ final class AppState {
     /// Settings sheet visibility (toggled by Cmd+, or the gear icon).
     var showsSettingsSheet: Bool = false
 
+    /// Voice Manager sheet visibility.
+    var showsVoiceManager: Bool = false
+
+    /// Toast notification shown when a voice finishes encoding.
+    var toastMessage: String?
+
     /// LM Studio chat settings. Persisted via UserDefaults; loaded once at init.
     var chatSettings: ChatSettings
 
@@ -73,13 +79,21 @@ final class AppState {
     var engineStatus: EngineStatus = .loading
     private(set) var engine: TTSEngine?
     private(set) var player: StreamingPlayer?
+    private(set) var fishEngine: FishEngine?
+
+    /// The currently active TTS engine, dispatched by backend selection.
+    var activeEngine: any TTSEngineProtocol {
+        switch chatSettings.activeBackend {
+        case .pocketTTS:  return engine!
+        case .fishSpeech: return fishEngine ?? engine!
+        }
+    }
 
     init() {
         self.chatSettings = SettingsStore.load()
     }
 
-    /// Build the engine + player once at app launch. Safe to call multiple
-    /// times; only the first call does work.
+    /// Build the Pocket-TTS engine + player once at app launch.
     func bootstrapIfNeeded() async {
         guard engine == nil else { return }
         do {
@@ -87,10 +101,19 @@ final class AppState {
             let player = try StreamingPlayer()
             self.engine = engine
             self.player = player
+            self.fishEngine = FishEngine()
             self.engineStatus = .ready
         } catch {
             self.engineStatus = .failed(String(describing: error))
         }
+    }
+
+    /// Lazy-load Fish weights when user first selects the Fish backend.
+    func bootstrapFishIfNeeded() async {
+        guard let fish = fishEngine else { return }
+        let status = await fish.status
+        guard status == .idle else { return }
+        await fish.bootstrap()
     }
 
     /// Stash a pending-reuse payload and switch to the matching tab.

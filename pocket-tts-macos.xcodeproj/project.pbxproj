@@ -6,6 +6,11 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		D52D51B52FBA6FD00037F6C4 /* MLXAudioCore in Frameworks */ = {isa = PBXBuildFile; productRef = D52D51B42FBA6FD00037F6C4 /* MLXAudioCore */; };
+		D52D51BF2FBA6FD00037F6C4 /* MLXAudioTTS in Frameworks */ = {isa = PBXBuildFile; productRef = D52D51BE2FBA6FD00037F6C4 /* MLXAudioTTS */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		D5ECD2282FB78D5B00C23A9D /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -52,6 +57,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D52D51BF2FBA6FD00037F6C4 /* MLXAudioTTS in Frameworks */,
+				D52D51B52FBA6FD00037F6C4 /* MLXAudioCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -112,6 +119,8 @@
 			);
 			name = "pocket-tts-macos";
 			packageProductDependencies = (
+				D52D51B42FBA6FD00037F6C4 /* MLXAudioCore */,
+				D52D51BE2FBA6FD00037F6C4 /* MLXAudioTTS */,
 			);
 			productName = "pocket-tts-macos";
 			productReference = D5ECD2182FB78D5A00C23A9D /* pocket-tts-macos.app */;
@@ -195,6 +204,9 @@
 			);
 			mainGroup = D5ECD20F2FB78D5A00C23A9D;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				D52D51AF2FBA6FD00037F6C4 /* XCRemoteSwiftPackageReference "mlx-audio-swift" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = D5ECD2192FB78D5A00C23A9D /* Products */;
 			projectDirPath = "";
@@ -372,6 +384,7 @@
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				EXCLUDED_ARCHS = x86_64;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -609,6 +622,30 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		D52D51AF2FBA6FD00037F6C4 /* XCRemoteSwiftPackageReference "mlx-audio-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/slaughters85j/mlx-audio-swift.git";
+			requirement = {
+				branch = main;
+				kind = branch;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		D52D51B42FBA6FD00037F6C4 /* MLXAudioCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D52D51AF2FBA6FD00037F6C4 /* XCRemoteSwiftPackageReference "mlx-audio-swift" */;
+			productName = MLXAudioCore;
+		};
+		D52D51BE2FBA6FD00037F6C4 /* MLXAudioTTS */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D52D51AF2FBA6FD00037F6C4 /* XCRemoteSwiftPackageReference "mlx-audio-swift" */;
+			productName = MLXAudioTTS;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = D5ECD2102FB78D5A00C23A9D /* Project object */;
 }

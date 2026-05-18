@@ -58,7 +58,8 @@ nonisolated enum WAVEncoder {
         data.append(contentsOf: header.bytes())
 
         for s in samples {
-            let clipped = min(max(s, -1.0), 1.0)
+            let safe = s.isFinite ? s : 0.0
+            let clipped = min(max(safe, -1.0), 1.0)
             let int16Val = Int16(clipped * 32767.0)
             withUnsafeBytes(of: int16Val.littleEndian) { buf in
                 data.append(contentsOf: buf)

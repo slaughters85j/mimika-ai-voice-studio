@@ -13,46 +13,75 @@ struct SingleVoiceView: View {
     @Bindable var viewModel: SingleVoiceViewModel
     let voices: [Voice]
     @Binding var pendingReuse: PendingReuse?
+    @Binding var chatSettings: ChatSettings
     @Environment(\.modelContext) private var modelContext
 
+    @State private var showGenerator = false
+
     var body: some View {
-        HStack(alignment: .top, spacing: Theme.space6) {
-            // Left sidebar
-            VStack(spacing: Theme.space4) {
-                VoiceSelector(
-                    selectedVoiceID: $viewModel.selectedVoiceID,
-                    voices: voices,
-                    disabled: viewModel.status.isWorking
-                )
+        ZStack(alignment: .topLeading) {
+            HStack(alignment: .top, spacing: Theme.space6) {
+                // Left sidebar
+                VStack(spacing: Theme.space4) {
+                    BackendSelector(
+                        activeBackend: $chatSettings.activeBackend,
+                        fishParams: $chatSettings.fishParams,
+                        disabled: viewModel.status.isWorking
+                    )
 
-                SynthesizeButton(
-                    status: viewModel.status,
-                    canSynthesize: viewModel.status.canSynthesize && !viewModel.text.trimmingCharacters(in: .whitespaces).isEmpty,
-                    onSynthesize: { viewModel.synthesize() },
-                    onStop:       { viewModel.stop() },
-                    onPause:      { viewModel.pause() },
-                    onResume:     { viewModel.resume() }
-                )
+                    VoiceSelector(
+                        selectedVoiceID: $viewModel.selectedVoiceID,
+                        voices: voices,
+                        activeBackend: chatSettings.activeBackend,
+                        disabled: viewModel.status.isWorking
+                    )
 
-                StatusIndicator(status: viewModel.status)
+                    SynthesizeButton(
+                        status: viewModel.status,
+                        canSynthesize: viewModel.status.canSynthesize && !viewModel.text.trimmingCharacters(in: .whitespaces).isEmpty,
+                        onSynthesize: { viewModel.synthesize() },
+                        onStop:       { viewModel.stop() },
+                        onPause:      { viewModel.pause() },
+                        onResume:     { viewModel.resume() }
+                    )
 
-                if let samples = viewModel.lastResultSamples {
-                    AudioPlayer(samples: samples)
+                    if chatSettings.activeBackend == .pocketTTS {
+                        StatusIndicator(status: viewModel.status)
+                    }
+
+                    if let samples = viewModel.lastResultSamples {
+                        AudioPlayer(samples: samples)
+                    }
+
+                    Spacer(minLength: 0)
                 }
+                .frame(width: Theme.sidebarWidth)
 
-                Spacer(minLength: 0)
+                // Right column: text input
+                TextInput(
+                    text: $viewModel.text,
+                    disabled: viewModel.status.isWorking,
+                    onGenerateClick: { showGenerator = true },
+                    onPauseClick: nil
+                )
             }
-            .frame(width: Theme.sidebarWidth)
+            .padding(.horizontal, Theme.space6)
+            .padding(.vertical, Theme.space4)
 
-            // Right column: text input
-            TextInput(text: $viewModel.text, disabled: viewModel.status.isWorking, onPauseClick: nil)
+            if showGenerator {
+                ScriptGeneratorModal(
+                    isPresented: $showGenerator,
+                    mode: .singleVoice,
+                    chatSettings: $chatSettings,
+                    onAccept: { script, _ in viewModel.text = script }
+                )
+            }
         }
-        .padding(.horizontal, Theme.space6)
-        .padding(.vertical, Theme.space4)
         .onAppear {
             viewModel.setModelContext(modelContext)
             if case let .single(text, voiceID) = pendingReuse {
-                viewModel.applyReuse(text: text, voiceID: voiceID)
+                let effectiveVoice = chatSettings.activeBackend == .fishSpeech ? "fish-default" : voiceID
+                viewModel.applyReuse(text: text, voiceID: effectiveVoice)
                 pendingReuse = nil
             }
         }

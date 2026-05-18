@@ -48,20 +48,24 @@ enum TTSEngineError: Error, CustomStringConvertible {
     }
 }
 
+// MARK: - Pipeline constants (must match the conversion-project scripts)
+// File-scope so nonisolated actor methods can reference them without
+// tripping Swift 6's static-property-on-actor isolation rules.
+private nonisolated enum K {
+    static let nLayers = 6
+    static let nHeads = 16
+    static let dHead = 64
+    static let maxSeq = 512
+    static let ldim = 32
+    static let tTextMax = 128
+    static let mimiOffsetPerFrame: Int32 = 16
+    static let mimiPCMPerFrame = 1920
+}
+
 // MARK: - TTSEngine
 /// Actor-isolated TTS pipeline. One instance per app run; lifecycle-managed by
 /// whoever spawns it (in Phase 0c that's the XCTest; later, the SwiftUI shell).
-actor TTSEngine {
-
-    // MARK: Pipeline constants (must match the conversion-project scripts)
-    private static let nLayers = 6
-    private static let nHeads = 16
-    private static let dHead = 64
-    private static let maxSeq = 512
-    private static let ldim = 32
-    private static let tTextMax = 128
-    private static let mimiOffsetPerFrame: Int32 = 16   // Mimi positions per CaLM frame
-    private static let mimiPCMPerFrame = 1920           // 80 ms @ 24 kHz
+actor TTSEngine: TTSEngineProtocol {
 
     // MARK: Loaded models + assets
     private let promptModel: MLModel
@@ -131,8 +135,15 @@ actor TTSEngine {
         options: SynthesisOptions,
         continuation: AsyncStream<PCMFrame>.Continuation
     ) throws {
-        guard let voice = voices[voiceID] else {
-            throw TTSEngineError.voiceNotFound(voiceID)
+        let voice: LoadedVoice
+        if voiceID.hasPrefix("imported:") {
+            let importID = String(voiceID.dropFirst("imported:".count))
+            voice = try loadImportedVoice(importID: importID)
+        } else {
+            guard let bundled = voices[voiceID] else {
+                throw TTSEngineError.voiceNotFound(voiceID)
+            }
+            voice = bundled
         }
 
         let normalized = TextNormalizer.normalize(text)
@@ -149,9 +160,9 @@ actor TTSEngine {
         continuation: AsyncStream<PCMFrame>.Continuation
     ) throws {
         // 1) Tokenize.
-        let (tokens, textLen) = try tokenizer.encode(text, paddedLength: Self.tTextMax)
-        guard textLen <= Self.tTextMax else {
-            throw TTSEngineError.textOverflow(actualTokens: textLen, max: Self.tTextMax)
+        let (tokens, textLen) = try tokenizer.encode(text, paddedLength: K.tTextMax)
+        guard textLen <= K.tTextMax else {
+            throw TTSEngineError.textOverflow(actualTokens: textLen, max: K.tTextMax)
         }
 
         // 2) Fresh states for each synthesize call (no carry-over from prior runs).
@@ -172,14 +183,14 @@ actor TTSEngine {
         try copyKVState(from: promptState, to: calmState)
 
         // 6) AR loop: CaLM → next_latent → Mimi → PCM frame → emit.
-        var prevLatent = [Float](repeating: .nan, count: 1 * 1 * Self.ldim)   // BOS = NaN
+        var prevLatent = [Float](repeating: .nan, count: 1 * 1 * K.ldim)   // BOS = NaN
         var eosStep: Int? = nil
         let loopStart = Date()
         var produced = 0
 
         for step in 0..<options.maxFrames {
             let frameOffset = Int32(tPrompt + step)
-            let noise = sampleTruncNormal(count: Self.ldim, std: sqrt(options.temperature), clamp: options.noiseClamp)
+            let noise = sampleTruncNormal(count: K.ldim, std: sqrt(options.temperature), clamp: options.noiseClamp)
 
             let (nextLatent, isEos) = try runCaLMStep(
                 state: calmState,
@@ -191,7 +202,7 @@ actor TTSEngine {
             let pcm = try runMimiStep(
                 state: mimiState,
                 latent: nextLatent,
-                offset: Int32(step) * Self.mimiOffsetPerFrame
+                offset: Int32(step) * K.mimiOffsetPerFrame
             )
 
             produced = step + 1
@@ -204,12 +215,54 @@ actor TTSEngine {
         }
 
         let elapsed = Date().timeIntervalSince(loopStart)
-        let audioSec = Double(produced * Self.mimiPCMPerFrame) / 24_000.0
+        let audioSec = Double(produced * K.mimiPCMPerFrame) / 24_000.0
         let fps = elapsed > 0 ? Double(produced) / elapsed : 0
         FileHandle.standardOutput.write(Data(String(
             format: "TTSEngine: produced %d frames, %.2fs audio in %.2fs (%.1f fps; real-time = 12.5 fps)\n",
             produced, audioSec, elapsed, fps
         ).utf8))
+    }
+
+    // MARK: - Imported voice loading
+
+    private var importedVoiceCache: [String: LoadedVoice] = [:]
+
+    private func loadImportedVoice(importID: String) throws -> LoadedVoice {
+        if let cached = importedVoiceCache[importID] { return cached }
+
+        // Read the persisted KV path from the voice catalog JSON on disk.
+        // Can't access @MainActor FishVoiceManager from this actor, so we
+        // parse the catalog file directly.
+        let kvPath = try Self.findImportedVoiceKVPath(importID: importID)
+
+        let voice = try VoiceLoader.loadVoice(from: kvPath)
+        importedVoiceCache[importID] = voice
+        print("[TTSEngine] loaded imported voice \(importID) (T_voice=\(voice.tVoice))")
+        return voice
+    }
+
+    private nonisolated static func findImportedVoiceKVPath(importID: String) throws -> URL {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let catalogURL = appSupport.appendingPathComponent("pocket-tts-macos/fish-voices/voices.json")
+
+        // Try reading persisted path from catalog
+        if let data = try? Data(contentsOf: catalogURL) {
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            if let voices = try? decoder.decode([FishVoice].self, from: data),
+               let voice = voices.first(where: { $0.id == importID }),
+               let kvPath = voice.pocketTTSKVPath,
+               FileManager.default.fileExists(atPath: kvPath) {
+                return URL(fileURLWithPath: kvPath)
+            }
+        }
+
+        // Fallback to conventional path
+        let fallback = appSupport.appendingPathComponent("pocket-tts-macos/fish-voices/\(importID)_kv.safetensors")
+        guard FileManager.default.fileExists(atPath: fallback.path) else {
+            throw TTSEngineError.voiceNotFound("imported:\(importID) — KV not found")
+        }
+        return fallback
     }
 
     // MARK: - Text splitting
@@ -238,10 +291,10 @@ actor TTSEngine {
     }
 
     private func fitsInTokenLimit(_ text: String) -> Bool {
-        (try? tokenizer.encode(text, paddedLength: Self.tTextMax)) != nil
+        (try? tokenizer.encode(text, paddedLength: K.tTextMax)) != nil
     }
 
-    private static func splitIntoSentences(_ text: String) -> [String] {
+    private nonisolated static func splitIntoSentences(_ text: String) -> [String] {
         let tok = NLTokenizer(unit: .sentence)
         tok.string = text
         var result: [String] = []
@@ -256,7 +309,7 @@ actor TTSEngine {
     // MARK: - State seeding
 
     private func writeVoiceKV(into state: MLState, voice: LoadedVoice) throws {
-        for i in 0..<Self.nLayers {
+        for i in 0..<K.nLayers {
             try writeFloat16Buffer(state: state, name: "kv_k_\(i)", source: voice.kCaches[i])
             try writeFloat16Buffer(state: state, name: "kv_v_\(i)", source: voice.vCaches[i])
         }
@@ -265,7 +318,7 @@ actor TTSEngine {
     private func copyKVState(from src: MLState, to dst: MLState) throws {
         // 12 buffers, each maxSeq * nHeads * dHead = 524288 Float16 elements = 1 MiB.
         // Use one tmp buffer per layer to avoid re-allocations across the loop.
-        for i in 0..<Self.nLayers {
+        for i in 0..<K.nLayers {
             try copyOneStateBuffer(name: "kv_k_\(i)", from: src, to: dst)
             try copyOneStateBuffer(name: "kv_v_\(i)", from: src, to: dst)
         }
@@ -311,7 +364,7 @@ actor TTSEngine {
     // MARK: - Model calls
 
     private func runPromptPhase(state: MLState, tokens: [Int32], voiceOffset: Int, textLength: Int) throws -> Int {
-        let tokensArr = try MLMultiArray(shape: [1, Self.tTextMax as NSNumber], dataType: .int32)
+        let tokensArr = try MLMultiArray(shape: [1, K.tTextMax as NSNumber], dataType: .int32)
         tokens.withUnsafeBufferPointer { src in
             tokensArr.dataPointer.assumingMemoryBound(to: Int32.self)
                 .update(from: src.baseAddress!, count: tokens.count)
@@ -339,14 +392,14 @@ actor TTSEngine {
     }
 
     private func runCaLMStep(state: MLState, prevLatent: [Float], offset: Int32, noise: [Float]) throws -> (latent: [Float], isEos: Bool) {
-        let prevArr = try MLMultiArray(shape: [1, 1, Self.ldim as NSNumber], dataType: .float32)
+        let prevArr = try MLMultiArray(shape: [1, 1, K.ldim as NSNumber], dataType: .float32)
         prevLatent.withUnsafeBufferPointer { src in
             prevArr.dataPointer.assumingMemoryBound(to: Float.self)
                 .update(from: src.baseAddress!, count: prevLatent.count)
         }
         let offsetArr = try MLMultiArray(shape: [1], dataType: .int32)
         offsetArr.dataPointer.assumingMemoryBound(to: Int32.self).pointee = offset
-        let noiseArr = try MLMultiArray(shape: [1, Self.ldim as NSNumber], dataType: .float32)
+        let noiseArr = try MLMultiArray(shape: [1, K.ldim as NSNumber], dataType: .float32)
         noise.withUnsafeBufferPointer { src in
             noiseArr.dataPointer.assumingMemoryBound(to: Float.self)
                 .update(from: src.baseAddress!, count: noise.count)
@@ -378,7 +431,7 @@ actor TTSEngine {
     }
 
     private func runMimiStep(state: MLState, latent: [Float], offset: Int32) throws -> [Float] {
-        let latentArr = try MLMultiArray(shape: [1, 1, Self.ldim as NSNumber], dataType: .float32)
+        let latentArr = try MLMultiArray(shape: [1, 1, K.ldim as NSNumber], dataType: .float32)
         latent.withUnsafeBufferPointer { src in
             latentArr.dataPointer.assumingMemoryBound(to: Float.self)
                 .update(from: src.baseAddress!, count: latent.count)

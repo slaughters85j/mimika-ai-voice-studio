@@ -27,7 +27,7 @@ final class MultiTalkViewModel {
     var lastError: String? = nil
 
     // MARK: - Deps
-    private let engine: TTSEngine
+    private var engine: any TTSEngineProtocol
     private let player: StreamingPlayer
     private var modelContext: ModelContext?
     private var currentTask: Task<Void, Never>?
@@ -37,9 +37,13 @@ final class MultiTalkViewModel {
     /// the actual NSTextView via `MacTextEditor`'s coordinator.
     let editorBridge = TextEditorBridge()
 
-    init(engine: TTSEngine, player: StreamingPlayer) {
+    init(engine: any TTSEngineProtocol, player: StreamingPlayer) {
         self.engine = engine
         self.player = player
+    }
+
+    func setEngine(_ engine: any TTSEngineProtocol) {
+        self.engine = engine
     }
 
     func setModelContext(_ ctx: ModelContext) { self.modelContext = ctx }
@@ -78,6 +82,16 @@ final class MultiTalkViewModel {
         // typing, not appended to the end of the buffer.
         let snippet = "[\(String(format: "%.1f", seconds))s]"
         editorBridge.insertAtCursor(snippet) { [weak self] s in self?.script.append(s) }
+    }
+
+    // MARK: - AI generation support
+
+    func applySpeakersFromGeneration(names: [String], voices: [Voice]) {
+        guard !names.isEmpty else { return }
+        let voiceIDs = voices.map(\.id)
+        speakers = names.enumerated().map { i, name in
+            MultiTalkSpeaker(name: name, voiceID: voiceIDs[i % voiceIDs.count])
+        }
     }
 
     // MARK: - Synthesis
@@ -124,7 +138,7 @@ final class MultiTalkViewModel {
             for chunk in chunks {
                 switch chunk {
                 case let .text(voiceID, _, body):
-                    for await frame in self.engine.synthesize(text: body, voiceID: voiceID) {
+                    for await frame in self.engine.synthesize(text: body, voiceID: voiceID, options: SynthesisOptions()) {
                         collected.append(contentsOf: frame.samples)
                         relayCont.yield(PCMFrame(samples: frame.samples, isFinal: false))
                         if firstAudioAt == nil {

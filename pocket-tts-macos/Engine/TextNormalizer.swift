@@ -16,6 +16,11 @@ nonisolated enum TextNormalizer {
 
     static func normalize(_ text: String) -> String {
         var t = text
+        // Ellipsis → comma (gives a natural pause without confusing the model)
+        t = t.replacingOccurrences(of: "…", with: ",")
+        t = t.replacingOccurrences(of: "...", with: ",")
+        // Pronunciation overrides the model struggles with
+        t = applyPronunciationFixes(t)
         t = replace(t, abbrevPattern) { m, s in expandAbbreviation(m, in: s) }
         t = replace(t, listItemPattern) { m, s in expandListItem(m, in: s) }
         t = replace(t, currencyMagnitudePattern) { m, s in expandCurrencyMagnitude(m, in: s) }
@@ -260,5 +265,27 @@ nonisolated enum TextNormalizer {
     private static func expandSymbol(_ m: NSTextCheckingResult, in s: String) -> String {
         guard let sym = group(m, 1, in: s) else { return group(m, 0, in: s) ?? "" }
         return symbols[sym] ?? sym
+    }
+
+    // MARK: - Pronunciation fixes
+
+    private static let pronunciationFixes: [(pattern: NSRegularExpression, replacement: String)] = {
+        let pairs: [(String, String)] = [
+            ("\\bCaptain\\b", "Kaptin"),
+        ]
+        return pairs.compactMap { (pat, rep) in
+            guard let regex = try? NSRegularExpression(pattern: pat, options: []) else { return nil }
+            return (regex, rep)
+        }
+    }()
+
+    private static func applyPronunciationFixes(_ text: String) -> String {
+        var t = text
+        for fix in pronunciationFixes {
+            t = fix.pattern.stringByReplacingMatches(
+                in: t, range: NSRange(t.startIndex..., in: t), withTemplate: fix.replacement
+            )
+        }
+        return t
     }
 }

@@ -12,6 +12,7 @@ struct TextInput: View {
     var label: String = "Text to Generate"
     var placeholder: String = "Enter the text you want to convert to speech…"
     var disabled: Bool = false
+    var onGenerateClick: (() -> Void)?
     var onPauseClick: (() -> Void)?
     var accessibilityID: String = "single.textInput"
     /// Optional cursor-aware insertion bridge. When passed, the editor swaps
@@ -29,6 +30,26 @@ struct TextInput: View {
                     .font(Theme.fontSMBold)
                     .foregroundStyle(Theme.textPrimary)
                 Spacer()
+                if let onGenerateClick {
+                    Button(action: onGenerateClick) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "sparkles")
+                                .font(.system(size: 11))
+                            Text("AI Write")
+                                .font(Theme.fontXS)
+                        }
+                        .foregroundStyle(Theme.accent)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: Theme.radius)
+                                .stroke(Theme.borderColor, lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(disabled)
+                    .accessibilityIdentifier("\(accessibilityID).generateButton")
+                }
                 if let onPauseClick {
                     Button(action: onPauseClick) {
                         Text("+ Pause")
