@@ -15,7 +15,7 @@ import SwiftData
 final class SingleVoiceViewModel {
 
     // MARK: - Inputs
-    var text: String = ""
+    var text: String = "This is a test. It's only a test. Practice makes perfect."
     var selectedVoiceID: String = Voice.default.id
 
     // MARK: - Outputs

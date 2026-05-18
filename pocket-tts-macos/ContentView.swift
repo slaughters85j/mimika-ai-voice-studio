@@ -102,7 +102,15 @@ struct ContentView: View {
                         // Pocket-TTS KV bake
                         let pttsEncoder = PocketTTSVoiceEncoder.shared
                         await pttsEncoder.bootstrap()
-                        if let wavURL = FishVoiceManager.shared.wavURL(for: voiceID) {
+                        let pttsWAV: URL? = {
+                            let voice = FishVoiceManager.shared.voice(for: voiceID)
+                            if voice?.isEnhanced == true {
+                                let enhanced = FishVoiceManager.shared.enhancedWAVURL(for: voiceID)
+                                if FileManager.default.fileExists(atPath: enhanced.path) { return enhanced }
+                            }
+                            return FishVoiceManager.shared.wavURL(for: voiceID)
+                        }()
+                        if let wavURL = pttsWAV {
                             let kvDir = FishVoiceManager.shared.codesDir()
                             let kvURL = kvDir.appendingPathComponent("\(voiceID)_kv.safetensors")
                             do {
@@ -149,7 +157,15 @@ struct ContentView: View {
                         // Step 3: Pocket-TTS KV state bake
                         let pttsEncoder = PocketTTSVoiceEncoder.shared
                         await pttsEncoder.bootstrap()
-                        if let wavURL = FishVoiceManager.shared.wavURL(for: voiceID) {
+                        let pttsWAV: URL? = {
+                            let voice = FishVoiceManager.shared.voice(for: voiceID)
+                            if voice?.isEnhanced == true {
+                                let enhanced = FishVoiceManager.shared.enhancedWAVURL(for: voiceID)
+                                if FileManager.default.fileExists(atPath: enhanced.path) { return enhanced }
+                            }
+                            return FishVoiceManager.shared.wavURL(for: voiceID)
+                        }()
+                        if let wavURL = pttsWAV {
                             let kvDir = FishVoiceManager.shared.codesDir()
                             let kvURL = kvDir.appendingPathComponent("\(voiceID)_kv.safetensors")
                             do {
