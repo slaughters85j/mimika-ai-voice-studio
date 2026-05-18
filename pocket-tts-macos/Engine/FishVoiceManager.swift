@@ -8,6 +8,7 @@
 
 @preconcurrency import AVFoundation
 import Foundation
+import Observation
 
 // MARK: - FishVoice
 
@@ -26,6 +27,7 @@ struct FishVoice: Identifiable, Codable, Equatable, Sendable {
 // MARK: - FishVoiceManager
 
 @MainActor
+@Observable
 final class FishVoiceManager {
 
     static let shared = FishVoiceManager()
@@ -86,6 +88,24 @@ final class FishVoiceManager {
     }
 
     func codesDir() -> URL { voicesDir }
+
+    /// Verify cached codes files exist; clear stale paths. Returns IDs needing re-encoding.
+    func verifyVoiceStates() -> [String] {
+        var needsEncoding: [String] = []
+        for i in voices.indices {
+            if let path = voices[i].cachedCodesPath {
+                if !FileManager.default.fileExists(atPath: path) {
+                    voices[i].cachedCodesPath = nil
+                    voices[i].codesLength = nil
+                }
+            }
+            if voices[i].cachedCodesPath == nil {
+                needsEncoding.append(voices[i].id)
+            }
+        }
+        if !needsEncoding.isEmpty { saveCatalog() }
+        return needsEncoding
+    }
 
     // MARK: - Delete
 

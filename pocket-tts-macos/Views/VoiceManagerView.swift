@@ -38,6 +38,14 @@ struct VoiceManagerView: View {
         ) { result in
             handleImport(result)
         }
+        .task { await verifyAndEncodeVoices() }
+    }
+
+    private func verifyAndEncodeVoices() async {
+        let needsEncoding = FishVoiceManager.shared.verifyVoiceStates()
+        for voiceID in needsEncoding {
+            onEncodeVoice?(voiceID)
+        }
     }
 
     // MARK: - Import
