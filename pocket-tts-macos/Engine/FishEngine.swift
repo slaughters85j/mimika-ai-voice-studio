@@ -48,6 +48,9 @@ actor FishEngine: TTSEngineProtocol {
     private nonisolated(unsafe) var model: (any SpeechGenerationModel)?
     private var sampleRate: Int = 44100
 
+    /// Test-only access to the underlying model for benchmarks.
+    nonisolated var exposedModel: (any SpeechGenerationModel)? { model }
+
     // MARK: - Bootstrap (lazy — only loads when Fish is first selected)
 
     func bootstrap() async {
@@ -71,6 +74,8 @@ actor FishEngine: TTSEngineProtocol {
     }
 
     // MARK: - TTSEngineProtocol
+
+    nonisolated var prefersBatchPlayback: Bool { true }
 
     nonisolated func availableVoiceIDs() -> [String] {
         // "fish-default" = no reference audio (Fish's built-in voice).
@@ -102,16 +107,24 @@ actor FishEngine: TTSEngineProtocol {
         guard status == .ready else { throw FishError.notBootstrapped }
         guard let model else { throw FishError.notBootstrapped }
 
-        print("[FishEngine] synthesize called — voice: \(voiceID), text: \"\(text.prefix(60))...\"")
+        let wallStart = CFAbsoluteTimeGetCurrent()
+        print("[FishEngine] ── synthesis start ──")
+        print("[FishEngine] voice: \(voiceID), text: \(text.count) chars, \"\(text.prefix(60))…\"")
         let processed = FishEngine.convertPauseTags(text)
 
+        // Phase 1: Voice metadata
+        let t0 = CFAbsoluteTimeGetCurrent()
         let voiceMeta = await Self.loadVoiceMeta(voiceID: voiceID)
+        let metaMs = (CFAbsoluteTimeGetCurrent() - t0) * 1000
+        print("[FishEngine] voice meta: \(String(format: "%.1f", metaMs))ms")
+
+        // Phase 2: Generation
+        let t1 = CFAbsoluteTimeGetCurrent()
         let audio: MLXArray
 
         if let codesPath = voiceMeta?.cachedCodesPath,
            let codesLength = voiceMeta?.codesLength,
            let fishModel = model as? FishSpeechModel {
-            // Fast path: use pre-encoded codec indices (FishSpeechModel-specific API)
             let codes = try MLX.loadArray(url: URL(fileURLWithPath: codesPath))
             print("[FishEngine] using cached codes (\(codesLength) frames)")
             audio = try await fishModel.generate(
@@ -121,7 +134,6 @@ actor FishEngine: TTSEngineProtocol {
                 refText: voiceMeta?.transcript
             )
         } else if let wavPath = voiceMeta?.wavPath {
-            // Slow path: load raw WAV, codec encodes inside generate()
             let refAudio = try Self.loadWAVIntoMLXArray(path: wavPath)
             print("[FishEngine] using raw WAV (no cached codes)")
             audio = try await model.generate(
@@ -129,16 +141,28 @@ actor FishEngine: TTSEngineProtocol {
                 refText: voiceMeta?.transcript, language: nil
             )
         } else {
-            // Default voice: no reference audio
             audio = try await model.generate(
                 text: processed, voice: nil, refAudio: nil,
                 refText: nil, language: nil
             )
         }
+        let genSec = CFAbsoluteTimeGetCurrent() - t1
 
+        // Phase 3: Resample + frame
+        let t2 = CFAbsoluteTimeGetCurrent()
         let rawSamples = audio.asArray(Float.self)
         let resampled = Self.resample(rawSamples, from: sampleRate, to: Self.playerSampleRate)
-        print("[FishEngine] generated \(rawSamples.count) samples @ \(sampleRate)Hz → \(resampled.count) @ \(Self.playerSampleRate)Hz")
+        let resampleMs = (CFAbsoluteTimeGetCurrent() - t2) * 1000
+
+        let audioDuration = Double(rawSamples.count) / Double(sampleRate)
+        let wallTotal = CFAbsoluteTimeGetCurrent() - wallStart
+        let rtf = audioDuration / wallTotal
+
+        print("[FishEngine] generation: \(String(format: "%.2f", genSec))s")
+        print("[FishEngine] resample:   \(String(format: "%.1f", resampleMs))ms (\(rawSamples.count) → \(resampled.count) samples)")
+        print("[FishEngine] output:     \(String(format: "%.2f", audioDuration))s audio")
+        print("[FishEngine] total:      \(String(format: "%.2f", wallTotal))s wall, \(String(format: "%.2f", rtf))x real-time, \(String(format: "%.1f", Double(text.count) / wallTotal)) chars/s")
+        print("[FishEngine] ── synthesis end ──")
 
         let frameSize = 1920
         var offset = 0

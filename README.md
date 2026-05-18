@@ -35,6 +35,27 @@ Added via a [forked mlx-audio-swift](https://github.com/slaughters85j/mlx-audio-
 
 Both backends conform to `TTSEngineProtocol`. Switching between them is a picker selection — the active engine swaps at runtime with automatic memory management (inactive backend unloads from RAM).
 
+### Fish Performance: Reference Audio Length Benchmark
+
+Benchmarked on M1 Ultra with the same 57-character input text, varying reference audio from 3s to 20s:
+
+| Ref (s) | Codes | Gen (s) | Audio (s) | RTF | chars/s |
+|---------|-------|---------|-----------|------|---------|
+| 3 | 65 | 28.84 | 4.04 | 0.14x | 2.0 |
+| 6 | 130 | 27.89 | 4.13 | 0.15x | 2.0 |
+| 9 | 194 | 33.40 | 4.88 | 0.15x | 1.7 |
+| 12 | 259 | 29.52 | 4.37 | 0.15x | 1.9 |
+| 15 | 323 | 33.36 | 4.92 | 0.15x | 1.7 |
+| 20 | 431 | 25.50 | 3.81 | 0.15x | 2.2 |
+
+**Key findings:**
+- **Reference length does not affect generation speed.** The ~30% variance (25-33s) is noise from thermal throttling and non-deterministic output length, not from attention over reference codes.
+- **The bottleneck is the autoregressive decode loop** — each output token has a fixed inference cost regardless of context length. Generation runs at ~0.15x real-time consistently.
+- **15 seconds is the quality sweet spot** for reference audio — enough voice signal for high-fidelity cloning without diluting it. Shorter clips (3-6s) produce noticeably lower quality; 20s offers no improvement over 15s.
+- **Pocket-TTS generates the same text in 2.11s** (2.9x real-time, 27 chars/s) — ~15x faster than Fish.
+
+The benchmark test is in `pocket-tts-macosTests/FishRefLengthBenchmark.swift`.
+
 ## Voice Management
 
 The Voice Manager (waveform icon in the app header) is the canonical place to import, enhance, and manage voices for both backends. One WAV import produces voices for both engines automatically.
