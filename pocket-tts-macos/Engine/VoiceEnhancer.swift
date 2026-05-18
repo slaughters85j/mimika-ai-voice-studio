@@ -169,6 +169,10 @@ private class LavaSREnhancer: Module {
     private nonisolated static let nMels = 80
     private nonisolated static let sampleRate = 48000
 
+    // Precomputed from model weights — exact match to training config
+    nonisolated(unsafe) var melFilterbank: MLXArray?
+    nonisolated(unsafe) var stftWindow: MLXArray?
+
     nonisolated override init() {
         self.backbone = VocosBackbone(
             inputChannels: Self.nMels,
@@ -205,14 +209,26 @@ private class LavaSREnhancer: Module {
 
         var weights = try MLX.loadArrays(url: weightsURL)
 
-        // Filter out precomputed constants that aren't learnable parameters
+        // Extract precomputed mel filterbank and STFT window before filtering
+        // These are the EXACT values used during training — using them ensures
+        // the mel spectrogram matches what the model expects.
+        if let fb = weights["feature_extractor.mel_spec.mel_scale.fb"] {
+            // Shape [1025, 80] — transpose to [80, 1025] for matmul(magnitude, fb.T)
+            model.melFilterbank = fb
+            print("[LavaSR] loaded precomputed mel filterbank: \(fb.shape)")
+        }
+        if let win = weights["feature_extractor.mel_spec.spectrogram.window"] {
+            model.stftWindow = win
+            print("[LavaSR] loaded precomputed STFT window: \(win.shape)")
+        }
+
+        // Filter out non-module keys
         let nonModuleKeys = weights.keys.filter {
             $0.hasPrefix("feature_extractor.") || $0.contains("istft.")
         }
         for key in nonModuleKeys { weights.removeValue(forKey: key) }
 
         // PyTorch Conv1d weights are (C_out, C_in, K); MLX expects (C_out, K, C_in).
-        // Transpose all 3D weight tensors (Conv1d kernels).
         for (key, value) in weights {
             if key.hasSuffix(".weight") && value.ndim == 3 {
                 weights[key] = value.transposed(0, 2, 1)
@@ -240,87 +256,58 @@ private class LavaSREnhancer: Module {
     private func computeMelSpectrogram(_ audio: MLXArray) -> MLXArray {
         let nFft = Self.nFft
         let hopLength = Self.hopLength
-        let nMels = Self.nMels
 
-        // Pad audio for STFT
+        // Use precomputed window from model weights, or generate Hann window
+        let window: MLXArray
+        if let w = stftWindow {
+            window = w
+        } else {
+            let n = (0..<nFft).map { Float($0) }
+            let factor = Float.pi / Float(nFft - 1)
+            window = MLXArray(n.map { 0.5 - 0.5 * cos(2.0 * factor * $0) })
+        }
+
+        // Reflect-pad audio (center padding, matches PyTorch padding="center")
+        // MLX PadMode has no .reflect case; implement manually using negative-stride subscript.
         let padAmount = nFft / 2
-        let padded = MLX.padded(audio, widths: [IntOrPair((padAmount, padAmount))])
+        let n = audio.shape[0]
+        // leading: samples [padAmount..1] reversed (reflect excludes boundary)
+        let leading = audio[from: padAmount, to: 0, stride: -1, axis: 0]
+        // trailing: samples [n-2..n-1-padAmount] reversed
+        let trailing = audio[from: n - 2, to: n - 2 - padAmount, stride: -1, axis: 0]
+        let padded = MLX.concatenated([leading, audio, trailing], axis: 0)
 
-        // Window
-        let window = hannWindow(length: nFft)
-
-        // Frame the signal
+        // Frame the signal into overlapping windows
         let numSamples = padded.shape[0]
         let numFrames = 1 + (numSamples - nFft) / hopLength
 
         var frames: [MLXArray] = []
+        frames.reserveCapacity(numFrames)
         for i in 0..<numFrames {
             let start = i * hopLength
             let frame = padded[start..<(start + nFft)] * window
             frames.append(frame)
         }
-        let framed = MLX.stacked(frames, axis: 0)
+        let framed = MLX.stacked(frames, axis: 0)  // (T, nFft)
 
-        // FFT
-        let spec = MLXFFT.rfft(framed, axis: 1)
-        let magnitude = abs(spec)
+        // RFFT → power spectrum
+        let spec = MLXFFT.rfft(framed, axis: 1)     // (T, nFft/2+1) complex
+        let power = abs(spec).square()                // (T, 1025) power
 
-        // Mel filterbank (simplified — linear spacing approximation)
-        let melFB = melFilterbank(nMels: nMels, nFft: nFft, sampleRate: Self.sampleRate)
-        let melSpec = MLX.matmul(magnitude, melFB.T)
+        // Apply mel filterbank — use precomputed from model weights
+        let fb: MLXArray
+        if let precomputed = melFilterbank {
+            fb = precomputed  // shape [1025, 80] from PyTorch
+        } else {
+            fatalError("[LavaSR] mel filterbank not loaded from weights")
+        }
 
-        // Log scale
+        let melSpec = MLX.matmul(power, fb)           // (T, 80)
+
+        // Log scale (matches PyTorch: log10(mel + 1e-7))
         let logMel = MLX.log10(melSpec + 1e-7)
 
-        // Shape: (T, nMels) → (1, T, nMels) for backbone
+        // Shape: (T, 80) → (1, T, 80) for backbone
         return logMel.expandedDimensions(axis: 0)
-    }
-
-    private func hannWindow(length: Int) -> MLXArray {
-        let n = (0..<length).map { Float($0) }
-        let factor = Float.pi / Float(length - 1)
-        let window = n.map { 0.5 - 0.5 * cos(2.0 * factor * $0) }
-        return MLXArray(window)
-    }
-
-    private func melFilterbank(nMels: Int, nFft: Int, sampleRate: Int) -> MLXArray {
-        let nFreqs = nFft / 2 + 1
-        let fMax = Float(sampleRate) / 2.0
-
-        // Mel scale conversion (HTK formula)
-        func hzToMel(_ hz: Float) -> Float { 2595.0 * log10(1.0 + hz / 700.0) }
-        func melToHz(_ mel: Float) -> Float { 700.0 * (pow(10.0, mel / 2595.0) - 1.0) }
-
-        let melMin = hzToMel(0)
-        let melMax = hzToMel(fMax)
-
-        // nMels+2 equally spaced points in mel space
-        var melPoints = [Float]()
-        for i in 0...(nMels + 1) {
-            melPoints.append(melMin + Float(i) * (melMax - melMin) / Float(nMels + 1))
-        }
-        let hzPoints = melPoints.map { melToHz($0) }
-        let binPoints = hzPoints.map { Int(($0 / fMax) * Float(nFreqs - 1)) }
-
-        // Build filterbank matrix [nMels, nFreqs]
-        var fb = [[Float]](repeating: [Float](repeating: 0, count: nFreqs), count: nMels)
-        for m in 0..<nMels {
-            let left = binPoints[m]
-            let center = binPoints[m + 1]
-            let right = binPoints[m + 2]
-
-            for k in left..<center {
-                if center > left {
-                    fb[m][k] = Float(k - left) / Float(center - left)
-                }
-            }
-            for k in center..<right {
-                if right > center {
-                    fb[m][k] = Float(right - k) / Float(right - center)
-                }
-            }
-        }
-
-        return MLXArray(fb.flatMap { $0 }).reshaped([nMels, nFreqs])
     }
 }
