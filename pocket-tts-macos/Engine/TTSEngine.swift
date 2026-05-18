@@ -135,6 +135,11 @@ actor TTSEngine: TTSEngineProtocol {
         options: SynthesisOptions,
         continuation: AsyncStream<PCMFrame>.Continuation
     ) throws {
+        let wallStart = CFAbsoluteTimeGetCurrent()
+        print("[PocketTTS] ── synthesis start ──")
+        print("[PocketTTS] voice: \(voiceID), text: \(text.count) chars")
+
+        let t0 = CFAbsoluteTimeGetCurrent()
         let voice: LoadedVoice
         if voiceID.hasPrefix("imported:") {
             let importID = String(voiceID.dropFirst("imported:".count))
@@ -145,12 +150,20 @@ actor TTSEngine: TTSEngineProtocol {
             }
             voice = bundled
         }
+        let voiceMs = (CFAbsoluteTimeGetCurrent() - t0) * 1000
+        print("[PocketTTS] voice load: \(String(format: "%.1f", voiceMs))ms (T_voice=\(voice.tVoice))")
 
         let normalized = TextNormalizer.normalize(text)
         let chunks = splitForTokenLimit(normalized)
-        for chunk in chunks {
+        print("[PocketTTS] split into \(chunks.count) chunk(s)")
+        for (i, chunk) in chunks.enumerated() {
+            if chunks.count > 1 { print("[PocketTTS] chunk \(i + 1)/\(chunks.count)") }
             try runSynthesisChunk(text: chunk, voice: voice, options: options, continuation: continuation)
         }
+
+        let wallTotal = CFAbsoluteTimeGetCurrent() - wallStart
+        print("[PocketTTS] total wall: \(String(format: "%.2f", wallTotal))s, \(String(format: "%.1f", Double(text.count) / wallTotal)) chars/s")
+        print("[PocketTTS] ── synthesis end ──")
     }
 
     private func runSynthesisChunk(
@@ -160,10 +173,13 @@ actor TTSEngine: TTSEngineProtocol {
         continuation: AsyncStream<PCMFrame>.Continuation
     ) throws {
         // 1) Tokenize.
+        let tTokenize = CFAbsoluteTimeGetCurrent()
         let (tokens, textLen) = try tokenizer.encode(text, paddedLength: K.tTextMax)
         guard textLen <= K.tTextMax else {
             throw TTSEngineError.textOverflow(actualTokens: textLen, max: K.tTextMax)
         }
+        let tokenizeMs = (CFAbsoluteTimeGetCurrent() - tTokenize) * 1000
+        print("[PocketTTS] tokenize: \(String(format: "%.1f", tokenizeMs))ms (\(textLen) tokens)")
 
         // 2) Fresh states for each synthesize call (no carry-over from prior runs).
         let promptState = promptModel.makeState()
@@ -171,21 +187,26 @@ actor TTSEngine: TTSEngineProtocol {
         let mimiState = mimiModel.makeState()
 
         // 3) Seed prompt_phase state with voice K/V (positions 0..tVoice).
+        let tKV = CFAbsoluteTimeGetCurrent()
         try writeVoiceKV(into: promptState, voice: voice)
+        let kvMs = (CFAbsoluteTimeGetCurrent() - tKV) * 1000
 
-        // 4) Run prompt_phase once. Side effect: positions tVoice..tVoice+tTextMax
-        //    of each KV buffer get populated with text K/V.
+        // 4) Run prompt_phase once.
+        let tPromptPhase = CFAbsoluteTimeGetCurrent()
         let tPrompt = try runPromptPhase(state: promptState, tokens: tokens, voiceOffset: voice.tVoice, textLength: textLen)
+        let promptMs = (CFAbsoluteTimeGetCurrent() - tPromptPhase) * 1000
+        print("[PocketTTS] prompt phase: \(String(format: "%.1f", promptMs))ms (KV write: \(String(format: "%.1f", kvMs))ms, t_prompt=\(tPrompt))")
 
-        // 5) Copy populated KV from promptState into calmState (12 buffers,
-        //    direct fp16 memcpy via withMultiArray). ~60 µs total per the
-        //    bandwidth estimate in the plan.
+        // 5) Copy populated KV from promptState into calmState.
+        let tCopy = CFAbsoluteTimeGetCurrent()
         try copyKVState(from: promptState, to: calmState)
+        let copyMs = (CFAbsoluteTimeGetCurrent() - tCopy) * 1000
+        print("[PocketTTS] KV copy: \(String(format: "%.1f", copyMs))ms")
 
         // 6) AR loop: CaLM → next_latent → Mimi → PCM frame → emit.
         var prevLatent = [Float](repeating: .nan, count: 1 * 1 * K.ldim)   // BOS = NaN
         var eosStep: Int? = nil
-        let loopStart = Date()
+        let loopStart = CFAbsoluteTimeGetCurrent()
         var produced = 0
 
         for step in 0..<options.maxFrames {
@@ -214,13 +235,11 @@ actor TTSEngine: TTSEngineProtocol {
             prevLatent = nextLatent
         }
 
-        let elapsed = Date().timeIntervalSince(loopStart)
+        let elapsed = CFAbsoluteTimeGetCurrent() - loopStart
         let audioSec = Double(produced * K.mimiPCMPerFrame) / 24_000.0
         let fps = elapsed > 0 ? Double(produced) / elapsed : 0
-        FileHandle.standardOutput.write(Data(String(
-            format: "TTSEngine: produced %d frames, %.2fs audio in %.2fs (%.1f fps; real-time = 12.5 fps)\n",
-            produced, audioSec, elapsed, fps
-        ).utf8))
+        let rtf = elapsed > 0 ? audioSec / elapsed : 0
+        print("[PocketTTS] AR loop: \(produced) frames, \(String(format: "%.2f", audioSec))s audio in \(String(format: "%.2f", elapsed))s (\(String(format: "%.1f", fps)) fps, \(String(format: "%.1f", rtf))x real-time)")
     }
 
     // MARK: - Imported voice loading
