@@ -174,14 +174,21 @@ actor TTSEngine: TTSEngineProtocol {
         options: SynthesisOptions,
         continuation: AsyncStream<PCMFrame>.Continuation
     ) throws {
+        // Per-chunk text prep (P0-3): collapse whitespace, capitalize first,
+        // ensure terminal punctuation, pad short prompts. Also yields the
+        // per-chunk `framesAfterEosGuess` we add 2 to for trailing tail.
+        guard let prepared = TextPreprocessor.prepareTextPrompt(text) else { return }
+        var chunkOptions = options
+        chunkOptions.framesAfterEOS = prepared.framesAfterEosGuess + 2
+
         // 1) Tokenize.
         let tTokenize = CFAbsoluteTimeGetCurrent()
-        let (tokens, textLen) = try tokenizer.encode(text, paddedLength: K.tTextMax)
+        let (tokens, textLen) = try tokenizer.encode(prepared.text, paddedLength: K.tTextMax)
         guard textLen <= K.tTextMax else {
             throw TTSEngineError.textOverflow(actualTokens: textLen, max: K.tTextMax)
         }
         let tokenizeMs = (CFAbsoluteTimeGetCurrent() - tTokenize) * 1000
-        print("[PocketTTS] tokenize: \(String(format: "%.1f", tokenizeMs))ms (\(textLen) tokens)")
+        print("[PocketTTS] tokenize: \(String(format: "%.1f", tokenizeMs))ms (\(textLen) tokens, framesAfterEOS=\(chunkOptions.framesAfterEOS))")
 
         // 2) Fresh states for each synthesize call (no carry-over from prior runs).
         let promptState = promptModel.makeState()
@@ -211,9 +218,9 @@ actor TTSEngine: TTSEngineProtocol {
         let loopStart = CFAbsoluteTimeGetCurrent()
         var produced = 0
 
-        for step in 0..<options.maxFrames {
+        for step in 0..<chunkOptions.maxFrames {
             let frameOffset = Int32(tPrompt + step)
-            let noise = sampleTruncNormal(count: K.ldim, std: sqrt(options.temperature), clamp: options.noiseClamp)
+            let noise = sampleTruncNormal(count: K.ldim, std: sqrt(chunkOptions.temperature), clamp: chunkOptions.noiseClamp)
 
             let (nextLatent, isEos) = try runCaLMStep(
                 state: calmState,
@@ -229,11 +236,11 @@ actor TTSEngine: TTSEngineProtocol {
             )
 
             produced = step + 1
-            let final = isEos && eosStep == nil ? false : (eosStep.map { step >= $0 + options.framesAfterEOS } ?? false)
+            let final = isEos && eosStep == nil ? false : (eosStep.map { step >= $0 + chunkOptions.framesAfterEOS } ?? false)
             continuation.yield(PCMFrame(samples: pcm, isFinal: final))
 
             if isEos && eosStep == nil { eosStep = step }
-            if let e = eosStep, step >= e + options.framesAfterEOS { break }
+            if let e = eosStep, step >= e + chunkOptions.framesAfterEOS { break }
             prevLatent = nextLatent
         }
 
