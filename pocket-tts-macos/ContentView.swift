@@ -42,6 +42,12 @@ struct ContentView: View {
             minHeight: Theme.windowMinHeight,
             idealHeight: Theme.windowDefaultHeight
         )
+        .onAppear {
+            // First-launch migration of LLM endpoint + system prompts
+            // off UserDefaults into SwiftData. Idempotent — `loadOrSeed*`
+            // is a no-op once rows exist.
+            migrateChatSettingsIntoSwiftDataIfNeeded()
+        }
         .onChange(of: appState.engineStatus) { _, newStatus in
             if case .ready = newStatus { spinUpViewModels() }
         }
@@ -323,6 +329,43 @@ struct ContentView: View {
         } else {
             loadingView
         }
+    }
+
+    // MARK: - First-launch migration
+
+    /// Seed `LocalLLMEndpoint` from the user's existing
+    /// `chatSettings.baseURL`, and seed one `SystemPrompt` per scope
+    /// from the matching `chatSettings.*SystemPrompt` value (falling
+    /// back to the hardcoded defaults if blank).
+    ///
+    /// Both halves are idempotent — once a row exists for the endpoint
+    /// or for a scope, subsequent calls leave existing data alone. Safe
+    /// to call on every `onAppear`.
+    private func migrateChatSettingsIntoSwiftDataIfNeeded() {
+        _ = AppDataStore.loadOrSeedEndpoint(
+            modelContext,
+            fallbackBaseURL: appState.chatSettings.baseURL
+        )
+
+        // Per-scope seed content: prefer the user's current value;
+        // fall back to the hardcoded scope default when blank so the
+        // user has something to edit instead of an empty editor.
+        let chatBody = appState.chatSettings.systemPrompt
+        let singleBody = appState.chatSettings.singleVoiceSystemPrompt.isEmpty
+            ? ChatSettings.defaultSingleVoicePrompt
+            : appState.chatSettings.singleVoiceSystemPrompt
+        let multiBody = appState.chatSettings.multiTalkSystemPrompt.isEmpty
+            ? ChatSettings.defaultMultiTalkPrompt
+            : appState.chatSettings.multiTalkSystemPrompt
+
+        AppDataStore.loadOrSeedPrompts(
+            modelContext,
+            seedContent: [
+                .chat:        chatBody,
+                .singleVoice: singleBody,
+                .multiTalk:   multiBody,
+            ]
+        )
     }
 
     // MARK: - VM bootstrap

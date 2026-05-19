@@ -19,7 +19,12 @@ enum HistoryStore {
 
     static let schema = Schema([
         TTSHistoryItem.self,
-        HistorySpeaker.self
+        HistorySpeaker.self,
+        // Added in the SwiftData LLM-endpoint / system-prompt migration.
+        // Purely additive — SwiftData handles this without an explicit
+        // VersionedSchema since no existing entity types or fields change.
+        LocalLLMEndpoint.self,
+        SystemPrompt.self
     ])
 
     /// Production container (on-disk in the sandbox's app-support dir).
