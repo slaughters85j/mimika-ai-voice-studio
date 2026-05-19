@@ -312,17 +312,36 @@ nonisolated enum TextNormalizer {
     /// upstream by the unit table; replacing `°` here would break that
     /// match. Rare-enough edge case to defer.
     private static let smartPunctSubstitutions: [(Unicode.Scalar, String)] = [
-        // Curly quotes & apostrophes
+        // Curly single quotes → ASCII apostrophe. ASCII `'` is in vocab
+        // (token 264) and the model handles contractions correctly with
+        // it, so we preserve the apostrophe content.
         ("\u{2018}", "'"),    // ‘ left single
         ("\u{2019}", "'"),    // ’ right single / curly apostrophe
         ("\u{201A}", "'"),    // ‚ single low-9
         ("\u{201B}", "'"),    // ‛ single high-reversed-9
         ("\u{2032}", "'"),    // ′ prime
-        ("\u{201C}", "\""),   // “ left double
-        ("\u{201D}", "\""),   // ” right double
-        ("\u{201E}", "\""),   // „ double low-9
-        ("\u{201F}", "\""),   // ‟ double high-reversed-9
-        ("\u{2033}", "\""),   // ″ double prime
+
+        // ALL double quote forms → stripped to empty. The ASCII `"`
+        // (U+0022) is in the SP vocab as a single piece (token 3877),
+        // but the model produces audibly distorted output around it
+        // for quoted phrases mid-sentence (user-reported on `"space
+        // station romance"`). Python's reference passes quotes through
+        // verbatim and presumably has the same artifact; we strip on
+        // the Swift side because the audio quality regression matters
+        // more than preserving the quote glyph in token form. Spaces
+        // around the stripped quote get coalesced by the trailing
+        // `"  +" → " "` regex collapse at the end of `normalize(_:)`.
+        //
+        // Curly forms must map DIRECTLY to empty, not to ASCII `"`,
+        // because the substitution loop is single-pass over input
+        // scalars — replaced output isn't re-scanned, so a chained
+        // "curly → ASCII → empty" wouldn't fire the second hop.
+        ("\u{0022}", ""),     // " ASCII double quote
+        ("\u{201C}", ""),     // “ left double
+        ("\u{201D}", ""),     // ” right double
+        ("\u{201E}", ""),     // „ double low-9
+        ("\u{201F}", ""),     // ‟ double high-reversed-9
+        ("\u{2033}", ""),     // ″ double prime
 
         // Ellipsis (single char → three ASCII dots, which is the canonical
         // EOS-class `...` piece in vocab — token 799).

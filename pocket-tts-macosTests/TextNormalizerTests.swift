@@ -195,9 +195,14 @@ final class TextNormalizerTests: XCTestCase {
         XCTAssertEqual(TextNormalizer.normalize("\u{2018}cause"), "'cause")
     }
 
-    func test_curlyDoubleQuotesBecomeAscii() {
+    func test_curlyDoubleQuotesAreStripped() {
+        // Both ASCII `"` and curly `“`/`”` strip to empty in normalize.
+        // The model produces distorted audio around the `"` token in
+        // mid-sentence quoted phrases, so we drop the glyph entirely
+        // before tokenization. Stripped-into-empty + trailing
+        // whitespace collapse leaves the words readable.
         let input = "She said \u{201C}hello\u{201D} and walked away."
-        let expected = "She said \"hello\" and walked away."
+        let expected = "She said hello and walked away."
         XCTAssertEqual(TextNormalizer.normalize(input), expected)
     }
 
@@ -214,10 +219,10 @@ final class TextNormalizerTests: XCTestCase {
         XCTAssertEqual(TextNormalizer.normalize("Hello\u{00A0}world"), "Hello world")
     }
 
-    func test_asciiInputIsByteIdentical() {
-        // Smart-punctuation normalization must NOT touch already-ASCII
-        // strings (no spurious copies / character substitutions).
-        let plain = "She's said: \"don't worry about it!\""
+    func test_asciiInputUntouchedExceptForQuotes() {
+        // Smart-punct doesn't touch ASCII apostrophes, punctuation, or
+        // word characters — only ASCII double quotes get stripped.
+        let plain = "She's said: don't worry about it!"
         XCTAssertEqual(TextNormalizer.normalize(plain), plain)
     }
 
@@ -226,6 +231,44 @@ final class TextNormalizerTests: XCTestCase {
         let curly = "Well, let me tell you something, pal: it\u{2019}s not working!"
         let ascii = "Well, let me tell you something, pal: it's not working!"
         XCTAssertEqual(TextNormalizer.normalize(curly), ascii)
+    }
+
+    // MARK: - Double-quote stripping (model-artifact mitigation)
+
+    func test_asciiDoubleQuotesStripped() {
+        // The user-reported failing case — `"space station romance"`
+        // mid-sentence audibly distorts. Strip both quote characters
+        // so the words pass through cleanly; the whitespace collapse
+        // handles the runs of spaces left around the strips.
+        let input = "He said \"space station romance\" today."
+        let expected = "He said space station romance today."
+        XCTAssertEqual(TextNormalizer.normalize(input), expected)
+    }
+
+    func test_sentenceEndingClosingQuotePreservesTerminator() {
+        // `?` stays as the terminal char after stripping the closing
+        // quote — the chunker's sentence-boundary detection (which
+        // looks for `. ! ... ?`) still fires.
+        XCTAssertEqual(TextNormalizer.normalize("Why \"now\"?"), "Why now?")
+    }
+
+    func test_apostropheInsideQuotedStringPreserved() {
+        // Stripping `"` must not touch ASCII `'` — load-bearing for
+        // contractions ("don't", "let's").
+        XCTAssertEqual(TextNormalizer.normalize("\"don't worry\""), "don't worry")
+    }
+
+    func test_emptyQuotedStringCollapses() {
+        // `""` strips to empty, surrounding spaces collapse via the
+        // trailing `"  +" → " "` regex in normalize.
+        XCTAssertEqual(TextNormalizer.normalize("He said \"\" loudly."), "He said loudly.")
+    }
+
+    func test_singleAsciiApostropheRoundTrips() {
+        // Regression guard: nothing in the quote-strip work touched the
+        // ASCII apostrophe. Contractions remain unchanged.
+        let phrase = "let's go to the store this afternoon."
+        XCTAssertEqual(TextNormalizer.normalize(phrase), phrase)
     }
 
     // MARK: - Smart-punctuation Tier 1: invisibles & dash variants
@@ -329,9 +372,10 @@ final class TextNormalizerTests: XCTestCase {
     }
 
     func test_combinedSmartPunctSentence() {
-        // One sentence that touches every tier.
+        // One sentence that touches every tier. Curly double quotes
+        // around "hello" now strip to nothing (model artifact mitigation).
         let input = "She said \u{201C}hello\u{201D}\u{2026} I think it\u{2019}s about a 3\u{00D7}4 grid, \u{00BD} done\u{2026}"
-        let expected = "She said \"hello\"... I think it's about a three times four grid, one half done..."
+        let expected = "She said hello... I think it's about a three times four grid, one half done..."
         XCTAssertEqual(TextNormalizer.normalize(input), expected)
     }
 }
