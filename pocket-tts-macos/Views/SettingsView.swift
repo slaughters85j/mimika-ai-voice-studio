@@ -8,6 +8,10 @@ import SwiftUI
 struct SettingsView: View {
     @Binding var isPresented: Bool
     @Binding var settings: ChatSettings
+    /// Two-way binding to AppState's `pocketTTSChunkBudget`. Edited live
+    /// from the slider in this view; persistence is handled by
+    /// `AppState.didSet` so no save button is needed for this field.
+    @Binding var chunkBudget: Int
     let voices: [Voice]
     let onSave: (ChatSettings) -> Void
 
@@ -19,11 +23,13 @@ struct SettingsView: View {
     init(
         isPresented: Binding<Bool>,
         settings: Binding<ChatSettings>,
+        chunkBudget: Binding<Int>,
         voices: [Voice],
         onSave: @escaping (ChatSettings) -> Void
     ) {
         self._isPresented = isPresented
         self._settings = settings
+        self._chunkBudget = chunkBudget
         self.voices = voices
         self.onSave = onSave
         self._workingCopy = State(initialValue: settings.wrappedValue)
@@ -42,6 +48,8 @@ struct SettingsView: View {
                 lmStudioSection
                 Divider().background(Theme.borderColor)
                 voiceSection
+                Divider().background(Theme.borderColor)
+                pocketTTSTuningSection
                 Divider().background(Theme.borderColor)
                 systemPromptSection
                 Divider().background(Theme.borderColor)
@@ -151,6 +159,51 @@ struct SettingsView: View {
             .padding(.vertical, Theme.space2)
             .frame(maxWidth: .infinity, alignment: .leading)
             .themeInputField()
+        }
+    }
+
+    private var pocketTTSTuningSection: some View {
+        VStack(alignment: .leading, spacing: Theme.space3) {
+            Text("Pocket-TTS Tuning")
+                .font(Theme.fontSMBold)
+                .foregroundStyle(Theme.textPrimary)
+            Text("Lower the chunk budget if you hear distortion on long sentences or packed multi-sentence chunks. Smaller chunks reduce AR-error accumulation per chunk at the cost of more chunk-boundary resets. 50 matches the Python reference (fp32); 30 is a safer starting point for our fp16 model.")
+                .font(Theme.fontXS)
+                .foregroundStyle(Theme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: Theme.space3) {
+                Text("Chunk budget")
+                    .font(Theme.fontXS)
+                    .foregroundStyle(Theme.textSecondary)
+                    .frame(width: 110, alignment: .leading)
+                // Cast to Double for the slider's continuous binding,
+                // round back to Int on write so the persisted value
+                // stays whole.
+                Slider(
+                    value: Binding(
+                        get: { Double(chunkBudget) },
+                        set: { chunkBudget = Int($0.rounded()) }
+                    ),
+                    in: 15...50,
+                    step: 1
+                )
+                .accessibilityIdentifier("settings.chunkBudgetSlider")
+
+                Text("\(chunkBudget) tok")
+                    .font(Theme.fontXS.weight(.semibold))
+                    .foregroundStyle(Theme.textPrimary)
+                    .frame(width: 56, alignment: .trailing)
+                    .monospacedDigit()
+
+                Button(action: { chunkBudget = 50 }) {
+                    Text("Reset")
+                        .font(Theme.fontXS)
+                        .foregroundStyle(Theme.accent)
+                }
+                .buttonStyle(.plain)
+                .help("Reset chunk budget to Python reference default (50)")
+            }
         }
     }
 

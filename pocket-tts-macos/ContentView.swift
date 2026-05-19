@@ -76,6 +76,7 @@ struct ContentView: View {
             SettingsView(
                 isPresented: $appState.showsSettingsSheet,
                 settings: $appState.chatSettings,
+                chunkBudget: $appState.pocketTTSChunkBudget,
                 voices: voices,
                 onSave: { newSettings in
                     SettingsStore.save(newSettings)
@@ -299,8 +300,8 @@ struct ContentView: View {
 
     private func spinUpViewModels() {
         guard let engine = appState.engine, let player = appState.player else { return }
-        if singleVM == nil { singleVM = SingleVoiceViewModel(engine: engine, player: player) }
-        if multiVM == nil  { multiVM  = MultiTalkViewModel(engine: engine, player: player) }
+        if singleVM == nil { singleVM = SingleVoiceViewModel(engine: engine, player: player, appState: appState) }
+        if multiVM == nil  { multiVM  = MultiTalkViewModel(engine: engine, player: player, appState: appState) }
 
         // If the persisted backend is Fish, bootstrap it and swap engines.
         if appState.chatSettings.activeBackend == .fishSpeech {
@@ -314,7 +315,7 @@ struct ContentView: View {
             }
         }
         if chatVM == nil {
-            chatVM = ChatViewModel(engine: engine, player: player, settings: appState.chatSettings)
+            chatVM = ChatViewModel(engine: engine, player: player, settings: appState.chatSettings, appState: appState)
         }
         // Voice catalog: discovered by VoiceLoader at engine init; map IDs → Voice.
         let ids = engine.availableVoiceIDs()

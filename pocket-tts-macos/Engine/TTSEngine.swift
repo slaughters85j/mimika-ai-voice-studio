@@ -25,6 +25,15 @@ nonisolated struct SynthesisOptions: Sendable {
     var temperature: Float = 0.7
     var noiseClamp: Float? = nil
 
+    /// Per-chunk SentencePiece-token budget for the sentence-aware
+    /// splitter. Smaller = shorter chunks = less per-chunk AR error
+    /// accumulation, at the cost of more chunk-boundary resets.
+    /// Python's reference uses 50 (matching the fp32 model's tolerance);
+    /// our Core ML build is fp16 and may benefit from a smaller value
+    /// on long-sentence inputs. Surfaced as a Settings slider so the
+    /// user can tune per script. Range used by the UI: 15–50.
+    var chunkTokenBudget: Int = 50
+
     init() {}
 }
 
@@ -172,8 +181,8 @@ actor TTSEngine: TTSEngineProtocol {
         print("[PocketTTS] voice load: \(String(format: "%.1f", voiceMs))ms (T_voice=\(voice.tVoice))")
 
         let normalized = TextNormalizer.normalize(text)
-        let chunks = splitForTokenLimit(normalized)
-        print("[PocketTTS] split into \(chunks.count) chunk(s)")
+        let chunks = splitForTokenLimit(normalized, budget: options.chunkTokenBudget)
+        print("[PocketTTS] split into \(chunks.count) chunk(s) (budget \(options.chunkTokenBudget))")
         for (i, chunk) in chunks.enumerated() {
             if cancel.isCancelled {
                 print("[PocketTTS] cancelled before chunk \(i + 1)/\(chunks.count)")
@@ -321,12 +330,14 @@ actor TTSEngine: TTSEngineProtocol {
     // MARK: - Text splitting
 
     /// Split `text` into chunks suitable for separate AR generations.
-    /// Uses the SentencePiece-aware chunker for `SentencePieceTokenizer`;
-    /// falls back to a single chunk for the test-only `FixedPhraseTokenizer`
-    /// (its phrase is already small enough to fit).
-    private func splitForTokenLimit(_ text: String) -> [String] {
+    /// `budget` is the per-chunk SentencePiece-token target (caller-supplied,
+    /// driven by the app-level setting). Uses the SentencePiece-aware
+    /// chunker for `SentencePieceTokenizer`; falls back to a single chunk
+    /// for the test-only `FixedPhraseTokenizer` (its phrase is already
+    /// small enough to fit).
+    private func splitForTokenLimit(_ text: String, budget: Int) -> [String] {
         if let sp = tokenizer as? SentencePieceTokenizer {
-            let chunks = sp.splitIntoBestSentences(text, maxTokensPerChunk: K.chunkTokenBudget)
+            let chunks = sp.splitIntoBestSentences(text, maxTokensPerChunk: budget)
             return chunks.isEmpty ? [text] : chunks
         }
         return [text]

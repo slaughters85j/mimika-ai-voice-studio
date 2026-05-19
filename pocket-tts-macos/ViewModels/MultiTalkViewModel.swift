@@ -29,6 +29,7 @@ final class MultiTalkViewModel {
     // MARK: - Deps
     private var engine: any TTSEngineProtocol
     private let player: StreamingPlayer
+    private let appState: AppState
     private var modelContext: ModelContext?
     private var currentTask: Task<Void, Never>?
 
@@ -37,9 +38,19 @@ final class MultiTalkViewModel {
     /// the actual NSTextView via `MacTextEditor`'s coordinator.
     let editorBridge = TextEditorBridge()
 
-    init(engine: any TTSEngineProtocol, player: StreamingPlayer) {
+    init(engine: any TTSEngineProtocol, player: StreamingPlayer, appState: AppState) {
         self.engine = engine
         self.player = player
+        self.appState = appState
+    }
+
+    /// Build the per-call options, pulling user-tunable values (chunk
+    /// budget) live from AppState so every synthesize call sees the
+    /// latest setting.
+    private func currentSynthesisOptions() -> SynthesisOptions {
+        var options = SynthesisOptions()
+        options.chunkTokenBudget = appState.pocketTTSChunkBudget
+        return options
     }
 
     func setEngine(_ engine: any TTSEngineProtocol) {
@@ -167,7 +178,7 @@ final class MultiTalkViewModel {
             if Task.isCancelled { break }
             switch chunk {
             case let .text(voiceID, _, body):
-                for await frame in self.engine.synthesize(text: body, voiceID: voiceID, options: SynthesisOptions()) {
+                for await frame in self.engine.synthesize(text: body, voiceID: voiceID, options: self.currentSynthesisOptions()) {
                     collected.append(contentsOf: frame.samples)
                     relayCont.yield(PCMFrame(samples: frame.samples, isFinal: false))
                     if firstAudioAt == nil {
@@ -211,7 +222,7 @@ final class MultiTalkViewModel {
             case let .text(voiceID, name, body):
                 chunkIndex += 1
                 print("[MultiTalk-Batch] generating chunk \(chunkIndex)/\(textChunkCount): {\(name)} \"\(body.prefix(40))…\"")
-                for await frame in self.engine.synthesize(text: body, voiceID: voiceID, options: SynthesisOptions()) {
+                for await frame in self.engine.synthesize(text: body, voiceID: voiceID, options: self.currentSynthesisOptions()) {
                     collected.append(contentsOf: frame.samples)
                 }
             case let .pause(seconds):

@@ -48,6 +48,7 @@ final class ChatViewModel {
     // MARK: - Deps
     private let engine: TTSEngine
     private let player: StreamingPlayer
+    private let appState: AppState
     private var client: LMStudioClient
     var settings: ChatSettings {
         didSet { client = LMStudioClient(baseURL: URL(string: settings.baseURL) ?? Self.fallbackURL) }
@@ -73,11 +74,20 @@ final class ChatViewModel {
     private static let fallbackURL = URL(string: "http://localhost:1234")!
 
     // MARK: - Init
-    init(engine: TTSEngine, player: StreamingPlayer, settings: ChatSettings) {
+    init(engine: TTSEngine, player: StreamingPlayer, settings: ChatSettings, appState: AppState) {
         self.engine = engine
         self.player = player
+        self.appState = appState
         self.settings = settings
         self.client = LMStudioClient(baseURL: URL(string: settings.baseURL) ?? Self.fallbackURL)
+    }
+
+    /// Build the per-call options, pulling user-tunable values (chunk
+    /// budget) live from AppState.
+    private func currentSynthesisOptions() -> SynthesisOptions {
+        var options = SynthesisOptions()
+        options.chunkTokenBudget = appState.pocketTTSChunkBudget
+        return options
     }
 
     // MARK: - Lifecycle hooks
@@ -161,7 +171,7 @@ final class ChatViewModel {
                 self.status = .speaking(sentenceIndex: sentenceIndex)
 
                 let voiceID = self.settings.ttsVoiceID
-                let synthStream = self.engine.synthesize(text: sentence, voiceID: voiceID)
+                let synthStream = self.engine.synthesize(text: sentence, voiceID: voiceID, options: self.currentSynthesisOptions())
 
                 // Play this sentence and await full drain before the next.
                 do {

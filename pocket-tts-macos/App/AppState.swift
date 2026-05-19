@@ -68,6 +68,18 @@ final class AppState {
     /// LM Studio chat settings. Persisted via UserDefaults; loaded once at init.
     var chatSettings: ChatSettings
 
+    /// Per-chunk SentencePiece-token budget for Pocket-TTS synthesis.
+    /// Lower values produce shorter chunks with less accumulated AR
+    /// error per chunk, at the cost of more chunk-boundary resets.
+    /// Range 15–50; default 50 matches the Python reference. Auto-
+    /// persisted to UserDefaults on every change so the user's chosen
+    /// value survives launches.
+    var pocketTTSChunkBudget: Int = 50 {
+        didSet { UserDefaults.standard.set(pocketTTSChunkBudget, forKey: Self.chunkBudgetKey) }
+    }
+
+    private static let chunkBudgetKey = "com.slaughtersj.pocket-tts-macos.pocketTTSChunkBudget"
+
     /// One-shot loading state for the shared engine. UI surfaces this on first
     /// launch so the user knows something is happening during cold start.
     enum EngineStatus: Equatable {
@@ -91,6 +103,8 @@ final class AppState {
 
     init() {
         self.chatSettings = SettingsStore.load()
+        let savedBudget = UserDefaults.standard.integer(forKey: Self.chunkBudgetKey)
+        self.pocketTTSChunkBudget = (15...50).contains(savedBudget) ? savedBudget : 50
     }
 
     /// Build the Pocket-TTS engine + player once at app launch.

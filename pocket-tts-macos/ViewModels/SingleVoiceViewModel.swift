@@ -27,12 +27,23 @@ final class SingleVoiceViewModel {
     // MARK: - Deps
     private var engine: any TTSEngineProtocol
     private let player: StreamingPlayer
+    private let appState: AppState
     private var modelContext: ModelContext?
     private var currentTask: Task<Void, Never>?
 
-    init(engine: any TTSEngineProtocol, player: StreamingPlayer) {
+    init(engine: any TTSEngineProtocol, player: StreamingPlayer, appState: AppState) {
         self.engine = engine
         self.player = player
+        self.appState = appState
+    }
+
+    /// Build the per-call options, pulling user-tunable values (chunk
+    /// budget) live from AppState so every synthesize call sees the
+    /// latest setting without us caching it.
+    private func currentSynthesisOptions() -> SynthesisOptions {
+        var options = SynthesisOptions()
+        options.chunkTokenBudget = appState.pocketTTSChunkBudget
+        return options
     }
 
     func setEngine(_ engine: any TTSEngineProtocol) {
@@ -76,7 +87,7 @@ final class SingleVoiceViewModel {
             }()
 
             var collected: [Float] = []
-            let engineStream = self.engine.synthesize(text: snapshotText, voiceID: snapshotVoice, options: SynthesisOptions())
+            let engineStream = self.engine.synthesize(text: snapshotText, voiceID: snapshotVoice, options: self.currentSynthesisOptions())
             for await frame in engineStream {
                 collected.append(contentsOf: frame.samples)
                 relayCont.yield(frame)
