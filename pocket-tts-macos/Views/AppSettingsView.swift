@@ -16,6 +16,7 @@
 //  Chat-scoped fields (voice for chat replies, chat system prompt) live
 //  in ChatSettingsView, reachable only from the Chat tab's own gear icon.
 
+import SwiftData
 import SwiftUI
 
 struct AppSettingsView: View {
@@ -25,9 +26,15 @@ struct AppSettingsView: View {
     /// from the slider in this view; persistence is handled by
     /// `AppState.didSet` so no save button is needed for this field.
     @Binding var chunkBudget: Int
+    /// The SwiftData endpoint row holding `baseURL`. We don't `@Bindable`
+    /// it directly — the view keeps a snapshot in `workingBaseURL` so
+    /// Cancel can discard edits, matching the rest of the Done/Cancel
+    /// UX. Done writes back to `endpoint.baseURL`.
+    let endpoint: LocalLLMEndpoint
     let onSave: (ChatSettings) -> Void
 
     @State private var workingCopy: ChatSettings
+    @State private var workingBaseURL: String
     @State private var availableModels: [String] = []
     @State private var modelLoadError: String? = nil
     @State private var probeState: ProbeState = .idle
@@ -36,13 +43,16 @@ struct AppSettingsView: View {
         isPresented: Binding<Bool>,
         settings: Binding<ChatSettings>,
         chunkBudget: Binding<Int>,
+        endpoint: LocalLLMEndpoint,
         onSave: @escaping (ChatSettings) -> Void
     ) {
         self._isPresented = isPresented
         self._settings = settings
         self._chunkBudget = chunkBudget
+        self.endpoint = endpoint
         self.onSave = onSave
         self._workingCopy = State(initialValue: settings.wrappedValue)
+        self._workingBaseURL = State(initialValue: endpoint.baseURL)
     }
 
     enum ProbeState: Equatable {
@@ -78,7 +88,7 @@ struct AppSettingsView: View {
 
             HStack {
                 Text("Base URL").font(Theme.fontXS).foregroundStyle(Theme.textSecondary).frame(width: 90, alignment: .leading)
-                TextField("http://localhost:1234", text: $workingCopy.baseURL)
+                TextField("http://localhost:1234", text: $workingBaseURL)
                     .textFieldStyle(.plain)
                     .padding(.horizontal, Theme.space3)
                     .padding(.vertical, Theme.space2)
@@ -213,6 +223,13 @@ struct AppSettingsView: View {
     }
 
     private func saveAndClose() {
+        // baseURL lives in SwiftData now — write the working snapshot
+        // back to the endpoint row. SwiftData's autosave persists.
+        if endpoint.baseURL != workingBaseURL {
+            endpoint.baseURL = workingBaseURL
+            endpoint.updatedAt = .now
+        }
+        // Remaining fields (model, etc.) still live in ChatSettings.
         settings = workingCopy
         onSave(workingCopy)
         isPresented = false
@@ -220,7 +237,7 @@ struct AppSettingsView: View {
 
     private func loadModels() async {
         modelLoadError = nil
-        guard let url = URL(string: workingCopy.baseURL) else {
+        guard let url = URL(string: workingBaseURL) else {
             modelLoadError = "Invalid URL"
             return
         }
@@ -232,13 +249,13 @@ struct AppSettingsView: View {
                 workingCopy.model = first
             }
         } catch {
-            modelLoadError = "Couldn't reach \(workingCopy.baseURL)"
+            modelLoadError = "Couldn't reach \(workingBaseURL)"
         }
     }
 
     private func testConnection() async {
         probeState = .probing
-        guard let url = URL(string: workingCopy.baseURL) else {
+        guard let url = URL(string: workingBaseURL) else {
             probeState = .fail("invalid URL")
             return
         }

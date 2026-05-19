@@ -43,6 +43,11 @@ struct ContentView: View {
             idealHeight: Theme.windowDefaultHeight
         )
         .onAppear {
+            // Hand the SwiftData context to AppState first — downstream
+            // consumers (ChatViewModel, ScriptGenerator) read endpoint
+            // baseURL via `appState.currentEndpointBaseURL`, which needs
+            // the context to fetch the row.
+            appState.modelContext = modelContext
             // First-launch migration of LLM endpoint + system prompts
             // off UserDefaults into SwiftData. Idempotent — `loadOrSeed*`
             // is a no-op once rows exist.
@@ -85,6 +90,10 @@ struct ContentView: View {
                 isPresented: $appState.showsAppSettings,
                 settings: $appState.chatSettings,
                 chunkBudget: $appState.pocketTTSChunkBudget,
+                endpoint: AppDataStore.loadOrSeedEndpoint(
+                    modelContext,
+                    fallbackBaseURL: appState.chatSettings.baseURL
+                ),
                 onSave: { newSettings in
                     SettingsStore.save(newSettings)
                     chatVM?.settings = newSettings

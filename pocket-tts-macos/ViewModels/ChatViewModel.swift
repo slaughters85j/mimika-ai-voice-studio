@@ -49,10 +49,12 @@ final class ChatViewModel {
     private let engine: TTSEngine
     private let player: StreamingPlayer
     private let appState: AppState
-    private var client: LocalLLMClient
-    var settings: ChatSettings {
-        didSet { client = LocalLLMClient(baseURL: URL(string: settings.baseURL) ?? Self.fallbackURL) }
-    }
+    /// Pulled live from `appState.currentEndpointBaseURL` per request
+    /// (see `makeClient()`) — the baseURL lives in SwiftData now, not
+    /// in `ChatSettings`, so caching a `client` keyed on the struct's
+    /// value would go stale when the user edits the endpoint in
+    /// App Settings.
+    var settings: ChatSettings
 
     private var llmTask: Task<Void, Never>?
     private var ttsTask: Task<Void, Never>?
@@ -79,7 +81,14 @@ final class ChatViewModel {
         self.player = player
         self.appState = appState
         self.settings = settings
-        self.client = LocalLLMClient(baseURL: URL(string: settings.baseURL) ?? Self.fallbackURL)
+    }
+
+    /// Build a fresh `LocalLLMClient` against the current endpoint URL.
+    /// Creating an actor is cheap and avoids the stale-cache problem
+    /// from the pre-SwiftData design where `client` was rebuilt only on
+    /// `settings.didSet`.
+    private func makeClient() -> LocalLLMClient {
+        LocalLLMClient(baseURL: URL(string: appState.currentEndpointBaseURL) ?? Self.fallbackURL)
     }
 
     /// Build the per-call options, pulling user-tunable values (chunk
@@ -106,7 +115,7 @@ final class ChatViewModel {
     /// Manually trigger a single connection check (e.g. settings just changed).
     func checkConnection() async {
         do {
-            let models = try await client.listModels()
+            let models = try await makeClient().listModels()
             if let model = models.first {
                 let prefer = settings.model.isEmpty ? model : settings.model
                 connectionState = .connected(model: prefer)
@@ -139,7 +148,7 @@ final class ChatViewModel {
         llmTask = Task { [weak self, settings] in
             guard let self else { return }
             let detector = SentenceDetector()
-            let stream = self.client.streamChat(
+            let stream = self.makeClient().streamChat(
                 messages: self.messagesForRequest(),
                 model: settings.model.isEmpty ? model : settings.model,
                 systemPrompt: settings.systemPrompt

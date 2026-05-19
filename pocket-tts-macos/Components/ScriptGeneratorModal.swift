@@ -10,6 +10,7 @@
 //  editable inline via a disclosure toggle. Changes persist through the
 //  ChatSettings binding back to AppState → UserDefaults.
 
+import SwiftData
 import SwiftUI
 
 struct ScriptGeneratorModal: View {
@@ -17,6 +18,10 @@ struct ScriptGeneratorModal: View {
     let mode: ScriptGeneratorMode
     @Binding var chatSettings: ChatSettings
     let onAccept: (_ script: String, _ speakerNames: [String]) -> Void
+
+    /// SwiftData context — used to resolve the active LLM endpoint URL
+    /// without needing AppState injected through every parent view.
+    @Environment(\.modelContext) private var modelContext
 
     @State private var generator = ScriptGenerator()
     @State private var prompt: String = ""
@@ -37,7 +42,16 @@ struct ScriptGeneratorModal: View {
             }
             .frame(maxWidth: 560)
         }
-        .task { await generator.checkConnection(settings: chatSettings) }
+        .task { await generator.checkConnection(settings: chatSettings, baseURL: currentEndpointBaseURL()) }
+    }
+
+    /// Pull the user-configured LLM endpoint URL from SwiftData. Reads
+    /// fresh on every modal presentation so changes made in App
+    /// Settings between sessions take effect without restart.
+    private func currentEndpointBaseURL() -> String {
+        AppDataStore
+            .loadOrSeedEndpoint(modelContext, fallbackBaseURL: chatSettings.baseURL)
+            .baseURL
     }
 
     // MARK: - Title
@@ -142,7 +156,8 @@ struct ScriptGeneratorModal: View {
                 prompt: prompt,
                 mode: mode,
                 speakerCount: speakerCount,
-                settings: chatSettings
+                settings: chatSettings,
+                baseURL: currentEndpointBaseURL()
             )
         }) {
             HStack(spacing: Theme.space2) {

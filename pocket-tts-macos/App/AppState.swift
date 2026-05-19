@@ -9,6 +9,7 @@
 
 import Foundation
 import Observation
+import SwiftData
 
 // MARK: - Tab enum
 
@@ -89,6 +90,25 @@ final class AppState {
     }
 
     private static let chunkBudgetKey = "com.slaughtersj.pocket-tts-macos.pocketTTSChunkBudget"
+
+    /// SwiftData context for the app-wide models (LocalLLMEndpoint,
+    /// SystemPrompt, history). Set by `ContentView.onAppear` once the
+    /// `@Environment(\.modelContext)` is in scope. View models that
+    /// need SwiftData reach into AppState rather than carrying their
+    /// own context references.
+    var modelContext: ModelContext?
+
+    /// Live read of the user's LLM endpoint base URL from SwiftData.
+    /// Idempotently seeds the singleton row if missing. Falls back to
+    /// `chatSettings.baseURL` (the pre-migration value) if the context
+    /// isn't set yet — shouldn't happen in practice after the first
+    /// onAppear, but keeps the call safe.
+    var currentEndpointBaseURL: String {
+        guard let ctx = modelContext else { return chatSettings.baseURL }
+        return AppDataStore
+            .loadOrSeedEndpoint(ctx, fallbackBaseURL: chatSettings.baseURL)
+            .baseURL
+    }
 
     /// One-shot loading state for the shared engine. UI surfaces this on first
     /// launch so the user knows something is happening during cold start.

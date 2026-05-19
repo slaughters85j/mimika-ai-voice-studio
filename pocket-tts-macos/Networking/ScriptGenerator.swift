@@ -40,9 +40,9 @@ final class ScriptGenerator {
 
     // MARK: - Connection probe
 
-    func checkConnection(settings: ChatSettings) async {
+    func checkConnection(settings: ChatSettings, baseURL: String) async {
         connectionState = .checking
-        let client = LocalLLMClient(baseURL: URL(string: settings.baseURL) ?? fallbackURL)
+        let client = LocalLLMClient(baseURL: URL(string: baseURL) ?? fallbackURL)
         do {
             let models = try await client.listModels()
             if let model = models.first {
@@ -58,7 +58,7 @@ final class ScriptGenerator {
 
     // MARK: - Generation
 
-    func generate(prompt: String, mode: ScriptGeneratorMode, speakerCount: Int, settings: ChatSettings) {
+    func generate(prompt: String, mode: ScriptGeneratorMode, speakerCount: Int, settings: ChatSettings, baseURL: String) {
         guard case .connected(let model) = connectionState else { return }
 
         status = .generating
@@ -72,7 +72,7 @@ final class ScriptGenerator {
                          .replacingOccurrences(of: "speaker count", with: "\(speakerCount)")
             : basePrompt
 
-        let client = LocalLLMClient(baseURL: URL(string: settings.baseURL) ?? fallbackURL)
+        let client = LocalLLMClient(baseURL: URL(string: baseURL) ?? fallbackURL)
         let userMessage = ChatMessage(role: .user, content: prompt)
         let preferredModel = settings.model.isEmpty ? model : settings.model
 
