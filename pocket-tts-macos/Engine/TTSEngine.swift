@@ -368,7 +368,7 @@ actor TTSEngine: TTSEngineProtocol {
     // sample frame), the very first sample is multiplied by 0 and the
     // very last by 1 on fade-in (and reversed on fade-out).
 
-    private nonisolated static func applyLinearFadeIn(_ samples: [Float], fadeSamples: Int) -> [Float] {
+    nonisolated static func applyLinearFadeIn(_ samples: [Float], fadeSamples: Int) -> [Float] {
         let n = min(fadeSamples, samples.count)
         if n <= 0 { return samples }
         var out = samples
@@ -383,7 +383,41 @@ actor TTSEngine: TTSEngineProtocol {
         return out
     }
 
-    private nonisolated static func applyLinearFadeOut(_ samples: [Float], fadeSamples: Int) -> [Float] {
+    /// Apply a linear fade ramp across a SLICE of a longer fade region
+    /// to the supplied frame's samples. Used by the AR loop to taper
+    /// the EOS frame + post-EOS tail across multiple PCMFrame yields.
+    ///
+    ///   * `framesIntoTail` — index of this frame within the tail
+    ///     region. 0 = the EOS-detection frame itself.
+    ///   * `totalTailFrames` — total frame count in the tail region.
+    ///     Typically `framesAfterEOS + 1` (EOS frame + N trailing).
+    ///
+    /// Gain at the start of the EOS frame (sample 0 of frame 0) is
+    /// 1.0; gain at the end of the final tail frame is 0.0; everything
+    /// between linearly interpolates. Returns input unchanged if
+    /// `totalTailFrames <= 1`.
+    private nonisolated static func applyTailFade(
+        _ samples: [Float],
+        framesIntoTail: Int,
+        totalTailFrames: Int
+    ) -> [Float] {
+        guard totalTailFrames > 1, framesIntoTail >= 0, framesIntoTail < totalTailFrames else {
+            return samples
+        }
+        let perFrame = samples.count
+        let totalSamples = totalTailFrames * perFrame
+        let baseGlobal = framesIntoTail * perFrame
+        let denom = Float(totalSamples - 1)
+        var out = samples
+        for i in 0..<perFrame {
+            let globalIdx = baseGlobal + i
+            let gain = 1.0 - Float(globalIdx) / denom
+            out[i] *= gain
+        }
+        return out
+    }
+
+    nonisolated static func applyLinearFadeOut(_ samples: [Float], fadeSamples: Int) -> [Float] {
         let n = min(fadeSamples, samples.count)
         if n <= 0 { return samples }
         var out = samples
@@ -415,10 +449,19 @@ actor TTSEngine: TTSEngineProtocol {
     ) throws {
         // Per-chunk text prep (P0-3): collapse whitespace, capitalize first,
         // ensure terminal punctuation, pad short prompts. Also yields the
-        // per-chunk `framesAfterEosGuess` we add 2 to for trailing tail.
+        // per-chunk `framesAfterEosGuess` we add to for trailing tail.
+        //
+        // Tail trimming: was `+ 2` to match Python's reference, but user
+        // reports back-of-sentence distortion under our fp16 Core ML
+        // build that Python's fp32 doesn't have. Dropping the tail by
+        // one frame (80 ms) shortens the region where fp16 AR-drift
+        // produces audibly bad samples. Combined with the linear
+        // fade-out applied across the remaining tail (see below in the
+        // AR loop), the tail of every chunk now ramps to silence
+        // instead of cutting off on potentially-distorted audio.
         guard let prepared = TextPreprocessor.prepareTextPrompt(text) else { return }
         var chunkOptions = options
-        chunkOptions.framesAfterEOS = prepared.framesAfterEosGuess + 2
+        chunkOptions.framesAfterEOS = prepared.framesAfterEosGuess + 1
 
         // 1) Tokenize.
         let tTokenize = CFAbsoluteTimeGetCurrent()
@@ -487,11 +530,30 @@ actor TTSEngine: TTSEngineProtocol {
             // so emitting it per-chunk would fire that callback multiple
             // times — and SingleVoiceViewModel breaks its for-await on
             // isFinal=true. Both wrong before the gate. See plan file.
+            //
+            // Tail-distortion mitigation: set `eosStep` BEFORE we yield
+            // so we can fade the EOS frame + post-EOS tail. The fade
+            // ramps linearly from 1.0 (at the start of the EOS frame)
+            // to 0.0 (at the end of the last post-EOS frame). This
+            // masks the fp16 AR-drift garbage that accumulates in the
+            // tail. Pre-EOS frames are unaffected — they play at full
+            // volume.
+            if isEos && eosStep == nil { eosStep = step }
             let isAtFinalChunkFrame = eosStep.map { step >= $0 + chunkOptions.framesAfterEOS } ?? false
             let final = isLastChunk && isAtFinalChunkFrame
-            yield(PCMFrame(samples: pcm, isFinal: final))
 
-            if isEos && eosStep == nil { eosStep = step }
+            let yieldSamples: [Float]
+            if let eos = eosStep {
+                yieldSamples = Self.applyTailFade(
+                    pcm,
+                    framesIntoTail: step - eos,
+                    totalTailFrames: chunkOptions.framesAfterEOS + 1
+                )
+            } else {
+                yieldSamples = pcm
+            }
+            yield(PCMFrame(samples: yieldSamples, isFinal: final))
+
             if let e = eosStep, step >= e + chunkOptions.framesAfterEOS { break }
             prevLatent = nextLatent
         }
