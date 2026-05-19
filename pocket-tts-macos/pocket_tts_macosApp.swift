@@ -32,7 +32,7 @@ struct pocket_tts_macosApp: App {
         .commands {
             CommandGroup(replacing: .appSettings) {
                 Button("Settings…") {
-                    appState.showsSettingsSheet = true
+                    appState.showsAppSettings = true
                 }
                 .keyboardShortcut(",", modifiers: .command)
             }

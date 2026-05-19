@@ -72,16 +72,30 @@ struct ContentView: View {
                 }
             }
         }
-        .sheet(isPresented: $appState.showsSettingsSheet) {
-            SettingsView(
-                isPresented: $appState.showsSettingsSheet,
+        // App-wide settings (LM Studio + Pocket-TTS Tuning). Reachable from
+        // the global header gear icon and from Cmd+,.
+        .sheet(isPresented: $appState.showsAppSettings) {
+            AppSettingsView(
+                isPresented: $appState.showsAppSettings,
                 settings: $appState.chatSettings,
                 chunkBudget: $appState.pocketTTSChunkBudget,
-                voices: voices,
                 onSave: { newSettings in
                     SettingsStore.save(newSettings)
                     chatVM?.settings = newSettings
                     Task { await chatVM?.checkConnection() }
+                }
+            )
+        }
+        // Chat-scoped settings (TTS voice + chat system prompt). Reachable
+        // only from the Chat tab's own gear button.
+        .sheet(isPresented: $appState.showsChatSettings) {
+            ChatSettingsView(
+                isPresented: $appState.showsChatSettings,
+                settings: $appState.chatSettings,
+                voices: voices,
+                onSave: { newSettings in
+                    SettingsStore.save(newSettings)
+                    chatVM?.settings = newSettings
                 }
             )
         }
@@ -215,13 +229,28 @@ struct ContentView: View {
                     .foregroundStyle(Theme.textSecondary)
             }
             Spacer()
-            Button(action: { appState.showsVoiceManager = true }) {
-                Image(systemName: "waveform.circle")
-                    .font(.system(size: 18))
-                    .foregroundStyle(Theme.textSecondary)
+            HStack(spacing: Theme.space3) {
+                Button(action: { appState.showsVoiceManager = true }) {
+                    Image(systemName: "waveform.circle")
+                        .font(.system(size: 18))
+                        .foregroundStyle(Theme.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .help("Voice Manager")
+                .accessibilityIdentifier("header.voiceManagerButton")
+
+                // Global app-settings button. Reaches LM Studio + Pocket-TTS
+                // tuning from any tab. The Chat tab has its own (chat-only)
+                // gear button inside its header.
+                Button(action: { appState.showsAppSettings = true }) {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 16))
+                        .foregroundStyle(Theme.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .help("App Settings")
+                .accessibilityIdentifier("header.appSettingsButton")
             }
-            .buttonStyle(.plain)
-            .help("Voice Manager")
             .padding(.trailing, Theme.space4)
         }
         .frame(maxWidth: .infinity)
@@ -287,7 +316,7 @@ struct ContentView: View {
                 ChatView(
                     viewModel: chatVM,
                     player: appState.player!,
-                    onOpenSettings: { appState.showsSettingsSheet = true },
+                    onOpenSettings: { appState.showsChatSettings = true },
                     onOpenInMultiTalk: { payload in appState.queueReuse(payload) }
                 )
             }

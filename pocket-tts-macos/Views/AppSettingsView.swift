@@ -1,18 +1,30 @@
 //
-//  SettingsView.swift
+//  AppSettingsView.swift
 //  pocket-tts-macos
 //
+//  App-wide settings reachable from any tab via the gear icon in the
+//  global header (next to the Voice Manager) or via Cmd+,. Contains
+//  configuration that applies across tabs:
+//
+//    * LM Studio base URL + model. Drives the AI Writer in Single Voice
+//      and Multi-Talk *and* the Chat tab — was previously locked inside
+//      the Chat settings sheet, which made no sense as those features
+//      moved out of Chat-only territory.
+//    * Pocket-TTS chunk-budget slider. Affects every synthesize call in
+//      Single Voice, Multi-Talk, and Chat.
+//
+//  Chat-scoped fields (voice for chat replies, chat system prompt) live
+//  in ChatSettingsView, reachable only from the Chat tab's own gear icon.
 
 import SwiftUI
 
-struct SettingsView: View {
+struct AppSettingsView: View {
     @Binding var isPresented: Bool
     @Binding var settings: ChatSettings
     /// Two-way binding to AppState's `pocketTTSChunkBudget`. Edited live
     /// from the slider in this view; persistence is handled by
     /// `AppState.didSet` so no save button is needed for this field.
     @Binding var chunkBudget: Int
-    let voices: [Voice]
     let onSave: (ChatSettings) -> Void
 
     @State private var workingCopy: ChatSettings
@@ -24,13 +36,11 @@ struct SettingsView: View {
         isPresented: Binding<Bool>,
         settings: Binding<ChatSettings>,
         chunkBudget: Binding<Int>,
-        voices: [Voice],
         onSave: @escaping (ChatSettings) -> Void
     ) {
         self._isPresented = isPresented
         self._settings = settings
         self._chunkBudget = chunkBudget
-        self.voices = voices
         self.onSave = onSave
         self._workingCopy = State(initialValue: settings.wrappedValue)
     }
@@ -43,15 +53,11 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        ModalContainer(title: "Settings", onClose: cancel) {
+        ModalContainer(title: "App Settings", onClose: cancel) {
             VStack(alignment: .leading, spacing: Theme.space4) {
                 lmStudioSection
                 Divider().background(Theme.borderColor)
-                voiceSection
-                Divider().background(Theme.borderColor)
                 pocketTTSTuningSection
-                Divider().background(Theme.borderColor)
-                systemPromptSection
                 Divider().background(Theme.borderColor)
                 actions
             }
@@ -65,6 +71,10 @@ struct SettingsView: View {
     private var lmStudioSection: some View {
         VStack(alignment: .leading, spacing: Theme.space3) {
             Text("LM Studio").font(Theme.fontSMBold).foregroundStyle(Theme.textPrimary)
+            Text("Used by the AI Writer in Single Voice and Multi-Talk, and by Chat for streaming replies.")
+                .font(Theme.fontXS)
+                .foregroundStyle(Theme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
 
             HStack {
                 Text("Base URL").font(Theme.fontXS).foregroundStyle(Theme.textSecondary).frame(width: 90, alignment: .leading)
@@ -73,7 +83,7 @@ struct SettingsView: View {
                     .padding(.horizontal, Theme.space3)
                     .padding(.vertical, Theme.space2)
                     .themeInputField()
-                    .accessibilityIdentifier("settings.baseURL")
+                    .accessibilityIdentifier("appSettings.baseURL")
             }
 
             HStack {
@@ -84,7 +94,7 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.menu)
                 .labelsHidden()
-                .accessibilityIdentifier("settings.modelPicker")
+                .accessibilityIdentifier("appSettings.modelPicker")
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 Button(action: { Task { await loadModels() } }) {
@@ -93,7 +103,7 @@ struct SettingsView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Refresh model list")
-                .accessibilityIdentifier("settings.refreshModels")
+                .accessibilityIdentifier("appSettings.refreshModels")
             }
 
             if let modelLoadError {
@@ -128,40 +138,6 @@ struct SettingsView: View {
         }
     }
 
-    private var voiceSection: some View {
-        let importedVoices = FishVoiceManager.shared.voices.filter { $0.pocketTTSKVPath != nil }
-        let builtInVoices = voices
-            .filter { $0.type == .predefined }
-            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-
-        return VStack(alignment: .leading, spacing: Theme.space3) {
-            Text("TTS Voice for chat replies")
-                .font(Theme.fontSMBold)
-                .foregroundStyle(Theme.textPrimary)
-
-            Picker("", selection: $workingCopy.ttsVoiceID) {
-                Section("Built-in") {
-                    ForEach(builtInVoices, id: \.id) { v in
-                        Text(v.name).tag(v.id)
-                    }
-                }
-                if !importedVoices.isEmpty {
-                    Section("My Voices") {
-                        ForEach(importedVoices) { v in
-                            Text(v.isEnhanced ? "✨ \(v.name)" : v.name).tag("imported:\(v.id)")
-                        }
-                    }
-                }
-            }
-            .pickerStyle(.menu)
-            .labelsHidden()
-            .padding(.horizontal, Theme.space3)
-            .padding(.vertical, Theme.space2)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .themeInputField()
-        }
-    }
-
     private var pocketTTSTuningSection: some View {
         VStack(alignment: .leading, spacing: Theme.space3) {
             Text("Pocket-TTS Tuning")
@@ -177,9 +153,6 @@ struct SettingsView: View {
                     .font(Theme.fontXS)
                     .foregroundStyle(Theme.textSecondary)
                     .frame(width: 110, alignment: .leading)
-                // Cast to Double for the slider's continuous binding,
-                // round back to Int on write so the persisted value
-                // stays whole.
                 Slider(
                     value: Binding(
                         get: { Double(chunkBudget) },
@@ -188,7 +161,7 @@ struct SettingsView: View {
                     in: 15...50,
                     step: 1
                 )
-                .accessibilityIdentifier("settings.chunkBudgetSlider")
+                .accessibilityIdentifier("appSettings.chunkBudgetSlider")
 
                 Text("\(chunkBudget) tok")
                     .font(Theme.fontXS.weight(.semibold))
@@ -204,25 +177,6 @@ struct SettingsView: View {
                 .buttonStyle(.plain)
                 .help("Reset chunk budget to Python reference default (50)")
             }
-        }
-    }
-
-    private var systemPromptSection: some View {
-        VStack(alignment: .leading, spacing: Theme.space3) {
-            Text("System Prompt (optional)")
-                .font(Theme.fontSMBold)
-                .foregroundStyle(Theme.textPrimary)
-            Text("Sent as the first system message in every conversation.")
-                .font(Theme.fontXS)
-                .foregroundStyle(Theme.textSecondary)
-            TextEditor(text: $workingCopy.systemPrompt)
-                .font(Theme.fontSM)
-                .foregroundStyle(Theme.textPrimary)
-                .scrollContentBackground(.hidden)
-                .padding(Theme.space3)
-                .frame(minHeight: 80, maxHeight: 160)
-                .themeInputField()
-                .accessibilityIdentifier("settings.systemPrompt")
         }
     }
 
@@ -248,7 +202,7 @@ struct SettingsView: View {
                     .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
             }
             .buttonStyle(.plain)
-            .accessibilityIdentifier("settings.doneButton")
+            .accessibilityIdentifier("appSettings.doneButton")
         }
     }
 

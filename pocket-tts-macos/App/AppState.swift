@@ -56,8 +56,15 @@ final class AppState {
     var selectedTab: AppTab = .single
     var pendingReuse: PendingReuse?
 
-    /// Settings sheet visibility (toggled by Cmd+, or the gear icon).
-    var showsSettingsSheet: Bool = false
+    /// App-wide settings sheet visibility (LM Studio config, Pocket-TTS
+    /// tuning). Toggled by Cmd+, or the gear icon in the global header
+    /// so it's reachable from any tab.
+    var showsAppSettings: Bool = false
+
+    /// Chat-scoped settings sheet visibility (TTS voice for chat replies,
+    /// chat system prompt). Triggered by the gear icon inside the Chat
+    /// tab's own header — those settings only make sense in chat context.
+    var showsChatSettings: Bool = false
 
     /// Voice Manager sheet visibility.
     var showsVoiceManager: Bool = false
