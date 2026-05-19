@@ -335,12 +335,24 @@ actor TTSEngine: TTSEngineProtocol {
     /// chunker for `SentencePieceTokenizer`; falls back to a single chunk
     /// for the test-only `FixedPhraseTokenizer` (its phrase is already
     /// small enough to fit).
+    ///
+    /// Two-pass design. The sentence-aware chunker packs to `budget` and
+    /// can return individual chunks larger than that when a single
+    /// sentence exceeds it — including the pathological case of an LLM
+    /// emitting a run-on with no internal `.`/`!`/`?`. The second pass
+    /// flat-maps any chunk that's still over the model's hard
+    /// `K.tTextMax` limit through `subdivideIfNeeded`, which falls back
+    /// to comma/semicolon/colon boundaries, then word boundaries, then a
+    /// hard token-index cut. Leave a small headroom (`-8`) below
+    /// `K.tTextMax` so the per-chunk `TextPreprocessor.prepareTextPrompt`
+    /// has room to pad short chunks with 8 leading spaces if it wants to.
     private func splitForTokenLimit(_ text: String, budget: Int) -> [String] {
-        if let sp = tokenizer as? SentencePieceTokenizer {
-            let chunks = sp.splitIntoBestSentences(text, maxTokensPerChunk: budget)
-            return chunks.isEmpty ? [text] : chunks
+        guard let sp = tokenizer as? SentencePieceTokenizer else { return [text] }
+        let sentenceChunks = sp.splitIntoBestSentences(text, maxTokensPerChunk: budget)
+        let withFit = sentenceChunks.flatMap {
+            sp.subdivideIfNeeded($0, maxTokens: K.tTextMax - 8)
         }
-        return [text]
+        return withFit.isEmpty ? [text] : withFit
     }
 
     // MARK: - State seeding

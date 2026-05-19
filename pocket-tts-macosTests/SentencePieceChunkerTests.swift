@@ -150,4 +150,72 @@ final class SentencePieceChunkerTests: XCTestCase {
         let decodedLetters = decoded.filter { $0.isLetter }
         XCTAssertEqual(decodedLetters, originalLetters)
     }
+
+    // MARK: - Sub-sentence subdivision (over-long chunks)
+
+    func test_subdivide_passesShortInputThrough() throws {
+        let tok = try makeTokenizer()
+        let short = "Hello world this is fine."
+        let result = tok.subdivideIfNeeded(short, maxTokens: 50)
+        XCTAssertEqual(result.count, 1)
+        XCTAssertEqual(result[0], short)
+    }
+
+    func test_subdivide_splitsOnCommas() throws {
+        let tok = try makeTokenizer()
+        // Multiple comma clauses, total tokens > maxTokens. The
+        // subdivider should cut at comma boundaries before resorting
+        // to word-level cuts.
+        let input = "First clause goes here, second clause goes here, third clause goes here, fourth clause goes here, fifth clause goes here."
+        let result = tok.subdivideIfNeeded(input, maxTokens: 12)
+        XCTAssertGreaterThan(result.count, 1, "expected subdivision; got 1 chunk: \(result)")
+        // Every result chunk must fit within the budget.
+        for piece in result {
+            let tokens = tok.encodeIDs(piece)
+            XCTAssertLessThanOrEqual(tokens.count, 12, "piece overflows budget: \(tokens.count) tokens for \(piece.debugDescription)")
+        }
+    }
+
+    func test_subdivide_userRunOnSentence_LLMOutput() throws {
+        let tok = try makeTokenizer()
+        // The actual user-reported failure: 791-char LLM run-on with
+        // no internal terminal punctuation. Pre-fix this overflowed
+        // the 128-token model limit and crashed `runSynthesisChunk`.
+        // After the fix it should subdivide into multiple chunks,
+        // none of which exceeds the limit.
+        let input = """
+        I've heard of some pretty weird stuff happening in the close \
+        quarters of a spaceship but I have to say that whole space station \
+        romance thing is still really fascinating to me even if it's also \
+        kind of cringeworthy at times you know when people are stuck \
+        together for months on end with no fresh air or decent coffee what \
+        do they expect things just happen and sometimes those things can \
+        get pretty weird like who knew that the engineer in charge of \
+        repairing the life support systems had a thing for one of the \
+        junior officers or that the captain's favorite officer was \
+        secretly seeing his right-hand man it's all very soap opera-ish \
+        but you have to admit it makes for some great stories later on \
+        when people are trying to make sense of their feelings and actions \
+        after months of isolation
+        """
+        let result = tok.subdivideIfNeeded(input, maxTokens: 120)
+        XCTAssertGreaterThan(result.count, 1, "expected at least 2 sub-chunks for a 220-token run-on")
+        for piece in result {
+            let tokens = tok.encodeIDs(piece)
+            XCTAssertLessThanOrEqual(tokens.count, 120, "piece overflows model limit: \(tokens.count) tokens — \(piece.prefix(40))…")
+        }
+    }
+
+    func test_subdivide_fallsBackToWordBoundariesWhenNoComma() throws {
+        let tok = try makeTokenizer()
+        // No comma, semicolon, or sentence-end inside the input. Sub-
+        // divider must fall back to word boundaries to fit `maxTokens`.
+        let input = String(repeating: "word ", count: 60)
+        let result = tok.subdivideIfNeeded(input, maxTokens: 20)
+        XCTAssertGreaterThan(result.count, 1)
+        for piece in result {
+            let tokens = tok.encodeIDs(piece)
+            XCTAssertLessThanOrEqual(tokens.count, 20, "piece overflows budget: \(tokens.count) tokens")
+        }
+    }
 }

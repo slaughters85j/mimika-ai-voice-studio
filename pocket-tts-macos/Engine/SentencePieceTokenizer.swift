@@ -86,6 +86,11 @@ nonisolated struct SentencePieceTokenizer: Tokenizer {
     /// variants). Computed once at init; consumed by the sentence-aware
     /// chunker in `TTSEngine`.
     let endOfSentenceTokenIDs: Set<Int32>
+    /// Token IDs for sub-sentence soft separators — comma / semicolon /
+    /// colon. Used by `subdivideIfNeeded` to break apart sentences that
+    /// individually exceed the model's hard token limit (e.g. an LLM
+    /// emits a run-on with no internal terminal punctuation).
+    let subSentenceBoundaryTokenIDs: Set<Int32>
 
     init() throws {
         guard let url = Bundle.main.url(forResource: "tokenizer_vocab", withExtension: "json") else {
@@ -142,7 +147,7 @@ nonisolated struct SentencePieceTokenizer: Tokenizer {
             // Tokenize the punctuation sentinel string, drop the leading
             // space-marker token, the remainder are the EOS-class tokens.
             // Run the static viterbi here because `self` isn't fully formed
-            // yet — `endOfSentenceTokenIDs` is the final stored property.
+            // yet — these are the final stored properties.
             let eosTokens = Self.viterbiEncode(
                 normalized: Self.normalize(".!...?"),
                 pieceToScore: pieceToScore,
@@ -151,6 +156,16 @@ nonisolated struct SentencePieceTokenizer: Tokenizer {
                 byteFallbackScores: scoresByByte
             )
             self.endOfSentenceTokenIDs = Set(eosTokens.dropFirst())
+
+            // Sub-sentence soft boundaries — commas / semicolons / colons.
+            let softTokens = Self.viterbiEncode(
+                normalized: Self.normalize(",;:"),
+                pieceToScore: pieceToScore,
+                pieceToID: pieceToID,
+                byteFallbackIDs: idsByByte,
+                byteFallbackScores: scoresByByte
+            )
+            self.subSentenceBoundaryTokenIDs = Set(softTokens.dropFirst())
         } catch let e as LoadError {
             throw e
         } catch {
@@ -274,6 +289,75 @@ nonisolated struct SentencePieceTokenizer: Tokenizer {
             chunks.append(current.trimmingCharacters(in: .whitespaces))
         }
         return chunks
+    }
+
+    // MARK: - Sub-sentence subdivision (safety net for over-long chunks)
+
+    /// Return `text` split into pieces that each fit within `maxTokens`,
+    /// preferring natural break points in this order:
+    ///
+    ///   1. soft-boundary tokens (comma / semicolon / colon) — gives a
+    ///      clean sub-clause break the model handles well
+    ///   2. word-start tokens (any piece prefixed with `▁`) — last-resort
+    ///      cut on a word boundary
+    ///   3. hard token-index cut at the limit — only when there's not
+    ///      even a word boundary in `maxTokens` tokens (effectively
+    ///      "one extremely long word", almost never English)
+    ///
+    /// Single-element array when `text` already fits — callers can
+    /// flat-map this over the existing sentence-chunker output as a
+    /// safety net. The pre-existing sentence chunker still handles the
+    /// common case; this only kicks in when a sentence is so long
+    /// (e.g. an LLM run-on with no internal `.`/`!`/`?`) that the
+    /// chunker can't produce a fitting chunk on its own.
+    func subdivideIfNeeded(_ text: String, maxTokens: Int) -> [String] {
+        let tokens = encodeIDs(text)
+        if tokens.count <= maxTokens { return [text] }
+
+        var pieces: [String] = []
+        var pos = 0
+        while pos < tokens.count {
+            let remaining = tokens.count - pos
+            if remaining <= maxTokens {
+                pieces.append(decodeIDs(Array(tokens[pos..<tokens.count])))
+                break
+            }
+            let windowEnd = pos + maxTokens
+            var cutAt = -1
+
+            // Pass 1: latest soft boundary (`,` / `;` / `:`) — cut just
+            // AFTER the boundary token so the boundary stays with the
+            // preceding piece (matches how a reader would group it).
+            for i in stride(from: windowEnd - 1, through: pos + 1, by: -1) {
+                if subSentenceBoundaryTokenIDs.contains(tokens[i]) {
+                    cutAt = i + 1
+                    break
+                }
+            }
+
+            // Pass 2: latest word-start (a piece beginning with `▁`).
+            // Cut BEFORE the word-start token so the new piece begins
+            // on a whole word.
+            if cutAt < 0 {
+                for i in stride(from: windowEnd - 1, through: pos + 1, by: -1) {
+                    let idx = Int(tokens[i])
+                    guard idx >= 0, idx < idToPiece.count, let piece = idToPiece[idx] else { continue }
+                    if piece.hasPrefix(Self.spaceMarkerString) {
+                        cutAt = i
+                        break
+                    }
+                }
+            }
+
+            // Pass 3 (escape hatch): no boundary, no word-start — hard
+            // cut at the window edge. Only happens on pathological input
+            // like a single 200-character word.
+            if cutAt <= pos { cutAt = windowEnd }
+
+            pieces.append(decodeIDs(Array(tokens[pos..<cutAt])))
+            pos = cutAt
+        }
+        return pieces
     }
 
     // MARK: - Tokenizer
