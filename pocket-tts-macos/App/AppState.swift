@@ -86,7 +86,17 @@ final class AppState {
     /// persisted to UserDefaults on every change so the user's chosen
     /// value survives launches.
     var pocketTTSChunkBudget: Int = 50 {
-        didSet { UserDefaults.standard.set(pocketTTSChunkBudget, forKey: Self.chunkBudgetKey) }
+        didSet {
+            UserDefaults.standard.set(pocketTTSChunkBudget, forKey: Self.chunkBudgetKey)
+            // Console breadcrumb so the user can confirm the slider change
+            // actually flowed through. The engine also logs the live value
+            // on every text segment (`[PocketTTS] split into N chunk(s)
+            // (budget X)`); this line just makes the moment-of-change
+            // visible without having to synthesize first.
+            if pocketTTSChunkBudget != oldValue {
+                print("[Settings] pocketTTSChunkBudget: \(oldValue) → \(pocketTTSChunkBudget)")
+            }
+        }
     }
 
     private static let chunkBudgetKey = "com.slaughtersj.pocket-tts-macos.pocketTTSChunkBudget"
