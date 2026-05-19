@@ -15,6 +15,7 @@ using namespace metal;
 struct OrbUniforms {
     float time;
     float intensity;
+    float smoothAmp;
     float2 resolution;
 };
 
@@ -127,8 +128,17 @@ static float map(float3 p, float time, float intensity) {
 
 fragment half4 orbFragment(VertexOut in [[stage_in]],
                            constant OrbUniforms& u [[buffer(0)]]) {
+    // P0-O5: letterbox into the shorter dimension so the orb stays circular
+    // regardless of window aspect ratio. The Electron port uses a
+    // PerspectiveCamera which handles this in the projection matrix; we
+    // emulate by shrinking the longer axis.
     float aspect = u.resolution.x / u.resolution.y;
-    float2 uv = float2(in.uv.x * aspect, in.uv.y);
+    float2 uv = in.uv;
+    if (aspect > 1.0) {
+        uv.x *= aspect;
+    } else {
+        uv.y /= aspect;
+    }
 
     // Plasma raymarch
     float3 ro = float3(0, 0, 3);
@@ -152,20 +162,24 @@ fragment half4 orbFragment(VertexOut in [[stage_in]],
         t += max(abs(d) * 0.5, 0.02);
     }
 
-    float dist = length(in.uv);
+    // Use post-letterbox uv for the vignette so falloff stays circular too
+    float dist = length(uv);
     col *= smoothstep(1.5, 0.8, dist);
 
-    // Ice-blue disc (composited under the plasma)
+    // Ice-blue disc, composited on top of the plasma.
+    // P0-O3: scale with raw smoothAmp * 0.15 to match Electron's geometric
+    // disc.scale.setScalar(1.0 + smoothAmp * 0.15).
+    // P0-O2: no plasma-brightness attenuation. Electron's disc is a separate
+    // alpha-blended draw call and stays visible at audio peaks.
     float DISC_R = 0.834;
-    float2 discUV = uv;
-    float r = length(discUV);
-    float theta = atan2(discUV.y, discUV.x);
+    float r = length(uv);
+    float theta = atan2(uv.y, uv.x);
     float discTime = u.time * 2.5;
     float n_a = snoise(float3(cos(theta), sin(theta), discTime * 0.165));
     float n_b = snoise(float3(cos(theta)*2.0, sin(theta)*2.0, discTime * 0.110)) * 0.35;
     float warp = (n_a + n_b) * 0.05;
     float effectiveR = DISC_R + warp;
-    float discScale = 1.0 + u.intensity * 0.1;
+    float discScale = 1.0 + u.smoothAmp * 0.15;
     effectiveR *= discScale;
 
     if (r < effectiveR) {
@@ -175,7 +189,8 @@ fragment half4 orbFragment(VertexOut in [[stage_in]],
         float3 bodyTint = float3(0.30, 0.50, 0.85);
         float3 discCol = mix(bodyTint, iceBlue, edge);
         float discAlpha = mix(0.02, 0.95, edge);
-        col = col + discCol * discAlpha * (1.0 - clamp(length(col), 0.0, 1.0));
+        // Standard alpha-over compositing (matches Electron's NormalBlending).
+        col = mix(col, discCol, discAlpha);
     }
 
     return half4(half3(col), 1.0h);

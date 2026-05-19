@@ -26,6 +26,7 @@ final class AmplitudeRef: @unchecked Sendable {
 struct OrbUniforms {
     var time: Float
     var intensity: Float
+    var smoothAmp: Float
     var resolution: SIMD2<Float>
 }
 
@@ -84,6 +85,7 @@ final class OrbRenderer: NSObject, MTKViewDelegate {
         var uniforms = OrbUniforms(
             time: Float((CACurrentMediaTime() - startTime) * 0.4),
             intensity: 0.2 + smoothAmplitude * 0.8,
+            smoothAmp: smoothAmplitude,
             resolution: SIMD2<Float>(
                 Float(view.drawableSize.width),
                 Float(view.drawableSize.height)
