@@ -15,14 +15,25 @@ nonisolated enum TextNormalizer {
     // MARK: - Public API
 
     static func normalize(_ text: String) -> String {
-        var t = text
-        // Ellipsis: leave it alone. The Python reference uses `...` as an
-        // end-of-sentence token inside its SentencePiece-based chunker and
-        // the model handles it correctly there. Earlier versions substituted
-        // `...` → `,` (broke chunking) or `. ` (broke token semantics) to
-        // work around audio distortion; that distortion is now believed to
-        // be a CoreML/sampler/token-feeding bug rather than something text
-        // normalization can fix, so we stop masking it here.
+        // Smart-punctuation normalization runs FIRST, before anything else
+        // touches the string. The SentencePiece tokenizer maps ASCII
+        // apostrophes / quotes / hyphens / ellipsis to single canonical
+        // pieces; the Unicode "smart" equivalents byte-fallback into 3-4
+        // separate tokens (e.g. curly `’` → `<0xE2><0x80><0x99>`), which
+        // the model wasn't trained on and reliably distorts on. This is
+        // the most common source of "every contraction sounds garbled"
+        // reports because macOS smart-quote substitution + LLM-generated
+        // scripts (AI Writer) emit curly punctuation by default. Cheap
+        // fix here, audible improvement everywhere downstream.
+        var t = normalizeSmartPunctuation(text)
+        // Ellipsis: now handled above (curly … → "...") and otherwise
+        // passed through. The Python reference uses `...` as an
+        // end-of-sentence token inside its SentencePiece-based chunker
+        // and the model handles it correctly. Earlier versions
+        // substituted `...` → `,` (broke chunking) or `. ` (broke token
+        // semantics) to work around audio distortion; that distortion is
+        // now believed to be a CoreML/sampler/token-feeding bug rather
+        // than something text normalization can fix, so we stop masking it.
         // Pronunciation overrides the model struggles with
         t = applyPronunciationFixes(t)
         t = replace(t, abbrevPattern) { m, s in expandAbbreviation(m, in: s) }
@@ -269,6 +280,63 @@ nonisolated enum TextNormalizer {
     private static func expandSymbol(_ m: NSTextCheckingResult, in s: String) -> String {
         guard let sym = group(m, 1, in: s) else { return group(m, 0, in: s) ?? "" }
         return symbols[sym] ?? sym
+    }
+
+    // MARK: - Smart-punctuation normalization
+
+    /// Substitution table for Unicode "smart" punctuation → ASCII equivalents.
+    /// Each Unicode char on the left byte-falls back into multiple
+    /// `<0xXX>` tokens in the Kyutai SentencePiece vocab, which the model
+    /// wasn't trained on and reliably mispronounces (curly apostrophes
+    /// in contractions are the canonical user-reported case). The ASCII
+    /// equivalents on the right tokenize to single canonical pieces.
+    ///
+    /// Notes:
+    ///  * Dashes (–, —) intentionally NOT included — both have their own
+    ///    BPE pieces in vocab (3977, 3133). Add them here only if listening
+    ///    confirms the model also struggles with those tokens.
+    ///  * `…` U+2026 expands to three dots so it tokenizes as the `...`
+    ///    piece (id 799), which is in the model's EOS-sentence set.
+    private static let smartPunctSubstitutions: [(Character, String)] = [
+        ("\u{2018}", "'"),  // ‘ left single quotation mark
+        ("\u{2019}", "'"),  // ’ right single quotation mark / curly apostrophe
+        ("\u{201A}", "'"),  // ‚ single low-9 quotation mark
+        ("\u{201B}", "'"),  // ‛ single high-reversed-9 quotation mark
+        ("\u{2032}", "'"),  // ′ prime (often used as apostrophe)
+        ("\u{201C}", "\""), // “ left double quotation mark
+        ("\u{201D}", "\""), // ” right double quotation mark
+        ("\u{201E}", "\""), // „ double low-9 quotation mark
+        ("\u{201F}", "\""), // ‟ double high-reversed-9 quotation mark
+        ("\u{2033}", "\""), // ″ double prime
+        ("\u{2026}", "..."),// … horizontal ellipsis
+        ("\u{00A0}", " "),  // non-breaking space
+        ("\u{2009}", " "),  // thin space
+        ("\u{202F}", " "),  // narrow no-break space
+    ]
+
+    private static func normalizeSmartPunctuation(_ text: String) -> String {
+        // Fast path: scan once for any smart character; only allocate a
+        // new String if at least one needs replacing.
+        var needsReplace = false
+        let triggers = Set(smartPunctSubstitutions.map(\.0))
+        for ch in text where triggers.contains(ch) {
+            needsReplace = true
+            break
+        }
+        if !needsReplace { return text }
+
+        var out = ""
+        out.reserveCapacity(text.count)
+        // Build a dict for O(1) lookup inside the loop.
+        let table = Dictionary(uniqueKeysWithValues: smartPunctSubstitutions)
+        for ch in text {
+            if let replacement = table[ch] {
+                out.append(replacement)
+            } else {
+                out.append(ch)
+            }
+        }
+        return out
     }
 
     // MARK: - Pronunciation fixes

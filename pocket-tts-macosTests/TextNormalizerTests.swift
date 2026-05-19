@@ -171,4 +171,60 @@ final class TextNormalizerTests: XCTestCase {
         let plain = "Hello world, this is a test."
         XCTAssertEqual(TextNormalizer.normalize(plain), plain)
     }
+
+    // MARK: - Smart-punctuation normalization
+    //
+    // The SentencePiece tokenizer maps ASCII punctuation to single
+    // canonical pieces; Unicode "smart" variants byte-fallback into
+    // 3-4 `<0xXX>` tokens the model wasn't trained on and reliably
+    // distorts. macOS auto-substitution and LLM-generated scripts emit
+    // curly variants by default, so this is the most common source of
+    // "every contraction sounds garbled" reports.
+
+    func test_curlyApostropheBecomesAscii() {
+        // The canonical user-reported failing phrase. Verify the curly
+        // apostrophe gets replaced before tokenization.
+        let curly = "While I appreciate the enthusiasm, let\u{2019}s keep things respectful."
+        let ascii = "While I appreciate the enthusiasm, let's keep things respectful."
+        XCTAssertEqual(TextNormalizer.normalize(curly), ascii)
+    }
+
+    func test_leftSingleQuoteBecomesAscii() {
+        // U+2018 is what macOS produces as an opening quote — often
+        // appears as `‘cause` or in quoted speech.
+        XCTAssertEqual(TextNormalizer.normalize("\u{2018}cause"), "'cause")
+    }
+
+    func test_curlyDoubleQuotesBecomeAscii() {
+        let input = "She said \u{201C}hello\u{201D} and walked away."
+        let expected = "She said \"hello\" and walked away."
+        XCTAssertEqual(TextNormalizer.normalize(input), expected)
+    }
+
+    func test_horizontalEllipsisBecomesThreeDots() {
+        // U+2026 is a single character that byte-fallbacks to four
+        // tokens. Expanding to `...` lets the tokenizer use the
+        // canonical multi-dot piece (also an EOS-class token).
+        XCTAssertEqual(TextNormalizer.normalize("Wait\u{2026} what?"), "Wait... what?")
+    }
+
+    func test_nonBreakingSpaceBecomesRegularSpace() {
+        // NBSP comes in from copy/paste of word-processed text and
+        // byte-fallbacks identically to a regular space wouldn't.
+        XCTAssertEqual(TextNormalizer.normalize("Hello\u{00A0}world"), "Hello world")
+    }
+
+    func test_asciiInputIsByteIdentical() {
+        // Smart-punctuation normalization must NOT touch already-ASCII
+        // strings (no spurious copies / character substitutions).
+        let plain = "She's said: \"don't worry about it!\""
+        XCTAssertEqual(TextNormalizer.normalize(plain), plain)
+    }
+
+    func test_userExampleSixCurlyApostrophe() {
+        // User's distortion example #6, with curly apostrophe in `it's`.
+        let curly = "Well, let me tell you something, pal: it\u{2019}s not working!"
+        let ascii = "Well, let me tell you something, pal: it's not working!"
+        XCTAssertEqual(TextNormalizer.normalize(curly), ascii)
+    }
 }
