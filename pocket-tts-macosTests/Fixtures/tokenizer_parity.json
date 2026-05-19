@@ -1,0 +1,607 @@
+[
+  {
+    "text": "friends",
+    "expected_ids": [
+      260,
+      636,
+      261
+    ]
+  },
+  {
+    "text": "Friends",
+    "expected_ids": [
+      496,
+      582,
+      1364,
+      261
+    ]
+  },
+  {
+    "text": "perfect",
+    "expected_ids": [
+      324,
+      1318
+    ]
+  },
+  {
+    "text": "Perfect",
+    "expected_ids": [
+      497,
+      1318
+    ]
+  },
+  {
+    "text": "speakers",
+    "expected_ids": [
+      931,
+      413
+    ]
+  },
+  {
+    "text": "extraordinarily",
+    "expected_ids": [
+      1665,
+      448,
+      307,
+      356,
+      2555,
+      323
+    ]
+  },
+  {
+    "text": "disestablishmentarianism",
+    "expected_ids": [
+      573,
+      552,
+      1222,
+      3038,
+      451,
+      3645,
+      1189
+    ]
+  },
+  {
+    "text": "my friends",
+    "expected_ids": [
+      313,
+      260,
+      636,
+      261
+    ]
+  },
+  {
+    "text": "good friends",
+    "expected_ids": [
+      395,
+      260,
+      636,
+      261
+    ]
+  },
+  {
+    "text": "best friends forever",
+    "expected_ids": [
+      658,
+      260,
+      636,
+      261,
+      284,
+      482
+    ]
+  },
+  {
+    "text": "a perfect day",
+    "expected_ids": [
+      267,
+      324,
+      1318,
+      488
+    ]
+  },
+  {
+    "text": "perfect storm",
+    "expected_ids": [
+      324,
+      1318,
+      3393
+    ]
+  },
+  {
+    "text": "speakers and friends",
+    "expected_ids": [
+      931,
+      413,
+      269,
+      260,
+      636,
+      261
+    ]
+  },
+  {
+    "text": "Hello, world.",
+    "expected_ids": [
+      2994,
+      262,
+      578,
+      263
+    ]
+  },
+  {
+    "text": "Don't worry about it.",
+    "expected_ids": [
+      1201,
+      264,
+      274,
+      2159,
+      315,
+      275,
+      263
+    ]
+  },
+  {
+    "text": "And as for Worf... well, he is good.",
+    "expected_ids": [
+      287,
+      329,
+      284,
+      940,
+      448,
+      601,
+      799,
+      416,
+      262,
+      302,
+      277,
+      395,
+      263
+    ]
+  },
+  {
+    "text": "Wait... what?",
+    "expected_ids": [
+      3314,
+      799,
+      297,
+      292
+    ]
+  },
+  {
+    "text": "one two three... four.",
+    "expected_ids": [
+      322,
+      434,
+      540,
+      799,
+      704,
+      263
+    ]
+  },
+  {
+    "text": "Yes... no... maybe.",
+    "expected_ids": [
+      713,
+      799,
+      354,
+      799,
+      556,
+      263
+    ]
+  },
+  {
+    "text": "mixed: 123 numbers and words",
+    "expected_ids": [
+      1833,
+      278,
+      3244,
+      260,
+      341,
+      365,
+      450,
+      260,
+      627,
+      261,
+      269,
+      1300
+    ]
+  },
+  {
+    "text": "I have 5 apples and 12 oranges.",
+    "expected_ids": [
+      268,
+      290,
+      260,
+      437,
+      1441,
+      836,
+      269,
+      260,
+      341,
+      365,
+      311,
+      1017,
+      371,
+      263
+    ]
+  },
+  {
+    "text": "It is 3:30 PM on Tuesday.",
+    "expected_ids": [
+      333,
+      277,
+      260,
+      450,
+      3244,
+      450,
+      316,
+      497,
+      864,
+      288,
+      602,
+      3699,
+      263
+    ]
+  },
+  {
+    "text": "The year 2026 is going well.",
+    "expected_ids": [
+      364,
+      546,
+      260,
+      365,
+      316,
+      365,
+      543,
+      277,
+      325,
+      416,
+      263
+    ]
+  },
+  {
+    "text": "Welcome to the Pocket-TTS system.",
+    "expected_ids": [
+      374,
+      1661,
+      266,
+      265,
+      1456,
+      603,
+      597,
+      337,
+      854,
+      854,
+      640,
+      260,
+      848,
+      263
+    ]
+  },
+  {
+    "text": "NASA launched a rocket.",
+    "expected_ids": [
+      714,
+      637,
+      640,
+      637,
+      260,
+      2212,
+      278,
+      267,
+      260,
+      3676,
+      263
+    ]
+  },
+  {
+    "text": "My friend works at IBM.",
+    "expected_ids": [
+      914,
+      260,
+      636,
+      1639,
+      309,
+      268,
+      957,
+      864,
+      263
+    ]
+  },
+  {
+    "text": "When the sunlight strikes raindrops in the air, they act as a prism and form a rainbow.",
+    "expected_ids": [
+      762,
+      265,
+      1622,
+      1149,
+      260,
+      3334,
+      261,
+      2574,
+      307,
+      334,
+      561,
+      261,
+      276,
+      265,
+      1074,
+      262,
+      293,
+      1707,
+      329,
+      267,
+      417,
+      1189,
+      269,
+      1291,
+      267,
+      2574,
+      1146,
+      479,
+      263
+    ]
+  },
+  {
+    "text": "The rainbow is a division of white light into many beautiful colors.",
+    "expected_ids": [
+      364,
+      2574,
+      1146,
+      479,
+      277,
+      267,
+      621,
+      1452,
+      272,
+      1408,
+      826,
+      390,
+      545,
+      1236,
+      1282,
+      1683,
+      261,
+      263
+    ]
+  },
+  {
+    "text": "These take the shape of a long round arch, with its path high above, and its two ends apparently beyond the horizon.",
+    "expected_ids": [
+      1524,
+      454,
+      265,
+      2384,
+      272,
+      267,
+      570,
+      1737,
+      260,
+      2748,
+      262,
+      291,
+      275,
+      261,
+      1871,
+      646,
+      2148,
+      262,
+      269,
+      275,
+      261,
+      434,
+      564,
+      261,
+      2543,
+      1533,
+      260,
+      2437,
+      265,
+      260,
+      2357,
+      1577,
+      449,
+      263
+    ]
+  },
+  {
+    "text": "There is, according to legend, a boiling pot of gold at one end.",
+    "expected_ids": [
+      529,
+      277,
+      262,
+      260,
+      2628,
+      273,
+      266,
+      2216,
+      1364,
+      262,
+      267,
+      834,
+      457,
+      273,
+      1770,
+      272,
+      2786,
+      309,
+      322,
+      564,
+      263
+    ]
+  },
+  {
+    "text": "People look, but no one ever finds it.",
+    "expected_ids": [
+      260,
+      2074,
+      384,
+      262,
+      305,
+      354,
+      322,
+      746,
+      542,
+      261,
+      275,
+      263
+    ]
+  },
+  {
+    "text": "When a man looks for something beyond his reach, his friends say he is looking for the pot of gold at the end of the rainbow.",
+    "expected_ids": [
+      762,
+      267,
+      511,
+      1284,
+      284,
+      301,
+      344,
+      260,
+      2437,
+      376,
+      1335,
+      262,
+      376,
+      260,
+      636,
+      261,
+      359,
+      302,
+      277,
+      384,
+      273,
+      284,
+      265,
+      1770,
+      272,
+      2786,
+      309,
+      265,
+      564,
+      272,
+      265,
+      2574,
+      1146,
+      479,
+      263
+    ]
+  },
+  {
+    "text": "The quick brown fox jumps over the lazy dog.",
+    "expected_ids": [
+      364,
+      976,
+      3683,
+      521,
+      1923,
+      1609,
+      261,
+      408,
+      265,
+      697,
+      690,
+      327,
+      1497,
+      263
+    ]
+  },
+  {
+    "text": "Pack my box with five dozen liquor jugs.",
+    "expected_ids": [
+      987,
+      603,
+      313,
+      1657,
+      291,
+      702,
+      299,
+      1505,
+      306,
+      1853,
+      1431,
+      448,
+      1468,
+      453,
+      261,
+      263
+    ]
+  },
+  {
+    "text": "It was the best of times, it was the worst of times.",
+    "expected_ids": [
+      333,
+      286,
+      265,
+      658,
+      272,
+      835,
+      262,
+      275,
+      286,
+      265,
+      2605,
+      272,
+      835,
+      263
+    ]
+  },
+  {
+    "text": "The rain in Spain falls mainly on the plain.",
+    "expected_ids": [
+      364,
+      2574,
+      276,
+      1476,
+      362,
+      356,
+      1167,
+      261,
+      1166,
+      323,
+      288,
+      265,
+      260,
+      2252,
+      263
+    ]
+  },
+  {
+    "text": "",
+    "expected_ids": []
+  },
+  {
+    "text": "a",
+    "expected_ids": [
+      267
+    ]
+  },
+  {
+    "text": "I",
+    "expected_ids": [
+      268
+    ]
+  },
+  {
+    "text": "A",
+    "expected_ids": [
+      383
+    ]
+  },
+  {
+    "text": " leading space",
+    "expected_ids": [
+      260,
+      893,
+      273,
+      947
+    ]
+  },
+  {
+    "text": "trailing space ",
+    "expected_ids": [
+      3007,
+      273,
+      947,
+      260
+    ]
+  }
+]
