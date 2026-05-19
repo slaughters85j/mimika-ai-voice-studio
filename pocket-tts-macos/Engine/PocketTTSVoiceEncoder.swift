@@ -122,7 +122,7 @@ actor PocketTTSVoiceEncoder {
         let condArr = try MLMultiArray(shape: [1, tVoiceMax as NSNumber, 1024], dataType: .float32)
         let condData = conditioning.asArray(Float.self)
         let condDst = condArr.dataPointer.assumingMemoryBound(to: Float.self)
-        condData.withUnsafeBufferPointer { src in
+        _ = condData.withUnsafeBufferPointer { src in
             memcpy(condDst, src.baseAddress!, min(condData.count, framesToCopy * 1024) * MemoryLayout<Float>.size)
         }
         return (condArr, framesToCopy)

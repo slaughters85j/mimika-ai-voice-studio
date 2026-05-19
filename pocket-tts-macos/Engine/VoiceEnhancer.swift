@@ -251,7 +251,7 @@ private class LavaSRISTFTHead: Module {
 /// Uses mel spectrogram → ConvNeXt backbone → custom ISTFT head.
 private class LavaSREnhancer: Module {
     nonisolated(unsafe) let backbone: VocosBackbone
-    nonisolated(unsafe) let head: LavaSRISTFTHead
+    let head: LavaSRISTFTHead
 
     // From LavaSR enhancer_v2/config.yaml
     nonisolated static let nFft = 2048
@@ -348,8 +348,8 @@ private class LavaSREnhancer: Module {
         // Python: center=False, manual pad of (win_length - hop_length) // 2
         let padAmount = (nFft - hopLength) / 2
         let n = audio.shape[0]
-        let leading = audio[from: padAmount, to: 0, stride: -1, axis: 0]
-        let trailing = audio[from: n - 2, to: n - 2 - padAmount, stride: -1, axis: 0]
+        let leading = audio[.stride(from: padAmount, to: 0, by: -1)]
+        let trailing = audio[.stride(from: n - 2, to: n - 2 - padAmount, by: -1)]
         let padded = MLX.concatenated([leading, audio, trailing], axis: 0)
 
         // Frame into overlapping windows

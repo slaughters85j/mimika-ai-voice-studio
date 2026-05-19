@@ -189,15 +189,21 @@ enum AudioPreconditioner {
         // cloning quality benefits and we run this rarely.
         converter.sampleRateConverterQuality = AVAudioQuality.max.rawValue
 
-        var sourceConsumed = false
+        // AVAudioConverter's input block is typed `@Sendable`, so capturing
+        // a `var Bool` from the enclosing scope trips Swift 6's concurrency
+        // checker even though the block is called synchronously. Box the
+        // flag in a tiny class so we capture a reference (which IS Sendable
+        // via @unchecked) instead of a mutable value.
+        final class SourceConsumedFlag: @unchecked Sendable { var value = false }
+        let sourceConsumed = SourceConsumedFlag()
         var converterError: NSError?
 
         let status = converter.convert(to: destBuffer, error: &converterError) { _, outStatus in
-            if sourceConsumed {
+            if sourceConsumed.value {
                 outStatus.pointee = .endOfStream
                 return nil
             }
-            sourceConsumed = true
+            sourceConsumed.value = true
             outStatus.pointee = .haveData
             return sourceBuffer
         }
