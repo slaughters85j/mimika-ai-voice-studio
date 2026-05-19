@@ -70,6 +70,13 @@ private nonisolated enum K {
     static let tTextMax = 128
     static let mimiOffsetPerFrame: Int32 = 16
     static let mimiPCMPerFrame = 1920
+    /// Output sample rate of the Mimi decoder. Used to size pause
+    /// silence segments by seconds → samples.
+    static let sampleRate = 24_000
+    /// 80 ms linear fade window applied at pause boundaries. Matches
+    /// Python's `int(0.08 * self.sample_rate)` at `tts_model.py:497`.
+    /// At 24 kHz that's exactly one Mimi PCM frame — convenient.
+    static let fadeSamples = Int(0.08 * Double(sampleRate))
 
     /// Per-chunk SentencePiece-token budget for the sentence-aware
     /// splitter. Matches Python `max_nb_tokens_in_a_chunk = 50` in
@@ -180,31 +187,48 @@ actor TTSEngine: TTSEngineProtocol {
         let voiceMs = (CFAbsoluteTimeGetCurrent() - t0) * 1000
         print("[PocketTTS] voice load: \(String(format: "%.1f", voiceMs))ms (T_voice=\(voice.tVoice))")
 
-        let normalized = TextNormalizer.normalize(text)
-        let chunks = splitForTokenLimit(normalized, budget: options.chunkTokenBudget)
-        print("[PocketTTS] split into \(chunks.count) chunk(s) (budget \(options.chunkTokenBudget))")
-        for (i, chunk) in chunks.enumerated() {
+        // P0-4: parse `[Xs]` pause markers FIRST, before normalization.
+        // Mirrors Python's `parse_pause_markers(text_to_generate)` call
+        // at the top of `generate_audio_stream`. Single-Voice users can
+        // now drop `[1.5s]` etc. in their input and we'll emit silence
+        // + apply 80 ms boundary fades to the audio around it.
+        let segments = TextNormalizer.parsePauseMarkers(text)
+        if segments.count > 1 {
+            print("[PocketTTS] parsed \(segments.count) segments (\(segments.filter(\.isPause).count) pauses)")
+        }
+
+        // Identify the index of the absolute final TEXT segment so the
+        // AR-loop final-frame contract (Bug 1's fix) still fires
+        // correctly: `isFinal=true` lands on the last frame of the last
+        // chunk of the last text segment, regardless of trailing
+        // pause / silence frames.
+        let lastTextSegmentIndex = segments.lastIndex(where: {
+            if case .text = $0 { return true } else { return false }
+        }) ?? -1
+
+        for (segIdx, segment) in segments.enumerated() {
             if cancel.isCancelled {
-                print("[PocketTTS] cancelled before chunk \(i + 1)/\(chunks.count)")
+                print("[PocketTTS] cancelled before segment \(segIdx + 1)/\(segments.count)")
                 break
             }
-            if chunks.count > 1 { print("[PocketTTS] chunk \(i + 1)/\(chunks.count)") }
-            // `isLastChunk` propagates through to the AR loop so that
-            // `PCMFrame.isFinal` is only set on the absolute last frame
-            // of the whole synthesize call, not on every chunk's post-EOS
-            // tail. Pre-fix, Single Voice's consumer broke its for-await
-            // loop on chunk 1's `isFinal=true` frame and the engine kept
-            // running chunks 2..N until the cancellation eventually
-            // propagated mid-chunk-4 (per the user's console log).
-            let isLastChunk = i == chunks.count - 1
-            try runSynthesisChunk(
-                text: chunk,
-                voice: voice,
-                options: options,
-                continuation: continuation,
-                cancel: cancel,
-                isLastChunk: isLastChunk
-            )
+            switch segment {
+            case let .text(body):
+                let prevIsPause = segIdx > 0 && segments[segIdx - 1].isPause
+                let nextIsPause = segIdx + 1 < segments.count && segments[segIdx + 1].isPause
+                let isLastTextSegment = segIdx == lastTextSegmentIndex
+                try runTextSegment(
+                    text: body,
+                    voice: voice,
+                    options: options,
+                    continuation: continuation,
+                    cancel: cancel,
+                    isLastTextSegment: isLastTextSegment,
+                    prevIsPause: prevIsPause,
+                    nextIsPause: nextIsPause
+                )
+            case let .pause(seconds):
+                yieldSilence(seconds: seconds, continuation: continuation, cancel: cancel)
+            }
         }
 
         let wallTotal = CFAbsoluteTimeGetCurrent() - wallStart
@@ -212,11 +236,180 @@ actor TTSEngine: TTSEngineProtocol {
         print("[PocketTTS] ── synthesis end ──")
     }
 
-    private func runSynthesisChunk(
+    // MARK: - Per-text-segment dispatch
+
+    /// Drives the existing chunker + AR loop for ONE text segment
+    /// (one element from `parsePauseMarkers`'s output that's a
+    /// `.text(...)` case). Adds a 1-frame buffer wrapped around the
+    /// AR yields so we can apply an 80 ms linear fade-out to the LAST
+    /// PCM frame of the segment when a pause follows. Fade-in to the
+    /// first frame is applied inline when a pause preceded.
+    ///
+    /// Latency cost: the buffer delays every yield by one frame
+    /// (80 ms). The user perceives a slightly later start to playback
+    /// but it's well below the human-perception threshold and Python's
+    /// reference implementation has the same delay by design.
+    private func runTextSegment(
         text: String,
         voice: LoadedVoice,
         options: SynthesisOptions,
         continuation: AsyncStream<PCMFrame>.Continuation,
+        cancel: CancellationFlag,
+        isLastTextSegment: Bool,
+        prevIsPause: Bool,
+        nextIsPause: Bool
+    ) throws {
+        let normalized = TextNormalizer.normalize(text)
+        let chunks = splitForTokenLimit(normalized, budget: options.chunkTokenBudget)
+        print("[PocketTTS] split into \(chunks.count) chunk(s) (budget \(options.chunkTokenBudget))")
+
+        // One-frame buffer. `pending` holds the most recently produced
+        // PCM frame; we yield it on the NEXT frame's arrival, which
+        // means by the time the chunk loop exits, exactly one frame is
+        // still buffered. That's where the optional fade-out goes.
+        var pending: PCMFrame? = nil
+        var isFirstFrameOfSegment = true
+
+        let chunkYield: (PCMFrame) -> Void = { incoming in
+            // Apply fade-in to the absolute first audio frame of this
+            // text segment when a pause immediately preceded.
+            var prepared = incoming
+            if isFirstFrameOfSegment && prevIsPause {
+                prepared = PCMFrame(
+                    samples: Self.applyLinearFadeIn(prepared.samples, fadeSamples: K.fadeSamples),
+                    isFinal: prepared.isFinal
+                )
+            }
+            isFirstFrameOfSegment = false
+
+            if let prev = pending {
+                continuation.yield(prev)
+            }
+            pending = prepared
+        }
+
+        for (i, chunk) in chunks.enumerated() {
+            if cancel.isCancelled {
+                print("[PocketTTS] cancelled before chunk \(i + 1)/\(chunks.count)")
+                break
+            }
+            if chunks.count > 1 { print("[PocketTTS] chunk \(i + 1)/\(chunks.count)") }
+            // The absolute-last-frame `isFinal=true` contract: only set
+            // when this is the last chunk of the last text segment.
+            // Pause-segment silence frames never trigger isFinal.
+            let isLastChunk = isLastTextSegment && (i == chunks.count - 1)
+            try runSynthesisChunk(
+                text: chunk,
+                voice: voice,
+                options: options,
+                yield: chunkYield,
+                cancel: cancel,
+                isLastChunk: isLastChunk
+            )
+        }
+
+        // Flush the buffered final frame with optional fade-out when a
+        // pause follows. Mirrors `tts_model.py:556-562`.
+        if let final = pending {
+            let out: PCMFrame
+            if nextIsPause {
+                out = PCMFrame(
+                    samples: Self.applyLinearFadeOut(final.samples, fadeSamples: K.fadeSamples),
+                    isFinal: final.isFinal
+                )
+            } else {
+                out = final
+            }
+            continuation.yield(out)
+        }
+    }
+
+    /// Emits zero-filled PCM frames totalling at least `seconds` of
+    /// silence, in 1920-sample chunks (one PCMFrame each). Polls the
+    /// cancellation flag between frames so a long pause doesn't block
+    /// the stop button. Always uses `isFinal: false` — even if the
+    /// pause is the very last segment, the audio that preceded it
+    /// already raised isFinal on its actual final frame.
+    private nonisolated func yieldSilence(
+        seconds: Double,
+        continuation: AsyncStream<PCMFrame>.Continuation,
+        cancel: CancellationFlag
+    ) {
+        let totalSamples = max(0, Int((seconds * Double(K.sampleRate)).rounded()))
+        if totalSamples == 0 { return }
+        let frameSize = K.mimiPCMPerFrame
+        let zeros = [Float](repeating: 0, count: frameSize)
+        var emitted = 0
+        while emitted < totalSamples {
+            if cancel.isCancelled {
+                print("[PocketTTS] silence cancelled at \(emitted)/\(totalSamples) samples")
+                return
+            }
+            let remaining = totalSamples - emitted
+            if remaining >= frameSize {
+                continuation.yield(PCMFrame(samples: zeros, isFinal: false))
+                emitted += frameSize
+            } else {
+                // Tail partial frame.
+                continuation.yield(PCMFrame(samples: [Float](repeating: 0, count: remaining), isFinal: false))
+                emitted += remaining
+            }
+        }
+    }
+
+    // MARK: - Boundary fade helpers (P0-4 / P0-5)
+    //
+    // Linear ramp over the first / last `fadeSamples` samples of a
+    // buffer. Port of the Python idiom:
+    //   buffered_chunk[:n] *= torch.linspace(0.0, 1.0, n)  // fade-in
+    //   buffered_chunk[-n:] *= torch.linspace(1.0, 0.0, n) // fade-out
+    // The Python `linspace(a, b, n)` is INCLUSIVE on both ends — same
+    // here. With n == count (typical when fade covers a whole 1920-
+    // sample frame), the very first sample is multiplied by 0 and the
+    // very last by 1 on fade-in (and reversed on fade-out).
+
+    private nonisolated static func applyLinearFadeIn(_ samples: [Float], fadeSamples: Int) -> [Float] {
+        let n = min(fadeSamples, samples.count)
+        if n <= 0 { return samples }
+        var out = samples
+        if n == 1 {
+            out[0] = 0
+            return out
+        }
+        let denom = Float(n - 1)
+        for i in 0..<n {
+            out[i] *= Float(i) / denom
+        }
+        return out
+    }
+
+    private nonisolated static func applyLinearFadeOut(_ samples: [Float], fadeSamples: Int) -> [Float] {
+        let n = min(fadeSamples, samples.count)
+        if n <= 0 { return samples }
+        var out = samples
+        if n == 1 {
+            out[out.count - 1] = 0
+            return out
+        }
+        let denom = Float(n - 1)
+        let start = out.count - n
+        for i in 0..<n {
+            // Ramp from 1.0 (at i = 0 of the ramp) down to 0.0 (at i = n - 1).
+            out[start + i] *= Float(n - 1 - i) / denom
+        }
+        return out
+    }
+
+    /// Synthesize one text chunk through the prompt-phase + AR loop.
+    /// Yields PCM frames via the caller-supplied `yield` closure rather
+    /// than directly to the AsyncStream continuation — `runTextSegment`
+    /// wraps `yield` with a 1-frame buffer so it can apply boundary
+    /// fades to the segment's first / last frame.
+    private func runSynthesisChunk(
+        text: String,
+        voice: LoadedVoice,
+        options: SynthesisOptions,
+        yield: (PCMFrame) -> Void,
         cancel: CancellationFlag,
         isLastChunk: Bool
     ) throws {
@@ -296,7 +489,7 @@ actor TTSEngine: TTSEngineProtocol {
             // isFinal=true. Both wrong before the gate. See plan file.
             let isAtFinalChunkFrame = eosStep.map { step >= $0 + chunkOptions.framesAfterEOS } ?? false
             let final = isLastChunk && isAtFinalChunkFrame
-            continuation.yield(PCMFrame(samples: pcm, isFinal: final))
+            yield(PCMFrame(samples: pcm, isFinal: final))
 
             if isEos && eosStep == nil { eosStep = step }
             if let e = eosStep, step >= e + chunkOptions.framesAfterEOS { break }

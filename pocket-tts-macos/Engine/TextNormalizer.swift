@@ -8,9 +8,97 @@
 
 import Foundation
 
+// MARK: - PauseSegment
+// Output of `TextNormalizer.parsePauseMarkers(_:)`. Alternating list of
+// text and pause-duration segments. The TTS engine iterates these so
+// `.text` goes through the usual chunker + AR loop while `.pause`
+// becomes a stretch of silence frames with 80 ms boundary fades on the
+// neighboring audio.
+
+nonisolated enum PauseSegment: Equatable, Sendable {
+    case text(String)
+    case pause(seconds: Double)
+
+    var isPause: Bool {
+        if case .pause = self { return true }
+        return false
+    }
+}
+
 // MARK: - TextNormalizer
 
 nonisolated enum TextNormalizer {
+
+    // MARK: - Pause-marker parsing
+    //
+    // Port of Python `parse_pause_markers` (`text_normalizer.py:962-1000`).
+    // Splits `[Xs]` markers (e.g. `[1.5s]`, `[2S]`) out of the input,
+    // returning alternating text and pause segments. Must be called
+    // BEFORE `normalize(_:)` so the digits inside markers aren't
+    // expanded to words by the number rule.
+    //
+    // Behavior matches Python's:
+    //   * Duration clamped to [0, MAX_PAUSE_SECONDS].
+    //   * Zero-duration pauses dropped.
+    //   * Empty / whitespace-only text segments dropped.
+    //   * Returns `[.text(text)]` for input with no markers.
+    //   * Regex is case-insensitive (`[1.5s]` and `[1.5S]` both match).
+
+    /// Upper bound on a single pause's duration in seconds. Matches
+    /// Python's `MAX_PAUSE_SECONDS = 10.0` at `text_normalizer.py:959`.
+    static let maxPauseSeconds: Double = 10.0
+
+    private static let pauseMarkerRegex: NSRegularExpression = {
+        // Port of Python's `_PAUSE_MARKER_RE = re.compile(r"\[(\d+(?:\.\d+)?)s\]", re.IGNORECASE)`.
+        return try! NSRegularExpression(
+            pattern: #"\[(\d+(?:\.\d+)?)s\]"#,
+            options: .caseInsensitive
+        )
+    }()
+
+    static func parsePauseMarkers(_ text: String) -> [PauseSegment] {
+        let ns = text as NSString
+        let fullRange = NSRange(location: 0, length: ns.length)
+        let matches = pauseMarkerRegex.matches(in: text, range: fullRange)
+        if matches.isEmpty {
+            return [.text(text)]
+        }
+
+        var segments: [PauseSegment] = []
+        var lastEnd = 0
+        for m in matches {
+            // Text before this marker — drop if whitespace-only.
+            let beforeRange = NSRange(location: lastEnd, length: m.range.location - lastEnd)
+            if beforeRange.length > 0 {
+                let before = ns.substring(with: beforeRange)
+                if !before.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    segments.append(.text(before))
+                }
+            }
+
+            // Duration: clamp to [0, max]; drop zero.
+            let numberRange = m.range(at: 1)
+            let numberStr = ns.substring(with: numberRange)
+            if let raw = Double(numberStr) {
+                let clamped = min(raw, maxPauseSeconds)
+                if clamped > 0 {
+                    segments.append(.pause(seconds: clamped))
+                }
+            }
+
+            lastEnd = m.range.location + m.range.length
+        }
+
+        // Tail after the last marker.
+        if lastEnd < ns.length {
+            let tail = ns.substring(from: lastEnd)
+            if !tail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                segments.append(.text(tail))
+            }
+        }
+
+        return segments.isEmpty ? [.text(text)] : segments
+    }
 
     // MARK: - Public API
 

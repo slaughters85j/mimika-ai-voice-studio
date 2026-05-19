@@ -378,4 +378,87 @@ final class TextNormalizerTests: XCTestCase {
         let expected = "She said hello... I think it's about a three times four grid, one half done..."
         XCTAssertEqual(TextNormalizer.normalize(input), expected)
     }
+
+    // MARK: - Pause-marker parsing
+    //
+    // Mirrors Python's docstring examples at
+    // pocket_tts/text_normalizer.py:962-1000 plus edge cases. Used by
+    // the engine's Single-Voice pause-marker support (P0-4 / P0-5).
+
+    func test_parsePauseMarkers_singleMarker() {
+        XCTAssertEqual(
+            TextNormalizer.parsePauseMarkers("Hello. [2.0s] World."),
+            [.text("Hello. "), .pause(seconds: 2.0), .text(" World.")]
+        )
+    }
+
+    func test_parsePauseMarkers_noMarkers() {
+        // Input with no `[Xs]` falls through to a single text segment
+        // containing the original string verbatim.
+        XCTAssertEqual(
+            TextNormalizer.parsePauseMarkers("No pauses here."),
+            [.text("No pauses here.")]
+        )
+    }
+
+    func test_parsePauseMarkers_clampsToTenSeconds() {
+        // Matches Python's `min(float(...), MAX_PAUSE_SECONDS)` clamp.
+        XCTAssertEqual(
+            TextNormalizer.parsePauseMarkers("Hello. [20s] World."),
+            [.text("Hello. "), .pause(seconds: 10.0), .text(" World.")]
+        )
+    }
+
+    func test_parsePauseMarkers_dropsZeroDuration() {
+        // `[0s]` and `[0.0s]` are dropped — no silent segment emitted.
+        XCTAssertEqual(
+            TextNormalizer.parsePauseMarkers("Hello. [0s] World."),
+            [.text("Hello. "), .text(" World.")]
+        )
+    }
+
+    func test_parsePauseMarkers_dropsWhitespaceOnlyTextSegments() {
+        // `[1s] text` has only whitespace before the marker, which is
+        // dropped. Trailing text stays. No leading empty `.text`.
+        XCTAssertEqual(
+            TextNormalizer.parsePauseMarkers("[1s] text"),
+            [.pause(seconds: 1.0), .text(" text")]
+        )
+    }
+
+    func test_parsePauseMarkers_caseInsensitive() {
+        // `[1.5S]` and `[1.5s]` produce equivalent output — Python's
+        // re.IGNORECASE flag ported to NSRegularExpression options.
+        let lower = TextNormalizer.parsePauseMarkers("a [1.5s] b")
+        let upper = TextNormalizer.parsePauseMarkers("a [1.5S] b")
+        XCTAssertEqual(lower, upper)
+    }
+
+    func test_parsePauseMarkers_decimal() {
+        XCTAssertEqual(
+            TextNormalizer.parsePauseMarkers("hi [0.5s] there"),
+            [.text("hi "), .pause(seconds: 0.5), .text(" there")]
+        )
+    }
+
+    func test_parsePauseMarkers_multipleMarkers() {
+        XCTAssertEqual(
+            TextNormalizer.parsePauseMarkers("A. [1s] B. [2s] C."),
+            [
+                .text("A. "),
+                .pause(seconds: 1.0),
+                .text(" B. "),
+                .pause(seconds: 2.0),
+                .text(" C."),
+            ]
+        )
+    }
+
+    func test_parsePauseMarkers_onlyMarkers() {
+        // Adjacent pauses with no text between still produce both pauses.
+        XCTAssertEqual(
+            TextNormalizer.parsePauseMarkers("[1s][2s]"),
+            [.pause(seconds: 1.0), .pause(seconds: 2.0)]
+        )
+    }
 }
