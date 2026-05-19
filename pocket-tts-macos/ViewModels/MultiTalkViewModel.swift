@@ -168,6 +168,17 @@ final class MultiTalkViewModel {
             catch { FileHandle.standardError.write(Data("multi-talk player error: \(error)\n".utf8)) }
         }()
 
+        // 80 ms boundary-fade state. The engine's `runTextSegment`
+        // applies fades around INTRA-speaker pauses (markers inside a
+        // single speaker body), but inter-speaker pauses are emitted
+        // here at the view-model layer — engine never sees them. To
+        // get the same soft taper around those silences, buffer one
+        // engine-yielded frame so its TAIL can be faded out when a
+        // pause follows, and apply a fade-in to the first frame after
+        // each pause.
+        var pendingAudio: PCMFrame? = nil
+        var nextAudioFrameIsAfterPause = false
+
         var collected: [Float] = []
         for chunk in chunks {
             // Cooperative cancellation between chunks. Without this, a
@@ -179,21 +190,53 @@ final class MultiTalkViewModel {
             switch chunk {
             case let .text(voiceID, _, body):
                 for await frame in self.engine.synthesize(text: body, voiceID: voiceID, options: self.currentSynthesisOptions()) {
-                    collected.append(contentsOf: frame.samples)
-                    relayCont.yield(PCMFrame(samples: frame.samples, isFinal: false))
+                    // Fade-in if this is the first audio frame after an
+                    // inter-speaker pause.
+                    var f = frame
+                    if nextAudioFrameIsAfterPause {
+                        f = PCMFrame(
+                            samples: TTSEngine.applyLinearFadeIn(frame.samples, fadeSamples: 1920),
+                            isFinal: false
+                        )
+                        nextAudioFrameIsAfterPause = false
+                    }
+                    // Flush previous pending audio frame (it's safely
+                    // mid-stream; only the LAST audio before a pause
+                    // needs fade-out, which we apply in the .pause arm).
+                    if let prev = pendingAudio {
+                        collected.append(contentsOf: prev.samples)
+                        relayCont.yield(PCMFrame(samples: prev.samples, isFinal: false))
+                    }
+                    pendingAudio = f
                     if firstAudioAt == nil {
                         firstAudioAt = Date()
                         self.status = .streaming
                     }
                 }
             case let .pause(seconds):
+                // Flush the buffered audio with fade-out applied — this
+                // is the actual last audio frame before the silence.
+                if let prev = pendingAudio {
+                    let faded = TTSEngine.applyLinearFadeOut(prev.samples, fadeSamples: 1920)
+                    collected.append(contentsOf: faded)
+                    relayCont.yield(PCMFrame(samples: faded, isFinal: false))
+                    pendingAudio = nil
+                }
                 let n = Int(seconds * 24_000)
                 let silence = [Float](repeating: 0, count: n)
                 collected.append(contentsOf: silence)
                 relayCont.yield(PCMFrame(samples: silence, isFinal: false))
+                nextAudioFrameIsAfterPause = true
             case .unknownSpeaker:
                 continue
             }
+        }
+        // Flush the very last buffered frame at end-of-stream (no pause
+        // follows it, so no fade-out — let the engine's per-chunk tail
+        // fade do its work).
+        if let prev = pendingAudio {
+            collected.append(contentsOf: prev.samples)
+            relayCont.yield(PCMFrame(samples: prev.samples, isFinal: false))
         }
         relayCont.yield(PCMFrame(samples: [0.0], isFinal: true))
         relayCont.finish()
@@ -212,6 +255,16 @@ final class MultiTalkViewModel {
         var chunkIndex = 0
         var collected: [Float] = []
 
+        // Boundary-fade bookkeeping (mirrors `synthesizeStreaming`).
+        // `lastTextEndIndex` tracks where the most-recently-collected
+        // text-segment's audio ended in `collected`; when a pause
+        // follows, we fade-out the last 1920 samples in place. After
+        // a pause, the next text segment's first 1920 samples get
+        // faded-in once collection of that segment completes.
+        let fadeSamples = 1920
+        var lastTextEndIndex: Int? = nil
+        var pendingFadeIn = false
+
         // Phase 1: generate all audio
         for chunk in chunks {
             // Stop button cooperation. Generation can take 20-45s per
@@ -222,12 +275,36 @@ final class MultiTalkViewModel {
             case let .text(voiceID, name, body):
                 chunkIndex += 1
                 print("[MultiTalk-Batch] generating chunk \(chunkIndex)/\(textChunkCount): {\(name)} \"\(body.prefix(40))…\"")
+                let segmentStart = collected.count
                 for await frame in self.engine.synthesize(text: body, voiceID: voiceID, options: self.currentSynthesisOptions()) {
                     collected.append(contentsOf: frame.samples)
                 }
+                // Apply fade-in to the start of this text segment if it
+                // followed a pause.
+                if pendingFadeIn {
+                    let available = collected.count - segmentStart
+                    let n = min(fadeSamples, available)
+                    if n > 0 {
+                        let slice = Array(collected[segmentStart..<segmentStart + n])
+                        let faded = TTSEngine.applyLinearFadeIn(slice, fadeSamples: n)
+                        collected.replaceSubrange(segmentStart..<segmentStart + n, with: faded)
+                    }
+                    pendingFadeIn = false
+                }
+                lastTextEndIndex = collected.count
             case let .pause(seconds):
+                // Apply fade-out to the last 1920 samples of the
+                // previous text segment before appending silence.
+                if let lastEnd = lastTextEndIndex, lastEnd >= fadeSamples {
+                    let start = lastEnd - fadeSamples
+                    let slice = Array(collected[start..<lastEnd])
+                    let faded = TTSEngine.applyLinearFadeOut(slice, fadeSamples: fadeSamples)
+                    collected.replaceSubrange(start..<lastEnd, with: faded)
+                }
                 let n = Int(seconds * 24_000)
                 collected.append(contentsOf: [Float](repeating: 0, count: n))
+                pendingFadeIn = true
+                lastTextEndIndex = nil
             case .unknownSpeaker:
                 continue
             }
