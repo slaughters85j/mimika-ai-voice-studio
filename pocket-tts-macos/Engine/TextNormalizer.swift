@@ -16,9 +16,13 @@ nonisolated enum TextNormalizer {
 
     static func normalize(_ text: String) -> String {
         var t = text
-        // Ellipsis → comma (gives a natural pause without confusing the model)
-        t = t.replacingOccurrences(of: "…", with: ",")
-        t = t.replacingOccurrences(of: "...", with: ",")
+        // Ellipsis: leave it alone. The Python reference uses `...` as an
+        // end-of-sentence token inside its SentencePiece-based chunker and
+        // the model handles it correctly there. Earlier versions substituted
+        // `...` → `,` (broke chunking) or `. ` (broke token semantics) to
+        // work around audio distortion; that distortion is now believed to
+        // be a CoreML/sampler/token-feeding bug rather than something text
+        // normalization can fix, so we stop masking it here.
         // Pronunciation overrides the model struggles with
         t = applyPronunciationFixes(t)
         t = replace(t, abbrevPattern) { m, s in expandAbbreviation(m, in: s) }
