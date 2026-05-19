@@ -90,6 +90,22 @@ TESTS = [
     'A',
     ' leading space',
     'trailing space ',
+
+    # Apostrophe / contraction regressions (user-reported distortion cases).
+    # Add the literal failing phrases plus a few more contraction variants
+    # so a tokenizer drift on any of them surfaces here loudly.
+    "let's",
+    "C'mon",
+    "She's",
+    "it's not working",
+    "I'm fine",
+    "can't",
+    "won't",
+    "they're",
+    "we'll",
+    "you've",
+    "While I appreciate the enthusiasm, let's keep things respectful.",
+    "Well, let me tell you something, pal: it's not working!",
 ]
 
 sp = spm.SentencePieceProcessor()

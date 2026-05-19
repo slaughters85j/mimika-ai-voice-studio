@@ -603,5 +603,142 @@
       947,
       260
     ]
+  },
+  {
+    "text": "let's",
+    "expected_ids": [
+      452,
+      264,
+      261
+    ]
+  },
+  {
+    "text": "C'mon",
+    "expected_ids": [
+      444,
+      264,
+      283,
+      449
+    ]
+  },
+  {
+    "text": "She's",
+    "expected_ids": [
+      638,
+      264,
+      261
+    ]
+  },
+  {
+    "text": "it's not working",
+    "expected_ids": [
+      275,
+      264,
+      261,
+      300,
+      400,
+      273
+    ]
+  },
+  {
+    "text": "I'm fine",
+    "expected_ids": [
+      268,
+      264,
+      283,
+      1295
+    ]
+  },
+  {
+    "text": "can't",
+    "expected_ids": [
+      303,
+      264,
+      274
+    ]
+  },
+  {
+    "text": "won't",
+    "expected_ids": [
+      815,
+      264,
+      274
+    ]
+  },
+  {
+    "text": "they're",
+    "expected_ids": [
+      293,
+      264,
+      280
+    ]
+  },
+  {
+    "text": "we'll",
+    "expected_ids": [
+      281,
+      264,
+      335
+    ]
+  },
+  {
+    "text": "you've",
+    "expected_ids": [
+      270,
+      264,
+      314
+    ]
+  },
+  {
+    "text": "While I appreciate the enthusiasm, let's keep things respectful.",
+    "expected_ids": [
+      3134,
+      268,
+      2156,
+      2233,
+      265,
+      260,
+      530,
+      1258,
+      261,
+      655,
+      261,
+      283,
+      262,
+      452,
+      264,
+      261,
+      600,
+      339,
+      261,
+      338,
+      946,
+      624,
+      263
+    ]
+  },
+  {
+    "text": "Well, let me tell you something, pal: it's not working!",
+    "expected_ids": [
+      505,
+      262,
+      452,
+      308,
+      527,
+      270,
+      301,
+      344,
+      262,
+      324,
+      326,
+      3244,
+      275,
+      264,
+      261,
+      300,
+      400,
+      273,
+      682
+    ]
   }
 ]
