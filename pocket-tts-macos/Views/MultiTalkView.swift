@@ -32,6 +32,8 @@ struct MultiTalkView: View {
 
                     speakersPanel
 
+                    normalizationPanel
+
                     SynthesizeButton(
                         status: viewModel.status,
                         canSynthesize: viewModel.status.canSynthesize && !viewModel.script.trimmingCharacters(in: .whitespaces).isEmpty,
@@ -102,6 +104,39 @@ struct MultiTalkView: View {
                 pendingReuse = nil
             }
         }
+    }
+
+    // MARK: - Normalization picker (P1-N1)
+    // Three-way: per_voice | match_loudest | match_quietest. Mirrors
+    // Electron's MultiTalk.tsx:72 control. Each option resolves the
+    // per-segment RMS target the view model applies as a static gain
+    // before crossfade. `perVoice` is the default (no behavior change
+    // from pre-P1-N1 if every voice still maps to -16 dB).
+
+    private var normalizationPanel: some View {
+        VStack(alignment: .leading, spacing: Theme.space2) {
+            HStack {
+                Text("Voice Loudness")
+                    .font(Theme.fontSMBold)
+                    .foregroundStyle(Theme.textPrimary)
+                Spacer()
+            }
+
+            Picker("", selection: $viewModel.normalizationStrategy) {
+                ForEach(MultiTalkNormalizationStrategy.allCases) { strategy in
+                    Text(strategy.displayName).tag(strategy)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .disabled(viewModel.status.isWorking)
+            .accessibilityIdentifier("multi.normalizationPicker")
+
+            Text(viewModel.normalizationStrategy.helpText)
+                .font(Theme.fontXS)
+                .foregroundStyle(Theme.textSecondary)
+        }
+        .themePanel()
     }
 
     // MARK: - Speakers panel

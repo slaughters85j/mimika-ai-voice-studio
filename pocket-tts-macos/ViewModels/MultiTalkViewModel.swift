@@ -21,6 +21,13 @@ final class MultiTalkViewModel {
     ]
     var script: String = ""
 
+    /// P1-N1: how per-speaker RMS targets combine across the script.
+    /// `perVoice` lets each speaker keep its own configured target;
+    /// `matchLoudest` / `matchQuietest` collapse everyone to a common
+    /// target. Session-scoped (not persisted) — Electron's picker behaves
+    /// the same way.
+    var normalizationStrategy: MultiTalkNormalizationStrategy = .perVoice
+
     // MARK: - Outputs
     var status: SynthesisStatus = .idle
     var lastResultSamples: [Float]? = nil
@@ -51,6 +58,33 @@ final class MultiTalkViewModel {
         var options = SynthesisOptions()
         options.chunkTokenBudget = appState.pocketTTSChunkBudget
         return options
+    }
+
+    /// P1-N1: precompute the gain factor each speaker's audio should be
+    /// scaled by once the normalization strategy is applied. Keyed by
+    /// voice ID so the per-chunk hot path is a single dictionary lookup.
+    /// For `matchLoudest` / `matchQuietest`, every voice gets the same
+    /// gain (computed against the loudest/quietest configured target);
+    /// `perVoice` falls back to each voice's own resolved target.
+    private func buildVoiceGainMap() -> [String: Float] {
+        let voiceIDs = Set(speakers.map(\.voiceID))
+        let perVoiceTargets: [String: Float] = Dictionary(uniqueKeysWithValues:
+            voiceIDs.map { ($0, VoiceLevel.resolveTargetDB(forVoice: $0)) }
+        )
+
+        let commonTargetDB: Float?
+        switch normalizationStrategy {
+        case .perVoice:
+            commonTargetDB = nil
+        case .matchLoudest:
+            commonTargetDB = perVoiceTargets.values.max() ?? VoiceLevel.defaultTargetDB
+        case .matchQuietest:
+            commonTargetDB = perVoiceTargets.values.min() ?? VoiceLevel.defaultTargetDB
+        }
+
+        return Dictionary(uniqueKeysWithValues: perVoiceTargets.map { (id, ownTarget) in
+            (id, VoiceLevel.gainFactor(targetDB: commonTargetDB ?? ownTarget))
+        })
     }
 
     func setEngine(_ engine: any TTSEngineProtocol) {
@@ -179,6 +213,10 @@ final class MultiTalkViewModel {
         var pendingAudio: PCMFrame? = nil
         var nextAudioFrameIsAfterPause = false
 
+        // P1-N1: precompute the per-voice gain map once; the inner loop
+        // is a single dictionary lookup per frame.
+        let voiceGain = self.buildVoiceGainMap()
+
         var collected: [Float] = []
         for chunk in chunks {
             // Cooperative cancellation between chunks. Without this, a
@@ -189,13 +227,21 @@ final class MultiTalkViewModel {
             if Task.isCancelled { break }
             switch chunk {
             case let .text(voiceID, _, body):
+                let gain = voiceGain[voiceID] ?? 1.0
                 for await frame in self.engine.synthesize(text: body, voiceID: voiceID, options: self.currentSynthesisOptions()) {
+                    // Apply per-voice gain BEFORE the fade-in step so the
+                    // fade ramp is computed against the already-scaled
+                    // samples (otherwise the gain would clobber the fade
+                    // taper).
+                    var f = PCMFrame(
+                        samples: VoiceLevel.applyGain(frame.samples, gain: gain),
+                        isFinal: false
+                    )
                     // Fade-in if this is the first audio frame after an
                     // inter-speaker pause.
-                    var f = frame
                     if nextAudioFrameIsAfterPause {
                         f = PCMFrame(
-                            samples: TTSEngine.applyLinearFadeIn(frame.samples, fadeSamples: 1920),
+                            samples: TTSEngine.applyLinearFadeIn(f.samples, fadeSamples: 1920),
                             isFinal: false
                         )
                         nextAudioFrameIsAfterPause = false
@@ -265,6 +311,9 @@ final class MultiTalkViewModel {
         var lastTextEndIndex: Int? = nil
         var pendingFadeIn = false
 
+        // P1-N1: per-voice gain map reused across chunks (Fish path).
+        let voiceGain = self.buildVoiceGainMap()
+
         // Phase 1: generate all audio
         for chunk in chunks {
             // Stop button cooperation. Generation can take 20-45s per
@@ -276,8 +325,9 @@ final class MultiTalkViewModel {
                 chunkIndex += 1
                 print("[MultiTalk-Batch] generating chunk \(chunkIndex)/\(textChunkCount): {\(name)} \"\(body.prefix(40))…\"")
                 let segmentStart = collected.count
+                let gain = voiceGain[voiceID] ?? 1.0
                 for await frame in self.engine.synthesize(text: body, voiceID: voiceID, options: self.currentSynthesisOptions()) {
-                    collected.append(contentsOf: frame.samples)
+                    collected.append(contentsOf: VoiceLevel.applyGain(frame.samples, gain: gain))
                 }
                 // Apply fade-in to the start of this text segment if it
                 // followed a pause.

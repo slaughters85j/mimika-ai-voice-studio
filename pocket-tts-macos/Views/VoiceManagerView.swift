@@ -570,6 +570,10 @@ struct VoiceManagerView: View {
 
     private func runEnhancement() {
         guard let voiceID = savedVoiceID else { return }
+        // P1-N1: persist the slider's chosen RMS target on the voice so
+        // Single Voice + Multi-Talk pick it up when this voice plays
+        // back. Stored on the FishVoice catalog so it survives relaunch.
+        FishVoiceManager.shared.setRmsTargetDB(rmsTargetDB, for: voiceID)
         importStep = .enhancing
         encodingComplete = false
         onEnhanceVoice?(voiceID)
@@ -625,6 +629,10 @@ struct VoiceManagerView: View {
     private func acceptEnhancement() {
         guard let voiceID = savedVoiceID else { return }
         stopPlayback()
+        // P1-N1: pick up any slider tweak the user made on the comparison
+        // screen — `runEnhancement` already persisted the pre-enhance
+        // value, but the slider remains editable here too.
+        FishVoiceManager.shared.setRmsTargetDB(rmsTargetDB, for: voiceID)
         // Enhancement already saved — just encode for both backends
         onEncodeVoice?(voiceID)
         resetImport()

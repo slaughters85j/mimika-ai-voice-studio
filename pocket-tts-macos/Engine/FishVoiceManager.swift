@@ -24,6 +24,11 @@ struct FishVoice: Identifiable, Codable, Equatable, Sendable {
     var codesLength: Int?
     var isEnhanced: Bool = false
     var pocketTTSKVPath: String?
+    /// Per-voice RMS target in dB (P1-N1). `nil` falls back to the global
+    /// `VoiceLevel.defaultTargetDB` (-16 dB), matching pre-feature behavior
+    /// and Python's `_normalize_audio_rms` default. Decoded lazily so
+    /// existing voices.json catalogs upgrade without migration.
+    var rmsTargetDB: Float?
 }
 
 // MARK: - FishVoiceManager
@@ -159,6 +164,14 @@ final class FishVoiceManager {
     func setDescription(_ description: String, for voiceID: String) {
         guard let idx = voices.firstIndex(where: { $0.id == voiceID }) else { return }
         voices[idx].description = description
+        saveCatalog()
+    }
+
+    /// Persist a per-voice RMS target (dB). `nil` clears the override and
+    /// falls back to `VoiceLevel.defaultTargetDB`.
+    func setRmsTargetDB(_ db: Float?, for voiceID: String) {
+        guard let idx = voices.firstIndex(where: { $0.id == voiceID }) else { return }
+        voices[idx].rmsTargetDB = db
         saveCatalog()
     }
 
