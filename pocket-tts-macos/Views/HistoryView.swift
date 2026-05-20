@@ -9,7 +9,7 @@ import SwiftData
 
 struct HistoryView: View {
     @Bindable var viewModel: HistoryViewModel
-    let voices: [Voice]
+    let voices: [BundledVoice]
     let onReuse: (PendingReuse) -> Void
 
     @Environment(\.modelContext) private var modelContext
@@ -104,7 +104,7 @@ struct HistoryView: View {
         return base.sorted { ($0.pinned ? 1 : 0) > ($1.pinned ? 1 : 0) }
     }
 
-    private func voiceByID(_ id: String) -> Voice? {
+    private func voiceByID(_ id: String) -> BundledVoice? {
         voices.first(where: { $0.id == id })
     }
 }

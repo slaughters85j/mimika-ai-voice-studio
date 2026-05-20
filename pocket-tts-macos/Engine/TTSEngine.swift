@@ -640,7 +640,7 @@ actor TTSEngine: TTSEngineProtocol {
         if let cached = importedVoiceCache[importID] { return cached }
 
         // Read the persisted KV path from the voice catalog JSON on disk.
-        // Can't access @MainActor FishVoiceManager from this actor, so we
+        // Can't access @MainActor VoiceManager from this actor, so we
         // parse the catalog file directly.
         let kvPath = try Self.findImportedVoiceKVPath(importID: importID)
 
@@ -652,23 +652,41 @@ actor TTSEngine: TTSEngineProtocol {
 
     private nonisolated static func findImportedVoiceKVPath(importID: String) throws -> URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let catalogURL = appSupport.appendingPathComponent("pocket-tts-macos/fish-voices/voices.json")
+        let appDir = appSupport.appendingPathComponent("pocket-tts-macos", isDirectory: true)
 
-        // Try reading persisted path from catalog
+        // Resolve the active voices directory. VoiceManager.init runs a
+        // one-shot fish-voices/ → saved-voices/ migration; if that
+        // already ran (or this is a fresh install) we use saved-voices/.
+        // The legacy fallback covers the unlikely race where this
+        // engine path fires before VoiceManager has been touched.
+        let savedDir = appDir.appendingPathComponent("saved-voices", isDirectory: true)
+        let legacyDir = appDir.appendingPathComponent("fish-voices", isDirectory: true)
+        let fm = FileManager.default
+        let voicesDir = fm.fileExists(atPath: savedDir.path) ? savedDir : legacyDir
+        let catalogURL = voicesDir.appendingPathComponent("voices.json")
+
+        // Try reading persisted path from catalog. voices.json stores
+        // basenames (post step-2 path migration); legacy data may have
+        // absolutes. lastPathComponent normalizes either case, then we
+        // resolve against the active voicesDir.
         if let data = try? Data(contentsOf: catalogURL) {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
-            if let voices = try? decoder.decode([FishVoice].self, from: data),
+            if let voices = try? decoder.decode([Voice].self, from: data),
                let voice = voices.first(where: { $0.id == importID }),
-               let kvPath = voice.pocketTTSKVPath,
-               FileManager.default.fileExists(atPath: kvPath) {
-                return URL(fileURLWithPath: kvPath)
+               let storedKV = voice.pocketTTSKVPath
+            {
+                let basename = (storedKV as NSString).lastPathComponent
+                let kvURL = voicesDir.appendingPathComponent(basename)
+                if fm.fileExists(atPath: kvURL.path) {
+                    return kvURL
+                }
             }
         }
 
         // Fallback to conventional path
-        let fallback = appSupport.appendingPathComponent("pocket-tts-macos/fish-voices/\(importID)_kv.safetensors")
-        guard FileManager.default.fileExists(atPath: fallback.path) else {
+        let fallback = voicesDir.appendingPathComponent("\(importID)_kv.safetensors")
+        guard fm.fileExists(atPath: fallback.path) else {
             throw TTSEngineError.voiceNotFound("imported:\(importID) — KV not found")
         }
         return fallback

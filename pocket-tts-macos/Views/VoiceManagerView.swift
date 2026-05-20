@@ -30,13 +30,30 @@ struct VoiceManagerView: View {
     @State private var pendingFileURL: URL?
     @State private var voiceName = ""
     @State private var voiceDescription = ""
-    @State private var enableEnhancement = true
+    // Default OFF until the LavaSR audio-quality fixes (ULUNAS denoiser
+    // port + artifact tuning) land. Enhancement can still introduce
+    // perceptible artifacts on clean source audio, which is a worse
+    // default UX than leaving the user's recording untouched. Users
+    // who want LavaSR can opt in per voice.
+    @State private var enableEnhancement = false
     @State private var enableDenoise = true
     @State private var rmsTargetDB: Float = -16.0
     @State private var savedVoiceID: String?
     @State private var isDropTargeted = false
-    @State private var voiceToDelete: FishVoice?
+    @State private var voiceToDelete: Voice?
     @State private var encodingComplete = false
+
+    // Orphan recovery state (step 5). Populated on appear; UI section
+    // only renders when non-empty.
+    @State private var orphans: [OrphanedVoice] = []
+    @State private var orphanNames: [String: String] = [:]
+    @State private var orphanError: String? = nil
+
+    // Surfaces failures from the import flow (name collision, disk
+    // I/O, conversion) inline on the Save Voice Preset screen.
+    // Previously the catch in saveVoiceAndProceed only printed — the
+    // user saw the Save button do nothing.
+    @State private var importError: String? = nil
 
     // Audio playback for comparison
     @State private var isPlayingOriginal = false
@@ -51,6 +68,10 @@ struct VoiceManagerView: View {
                     dropZoneView
                     Divider().background(Theme.borderColor)
                     voicesList
+                    if !orphans.isEmpty {
+                        Divider().background(Theme.borderColor)
+                        orphansSection
+                    }
                     Divider().background(Theme.borderColor)
                     doneButton
                 case .savePreset:
@@ -77,7 +98,10 @@ struct VoiceManagerView: View {
                 importStep = .savePreset
             }
         }
-        .task { await verifyAndEncodeVoices() }
+        .task {
+            await verifyAndEncodeVoices()
+            refreshOrphans()
+        }
         .alert("Delete Voice", isPresented: Binding(
             get: { voiceToDelete != nil },
             set: { if !$0 { voiceToDelete = nil } }
@@ -85,7 +109,7 @@ struct VoiceManagerView: View {
             Button("Cancel", role: .cancel) { voiceToDelete = nil }
             Button("Delete", role: .destructive) {
                 if let voice = voiceToDelete {
-                    FishVoiceManager.shared.deleteVoice(id: voice.id)
+                    VoiceManager.shared.deleteVoice(id: voice.id)
                     voiceToDelete = nil
                 }
             }
@@ -116,10 +140,11 @@ struct VoiceManagerView: View {
         voiceDescription = ""
         savedVoiceID = nil
         encodingComplete = false
+        importError = nil
     }
 
     private func verifyAndEncodeVoices() async {
-        let needsEncoding = FishVoiceManager.shared.verifyVoiceStates()
+        let needsEncoding = VoiceManager.shared.verifyVoiceStates()
         for voiceID in needsEncoding { onEncodeVoice?(voiceID) }
     }
 
@@ -188,6 +213,12 @@ struct VoiceManagerView: View {
                 .foregroundStyle(Theme.textPrimary)
             }
             .toggleStyle(.checkbox)
+
+            if let err = importError {
+                Text(err)
+                    .font(Theme.fontXS)
+                    .foregroundStyle(Theme.errorFG)
+            }
 
             HStack {
                 cancelButton(action: resetImport)
@@ -439,7 +470,7 @@ struct VoiceManagerView: View {
 
     private var voiceNameHeader: some View {
         Group {
-            if let id = savedVoiceID, let name = FishVoiceManager.shared.voice(for: id)?.name {
+            if let id = savedVoiceID, let name = VoiceManager.shared.voice(for: id)?.name {
                 HStack(spacing: 6) {
                     Text("Voice:").font(Theme.fontXS).foregroundStyle(Theme.textSecondary)
                     Text(name).font(Theme.fontSMBold).foregroundStyle(Theme.textPrimary)
@@ -498,7 +529,7 @@ struct VoiceManagerView: View {
     // MARK: - Voices list
 
     private var voicesList: some View {
-        let voices = FishVoiceManager.shared.voices
+        let voices = VoiceManager.shared.voices
         return VStack(alignment: .leading, spacing: Theme.space3) {
             HStack {
                 Text("My Voices").font(Theme.fontSMBold).foregroundStyle(Theme.textPrimary)
@@ -518,7 +549,7 @@ struct VoiceManagerView: View {
         }
     }
 
-    private func voiceRow(_ voice: FishVoice) -> some View {
+    private func voiceRow(_ voice: Voice) -> some View {
         HStack(spacing: Theme.space3) {
             Text(voice.name).font(Theme.fontSM).foregroundStyle(Theme.textPrimary).lineLimit(1)
             Spacer()
@@ -535,7 +566,113 @@ struct VoiceManagerView: View {
         .background(Theme.bgTertiary.opacity(0.3)).clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall))
     }
 
-    private func statusBadges(_ voice: FishVoice) -> [String] {
+    // MARK: - Orphan recovery (step 5)
+
+    private var orphansSection: some View {
+        VStack(alignment: .leading, spacing: Theme.space2) {
+            HStack {
+                Text("Recover from Disk")
+                    .font(Theme.fontSMBold)
+                    .foregroundStyle(Theme.textPrimary)
+                Spacer()
+                Text("\(orphans.count)")
+                    .font(Theme.fontXS)
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            Text("\(orphans.count) voice file\(orphans.count == 1 ? "" : "s") on disk \(orphans.count == 1 ? "is" : "are") missing a catalog row. Name and adopt to restore.")
+                .font(Theme.fontXS)
+                .foregroundStyle(Theme.textSecondary)
+
+            VStack(spacing: Theme.space1) {
+                ForEach(orphans) { orphan in orphanRow(orphan) }
+            }
+
+            if let err = orphanError {
+                Text(err)
+                    .font(Theme.fontXS)
+                    .foregroundStyle(Theme.errorFG)
+            }
+        }
+    }
+
+    private func orphanRow(_ orphan: OrphanedVoice) -> some View {
+        let nameBinding = Binding<String>(
+            get: { orphanNames[orphan.id] ?? "Recovered \(orphan.id.prefix(8))" },
+            set: { orphanNames[orphan.id] = $0 }
+        )
+        return HStack(spacing: Theme.space2) {
+            // UUID prefix as a small mono-styled tag
+            Text(String(orphan.id.prefix(8)))
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(Theme.textSecondary)
+                .padding(.horizontal, 6).padding(.vertical, 2)
+                .background(Theme.bgTertiary)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall))
+
+            // Companion-file indicators
+            HStack(spacing: 2) {
+                if orphan.hasCodes {
+                    indicatorBadge("codes", color: Theme.accent)
+                }
+                if orphan.hasEnhanced {
+                    indicatorBadge("✨", color: Theme.accent)
+                }
+            }
+
+            TextField("Voice name", text: nameBinding)
+                .textFieldStyle(.plain)
+                .font(Theme.fontSM)
+                .foregroundStyle(Theme.textPrimary)
+                .padding(.horizontal, Theme.space2).padding(.vertical, Theme.space1)
+                .themeInputField()
+
+            Button(action: { adoptOrphan(orphan) }) {
+                Text("Adopt")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, Theme.space3).padding(.vertical, Theme.space1)
+                    .background(Theme.accent)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, Theme.space3).padding(.vertical, Theme.space2)
+        .background(Theme.bgTertiary.opacity(0.3))
+        .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall))
+    }
+
+    private func indicatorBadge(_ label: String, color: Color) -> some View {
+        Text(label)
+            .font(.system(size: 9))
+            .foregroundStyle(color)
+            .padding(.horizontal, 5).padding(.vertical, 1)
+            .background(color.opacity(0.15))
+            .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall))
+    }
+
+    private func refreshOrphans() {
+        orphans = VoiceManager.shared.scanForOrphans()
+        // Prune the typed-name cache for orphans that vanished (already
+        // adopted or files removed).
+        let live = Set(orphans.map(\.id))
+        orphanNames = orphanNames.filter { live.contains($0.key) }
+    }
+
+    private func adoptOrphan(_ orphan: OrphanedVoice) {
+        let name = orphanNames[orphan.id] ?? "Recovered \(orphan.id.prefix(8))"
+        do {
+            try VoiceManager.shared.adoptOrphan(id: orphan.id, name: name)
+            orphans.removeAll { $0.id == orphan.id }
+            orphanNames[orphan.id] = nil
+            orphanError = nil
+        } catch let error as VoiceManager.OrphanAdoptionError {
+            orphanError = error.errorDescription
+        } catch {
+            orphanError = "Adoption failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func statusBadges(_ voice: Voice) -> [String] {
         var b: [String] = []
         if voice.isEnhanced { b.append("Enhanced") }
         if voice.cachedCodesPath != nil && voice.pocketTTSKVPath != nil { b.append("Ready") }
@@ -550,11 +687,16 @@ struct VoiceManagerView: View {
         guard let url = pendingFileURL else { return }
         let name = voiceName.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { return }
-        guard url.startAccessingSecurityScopedResource() else { return }
-        defer { url.stopAccessingSecurityScopedResource() }
+        // File-importer URLs are security-scoped (start returns true);
+        // drag-dropped URLs are not (start returns false). Treat the
+        // scope as best-effort instead of a guard — if we can't claim
+        // it we still try to read, which works for the drag-drop case.
+        let didStartScope = url.startAccessingSecurityScopedResource()
+        defer { if didStartScope { url.stopAccessingSecurityScopedResource() } }
+        importError = nil
         do {
-            let voice = try FishVoiceManager.shared.importVoice(from: url, name: name)
-            if !voiceDescription.isEmpty { FishVoiceManager.shared.setDescription(voiceDescription, for: voice.id) }
+            let voice = try VoiceManager.shared.importVoice(from: url, name: name)
+            if !voiceDescription.isEmpty { VoiceManager.shared.setDescription(voiceDescription, for: voice.id) }
             savedVoiceID = voice.id
             if enableEnhancement {
                 importStep = .enhancementSettings
@@ -564,6 +706,16 @@ struct VoiceManagerView: View {
                 resetImport()
             }
         } catch {
+            // Surface the failure inline on the save-preset screen
+            // (LocalizedError → errorDescription for our typed errors;
+            // localizedDescription for system errors like disk full).
+            let message: String
+            if let typed = error as? LocalizedError, let desc = typed.errorDescription {
+                message = desc
+            } else {
+                message = error.localizedDescription
+            }
+            importError = message
             print("[VoiceManager] import failed: \(error)")
         }
     }
@@ -572,8 +724,8 @@ struct VoiceManagerView: View {
         guard let voiceID = savedVoiceID else { return }
         // P1-N1: persist the slider's chosen RMS target on the voice so
         // Single Voice + Multi-Talk pick it up when this voice plays
-        // back. Stored on the FishVoice catalog so it survives relaunch.
-        FishVoiceManager.shared.setRmsTargetDB(rmsTargetDB, for: voiceID)
+        // back. Stored on the Voice catalog so it survives relaunch.
+        VoiceManager.shared.setRmsTargetDB(rmsTargetDB, for: voiceID)
         importStep = .enhancing
         encodingComplete = false
         onEnhanceVoice?(voiceID)
@@ -583,8 +735,8 @@ struct VoiceManagerView: View {
 
     private func pollForCompletion(voiceID: String) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-            let voice = FishVoiceManager.shared.voice(for: voiceID)
-            let enhancedURL = FishVoiceManager.shared.enhancedWAVURL(for: voiceID)
+            let voice = VoiceManager.shared.voice(for: voiceID)
+            let enhancedURL = VoiceManager.shared.enhancedWAVURL(for: voiceID)
 
             // Show comparison as soon as enhanced WAV exists
             if importStep == .enhancing,
@@ -616,7 +768,7 @@ struct VoiceManagerView: View {
         guard let voiceID = savedVoiceID else { return }
         stopPlayback()
         // Delete the entire voice — user rejected it
-        FishVoiceManager.shared.deleteVoice(id: voiceID)
+        VoiceManager.shared.deleteVoice(id: voiceID)
         resetImport()
     }
 
@@ -632,7 +784,7 @@ struct VoiceManagerView: View {
         // P1-N1: pick up any slider tweak the user made on the comparison
         // screen — `runEnhancement` already persisted the pre-enhance
         // value, but the slider remains editable here too.
-        FishVoiceManager.shared.setRmsTargetDB(rmsTargetDB, for: voiceID)
+        VoiceManager.shared.setRmsTargetDB(rmsTargetDB, for: voiceID)
         // Enhancement already saved — just encode for both backends
         onEncodeVoice?(voiceID)
         resetImport()
@@ -642,13 +794,13 @@ struct VoiceManagerView: View {
 
     private func playOriginal() {
         guard let voiceID = savedVoiceID,
-              let url = FishVoiceManager.shared.wavURL(for: voiceID) else { return }
+              let url = VoiceManager.shared.wavURL(for: voiceID) else { return }
         togglePlayback(url: url, isOriginal: true)
     }
 
     private func playEnhanced() {
         guard let voiceID = savedVoiceID else { return }
-        let url = FishVoiceManager.shared.enhancedWAVURL(for: voiceID)
+        let url = VoiceManager.shared.enhancedWAVURL(for: voiceID)
         guard FileManager.default.fileExists(atPath: url.path) else { return }
         togglePlayback(url: url, isOriginal: false)
     }

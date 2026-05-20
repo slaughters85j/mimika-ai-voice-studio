@@ -96,15 +96,30 @@ struct ScriptGeneratorModal: View {
                 .font(Theme.fontSMBold)
                 .foregroundStyle(Theme.textPrimary)
 
-            TextField("e.g. A woman talking about planting flowers…", text: $prompt, axis: .vertical)
-                .lineLimit(2...6)
-                .textFieldStyle(.plain)
-                .font(Theme.fontSM)
-                .foregroundStyle(Theme.textPrimary)
-                .padding(.horizontal, Theme.space4)
-                .padding(.vertical, Theme.space3)
-                .themeInputField()
-                .disabled(generator.status == .generating)
+            // Swapped from SwiftUI's TextField(axis: .vertical) to the
+            // NSTextView-backed MacTextEditor for two reasons:
+            //   * Enter / Shift+Enter / Cmd+Enter behave properly in
+            //     NSTextView (TextField on macOS consumes Enter as a
+            //     submit signal and doesn't reliably insert a newline
+            //     even with axis: .vertical).
+            //   * Fixed-height container with the editor's built-in
+            //     NSScrollView lets long instructions scroll instead
+            //     of pushing the rest of the modal off-screen.
+            ZStack(alignment: .topLeading) {
+                if prompt.isEmpty {
+                    Text("e.g. A woman talking about planting flowers…")
+                        .font(Theme.fontSM)
+                        .foregroundStyle(Theme.textSecondary)
+                        .padding(.horizontal, Theme.space4 + 4)
+                        .padding(.vertical, Theme.space3 + 4)
+                        .allowsHitTesting(false)
+                }
+                MacTextEditor(text: $prompt, isEditable: generator.status != .generating)
+                    .padding(.horizontal, Theme.space4 - 4)
+                    .padding(.vertical, Theme.space3 - 6)
+            }
+            .frame(height: 120)
+            .themeInputField()
         }
     }
 

@@ -53,11 +53,25 @@ for pkg in prompt_phase.mlpackage calm_stateful.mlpackage mimi_stateful.mlpackag
     echo "  copied $pkg"
 done
 
-# 2. Voice KV state files (all of them — VoiceLoader will scan dynamically).
+# 2. Voice KV state files — STOCK ONLY (the seven Kyutai voices that
+#    ship with the public weights). Custom voices live in the user's
+#    sandbox container via the in-app Voice Manager
+#    (Application Support/pocket-tts-macos/saved-voices/), never in
+#    the source tree. The conversion project may produce more voices,
+#    but only the stock seven are safe to bundle in public release
+#    binaries.
+STOCK_VOICES=(alba azelma cosette fantine javert jean marius)
 rm -f "$RESOURCES/voice_kv_states"/*.safetensors
-cp "$CONVERSION_ROOT/voice_kv_states"/*.safetensors "$RESOURCES/voice_kv_states/"
+for voice in "${STOCK_VOICES[@]}"; do
+    src="$CONVERSION_ROOT/voice_kv_states/$voice.safetensors"
+    if [[ ! -f "$src" ]]; then
+        echo "error: missing $src" >&2
+        exit 1
+    fi
+    cp "$src" "$RESOURCES/voice_kv_states/"
+done
 voice_count=$(ls "$RESOURCES/voice_kv_states"/*.safetensors | wc -l | tr -d ' ')
-echo "  copied $voice_count voice KV files"
+echo "  copied $voice_count stock voice KV files"
 
 # 3. Tokenizer model + vocab JSON (the JSON is what the Swift tokenizer reads;
 #    the .model is kept in the bundle for future native-SentencePiece work).

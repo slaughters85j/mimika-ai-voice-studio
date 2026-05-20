@@ -1,34 +1,29 @@
 //
-//  FishVoicePipelineTests.swift
+//  VoicePipelineTests.swift
 //  pocket-tts-macosTests
 //
-//  Tests the Fish voice import pipeline: import WAV → enhance → codec encode.
-//  Requires Fish model weights to be cached (first run downloads ~3 GB).
+//  Tests the voice import pipeline: import WAV → enhance → codec encode.
+//  Requires Fish model weights to be cached for the codec-encode tests
+//  (first run downloads ~3 GB); other tests use a generated sine fixture.
 
 import XCTest
 @testable import pocket_tts_macos
 
-final class FishVoicePipelineTests: XCTestCase {
+final class VoicePipelineTests: XCTestCase {
 
-    // Use any WAV file on disk for testing. Point this at a real voice sample.
-    private let testWAVURL: URL = {
-        // Try the Electron app's voices first (known good recordings)
-        let electronVoices = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/pocket-tts-electron/voices")
-        if let first = try? FileManager.default.contentsOfDirectory(at: electronVoices, includingPropertiesForKeys: nil)
-            .first(where: { $0.pathExtension == "wav" }) {
-            return first
-        }
-        // Fallback: generate a short sine wave in sandbox temp
-        return URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("fish-test-voice.wav")
-    }()
+    // Generated 2-second 440 Hz sine fixture written to NSTemporaryDirectory
+    // on first access via ensureTestWAV(). Self-contained — no dependency on
+    // other apps' data directories (the macOS app's voice library lives in
+    // its own sandbox container).
+    private let testWAVURL: URL = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("voice-pipeline-test-fixture.wav")
 
     // MARK: - Voice Manager
 
     @MainActor
     func test_importVoice_createsEntryWithWAV() throws {
         let url = ensureTestWAV()
-        let manager = FishVoiceManager.shared
+        let manager = VoiceManager.shared
 
         let voice = try manager.importVoice(from: url, name: "Test Voice")
 
@@ -45,7 +40,7 @@ final class FishVoicePipelineTests: XCTestCase {
     @MainActor
     func test_deleteVoice_removesFileAndEntry() throws {
         let url = ensureTestWAV()
-        let manager = FishVoiceManager.shared
+        let manager = VoiceManager.shared
 
         let voice = try manager.importVoice(from: url, name: "Delete Test")
         let wavPath = voice.wavPath
@@ -77,7 +72,7 @@ final class FishVoicePipelineTests: XCTestCase {
 
         let inputURL = ensureTestWAV()
         let outputURL = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("fish-enhance-test-output.wav")
+            .appendingPathComponent("voice-enhance-test-output.wav")
         defer { try? FileManager.default.removeItem(at: outputURL) }
 
         try await enhancer.enhance(inputURL: inputURL, outputURL: outputURL)
@@ -99,10 +94,10 @@ final class FishVoicePipelineTests: XCTestCase {
             throw XCTSkip("Fish engine not available (model not cached)")
         }
 
-        let manager = FishVoiceManager.shared
+        let manager = VoiceManager.shared
         let url = ensureTestWAV()
         let voice = try manager.importVoice(from: url, name: "Codec Test")
-        defer { FishVoiceManager.shared.deleteVoice(id: voice.id) }
+        defer { VoiceManager.shared.deleteVoice(id: voice.id) }
 
         try await engine.encodeVoice(voiceID: voice.id)
 
@@ -121,10 +116,10 @@ final class FishVoicePipelineTests: XCTestCase {
     @MainActor
     func test_fullPipeline_importEnhanceEncode() async throws {
         // Step 1: Import
-        let manager = FishVoiceManager.shared
+        let manager = VoiceManager.shared
         let url = ensureTestWAV()
         let voice = try manager.importVoice(from: url, name: "Pipeline Test")
-        defer { FishVoiceManager.shared.deleteVoice(id: voice.id) }
+        defer { VoiceManager.shared.deleteVoice(id: voice.id) }
 
         // Step 2: Enhance
         let enhancer = VoiceEnhancer.shared
@@ -172,7 +167,7 @@ final class FishVoicePipelineTests: XCTestCase {
         for i in 0..<sampleCount {
             samples[i] = Float(sin(2.0 * .pi * frequency * Double(i) / Double(sampleRate))) * 0.5
         }
-        let url = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("fish-test-voice.wav")
+        let url = testWAVURL
         let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: Double(sampleRate), channels: 1, interleaved: false)!
         if let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(sampleCount)),
            let channel = buffer.floatChannelData?[0] {

@@ -3,6 +3,7 @@
 //  pocket-tts-macos
 //
 
+import AppKit
 import SwiftData
 import SwiftUI
 
@@ -36,7 +37,47 @@ struct pocket_tts_macosApp: App {
                 }
                 .keyboardShortcut(",", modifiers: .command)
             }
+            // Edit > Find submenu — Cmd+F opens the find bar inside the
+            // currently-focused NSTextView (Single Voice + Multi-Talk
+            // script editors via `MacTextEditor`). Each item sends the
+            // standard `performFindPanelAction(_:)` selector with the
+            // matching NSFindPanelAction tag through the responder chain.
+            CommandGroup(after: .textEditing) {
+                Section {
+                    Button("Find…") { Self.performFindAction(.showFindInterface) }
+                        .keyboardShortcut("f", modifiers: .command)
+
+                    Button("Find and Replace…") { Self.performFindAction(.showReplaceInterface) }
+                        .keyboardShortcut("f", modifiers: [.command, .option])
+
+                    Button("Find Next") { Self.performFindAction(.nextMatch) }
+                        .keyboardShortcut("g", modifiers: .command)
+
+                    Button("Find Previous") { Self.performFindAction(.previousMatch) }
+                        .keyboardShortcut("g", modifiers: [.command, .shift])
+
+                    Button("Use Selection for Find") { Self.performFindAction(.setSearchString) }
+                        .keyboardShortcut("e", modifiers: .command)
+                }
+            }
         }
+    }
+
+    /// Dispatch one of the `NSTextFinder.Action` cases to whatever
+    /// NSTextView is currently first responder. NSTextView implements
+    /// `performTextFinderAction(_:)` and reads the action enum off the
+    /// sender's tag, so we build a transient NSMenuItem with the tag
+    /// set and walk it through the responder chain. The selector is
+    /// constructed by string because `NSResponder.performTextFinderAction`
+    /// isn't exposed on a Swift-importable protocol we can `#selector` to.
+    private static func performFindAction(_ action: NSTextFinder.Action) {
+        let menuItem = NSMenuItem()
+        menuItem.tag = action.rawValue
+        NSApp.sendAction(
+            NSSelectorFromString("performTextFinderAction:"),
+            to: nil,
+            from: menuItem
+        )
     }
 
     /// SwiftData container for the History schema.

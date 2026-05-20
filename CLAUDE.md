@@ -77,6 +77,8 @@ pocket-tts-macos/
 │   │   ├── TTSEngine.swift           (orchestrator)
 │   │   ├── Tokenizer.swift           (SentencePiece wrapper)
 │   │   ├── VoiceLoader.swift         (safetensors → MLMultiArray)
+│   │   ├── VoiceManager.swift        (saved-voices/ catalog + import + orphan recovery)
+│   │   ├── BundledVoice.swift        (Models/) — stock voice catalog entry
 │   │   └── ModelPaths.swift          (bundle-resource resolution)
 │   ├── Audio/
 │   │   ├── StreamingPlayer.swift     (AVAudioEngine source node)
@@ -100,14 +102,16 @@ pocket-tts-macos/
 │   │   ├── AudioPlayer.swift
 │   │   └── SynthesizeButton.swift
 │   ├── Networking/
-│   │   └── LMStudioClient.swift      (Phase 4)
-│   ├── Resources/                     (bundled assets — added in Xcode "Copy Bundle Resources")
+│   │   └── LocalLLMClient.swift      (OpenAI-compatible: LM Studio, Ollama, llama.cpp server, etc.)
+│   ├── Resources/                     (bundled assets — synced via scripts/sync-assets.sh)
 │   │   ├── mlpackages/
 │   │   │   ├── prompt_phase.mlpackage
-│   │   │   ├── calm_stateful.mlpackage
-│   │   │   └── mimi_stateful.mlpackage
+│   │   │   ├── calm_stateful.mlpackage      (fp32 compute)
+│   │   │   ├── mimi_stateful.mlpackage      (fp32 compute, 8192-slot KV cache)
+│   │   │   └── voice_prompt_phase.mlpackage (voice-import baker)
 │   │   ├── tokenizer.model
-│   │   └── embeddings/*.safetensors
+│   │   ├── tokenizer_vocab.json
+│   │   └── voice_kv_states/*.safetensors    (stock-only; the 7 Kyutai voices)
 │   └── Assets.xcassets/
 ├── pocket-tts-macosTests/
 └── pocket-tts-macosUITests/
@@ -115,6 +119,32 @@ pocket-tts-macos/
 
 ---
 
+
+## Voice storage — two distinct stores
+
+This trips up every fresh session. Keep them straight:
+
+**Bundled voices (read-only, ship with the app):**
+- Location: `pocket-tts-macos/Resources/voice_kv_states/*.safetensors` in source → `.app/Contents/Resources/*.safetensors` in the build
+- Type: `BundledVoice` (in `Models/BundledVoice.swift`)
+- Catalog: built dynamically by `VoiceLoader.loadAll()` at engine init
+- Contents: stock-only — the seven Kyutai voices (`alba`, `azelma`, `cosette`, `fantine`, `javert`, `jean`, `marius`). `sync-assets.sh` is filtered to enforce this.
+
+**Saved voices (user-imported, live in the sandbox container):**
+- Location: `~/Library/Containers/<bundle-id>/Data/Library/Application Support/pocket-tts-macos/saved-voices/`
+- Type: `Voice` (in `Engine/VoiceManager.swift`)
+- Catalog: `voices.json` in the same directory (stores basenames only; paths resolve against the current container at load)
+- Files: `<UUID>.wav` + `<UUID>_codes.npy` + `<UUID>_kv.safetensors` + optional `<UUID>_enhanced.wav`
+- Managed via the in-app Voice Manager (waveform icon in the header) — never touched by source code
+
+The two stores are surfaced together in pickers but managed separately. **Voices imported via the app NEVER enter `Resources/`** — they're user data, not source. Future agents: don't try to copy custom voices into source; the architecture rejects this by design.
+
+`VoiceManager` runs three on-boot hygiene tasks:
+1. **Directory migration** from legacy `fish-voices/` → `saved-voices/` (in-place, idempotent).
+2. **Reconcile with disk** — clears stale catalog rows whose files vanished.
+3. **Orphan recovery** — surfaces adoptable file triplets (KV + WAV, with parseable KV header) that have no catalog row, in the Voice Manager UI.
+
+---
 
 ## Conventions
 
@@ -182,8 +212,8 @@ This is **not** a Ubiquitous Analytics project. The UA brand-token rule does not
 |----------|--------|
 | Fresh project vs extend menu bar | **Fresh** (this repo). Menu bar (`macos-service/`) stays separate. |
 | Python backend fallback | **No.** Core ML only. |
-| Voice cloning in v1 | **No.** Use predefined voices. Cloning is v2. |
-| ChatLLM backend | **LM Studio** (OpenAI-compatible local API, default `http://localhost:1234/v1`) |
+| Voice cloning in v1 | **Yes** (shipped in v1.0). Via the in-app Voice Manager → saved-voices/ container. |
+| ChatLLM backend | **Local LLM Endpoint** — generic OpenAI-compatible HTTP (LM Studio, Ollama, llama.cpp server, vLLM, LocalAI). Base URL persisted in SwiftData; default `http://localhost:1234/v1`. |
 | iOS in v1 | **No.** Possibly v2 after macOS stabilizes. |
 | Default voice | TBD — caller's choice. Plan to default to `cosette` until UI persists last-used. |
 | Audio export formats | **WAV + AAC + MP3** |

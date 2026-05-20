@@ -5,12 +5,16 @@
 //  Ports Electron's Multi-Talk tab. Sidebar has the Speakers panel + standard
 //  Synth/Status/Player triplet; right side has the script editor.
 
+import AppKit
 import SwiftUI
 import SwiftData
 
 struct MultiTalkView: View {
     @Bindable var viewModel: MultiTalkViewModel
-    let voices: [Voice]
+    /// AppState is passed through so the display-panel picker + toggle
+    /// can bind directly to its persistence-backed properties.
+    @Bindable var appState: AppState
+    let voices: [BundledVoice]
     @Binding var pendingReuse: PendingReuse?
     @Environment(\.modelContext) private var modelContext
 
@@ -31,6 +35,8 @@ struct MultiTalkView: View {
                     )
 
                     speakersPanel
+
+                    displayPanel
 
                     normalizationPanel
 
@@ -66,8 +72,10 @@ struct MultiTalkView: View {
                     disabled: viewModel.status.isWorking,
                     onGenerateClick: { showGenerator = true },
                     onPauseClick: { showPauseModal = true },
+                    onFormatClick: { viewModel.formatScript() },
                     accessibilityID: "multi.scriptEditor",
-                    editorBridge: viewModel.editorBridge
+                    editorBridge: viewModel.editorBridge,
+                    tagColors: tagColorsForEditor
                 )
             }
             .padding(.horizontal, Theme.space6)
@@ -92,8 +100,53 @@ struct MultiTalkView: View {
                 )
             }
         }
+        .onChange(of: viewModel.speakers) { oldSpeakers, newSpeakers in
+            // Keep existing `{Tag}` references in the script body in
+            // sync when the user mutates a speaker card. Two cases —
+            // both must be covered so the rename works regardless of
+            // which tag mode is active:
+            //
+            //   * Card NAME changed → rewrite `{oldName}` → `{newName}`
+            //     (covers speaker-label mode where tags use card names)
+            //   * Card VOICE changed → rewrite `{oldVoiceName}` →
+            //     `{newVoiceName}` (covers voice-names mode where tags
+            //     use the resolved voice display name)
+            //
+            // The rename function is a no-op when no matching tags
+            // exist, so we can safely fire both branches in either
+            // mode — the inactive form just doesn't find anything to
+            // rewrite.
+            let oldByID = Dictionary(uniqueKeysWithValues: oldSpeakers.map { ($0.id, $0) })
+            for new in newSpeakers {
+                guard let old = oldByID[new.id] else { continue }
+                if old.name != new.name {
+                    viewModel.renameSpeakerTags(from: old.name, to: new.name)
+                }
+                if old.voiceID != new.voiceID,
+                   let oldVN = viewModel.voiceNameResolver?(old.voiceID),
+                   let newVN = viewModel.voiceNameResolver?(new.voiceID),
+                   oldVN != newVN
+                {
+                    viewModel.renameSpeakerTags(from: oldVN, to: newVN)
+                }
+            }
+        }
         .onAppear {
             viewModel.setModelContext(modelContext)
+            // Resolver: maps a voiceID (stock or "imported:<UUID>") to
+            // the voice's display name. Consumed by the tag-mode
+            // transform AND by the parser's voice-name lookup so tags
+            // like `{Beverly Crusher Normal}` are recognized in
+            // addition to `{Speaker 1}` labels.
+            let bundledByID = Dictionary(uniqueKeysWithValues: voices.map { ($0.id, $0.name) })
+            viewModel.voiceNameResolver = { voiceID in
+                if let bundled = bundledByID[voiceID] { return bundled }
+                if voiceID.hasPrefix("imported:") {
+                    let uuid = String(voiceID.dropFirst("imported:".count))
+                    return VoiceManager.shared.voice(for: uuid)?.name
+                }
+                return nil
+            }
             if case let .multi(script, speakers) = pendingReuse {
                 if chatSettings.activeBackend == .fishSpeech {
                     let fishSpeakers = speakers.map { SpeakerRef(name: $0.name, voiceID: "fish-default") }
@@ -104,6 +157,75 @@ struct MultiTalkView: View {
                 pendingReuse = nil
             }
         }
+    }
+
+    // MARK: - Display panel (tag mode picker + speaker colors toggle)
+    // Two readability controls for long scripts. The tag-mode picker
+    // switches `{Speaker N}` tags to `{Voice Name}` tags in-place
+    // (transforms the script text). The colors toggle is wired in a
+    // subsequent commit — placeholder here for layout.
+
+    private var displayPanel: some View {
+        VStack(alignment: .leading, spacing: Theme.space2) {
+            HStack {
+                Text("Script Display")
+                    .font(Theme.fontSMBold)
+                    .foregroundStyle(Theme.textPrimary)
+                Spacer()
+            }
+
+            VStack(alignment: .leading, spacing: Theme.space1) {
+                Text("Tags")
+                    .font(Theme.fontXS)
+                    .foregroundStyle(Theme.textSecondary)
+                Picker("", selection: $appState.multiTalkTagDisplayMode) {
+                    ForEach(SpeakerTagMode.allCases) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .disabled(viewModel.status.isWorking)
+                .accessibilityIdentifier("multi.tagModePicker")
+                .onChange(of: appState.multiTalkTagDisplayMode) { _, newMode in
+                    viewModel.applyTagMode(newMode)
+                }
+            }
+
+            Toggle(isOn: $appState.multiTalkUseSpeakerColors) {
+                Text("Speaker colors")
+                    .font(Theme.fontXS)
+                    .foregroundStyle(Theme.textPrimary)
+            }
+            .toggleStyle(.switch)
+            .tint(Theme.accent)
+            .disabled(viewModel.status.isWorking)
+            .accessibilityIdentifier("multi.speakerColorsToggle")
+        }
+        .themePanel()
+    }
+
+    /// Speaker name → SwiftUI Color. Computed every render — cheap
+    /// (one entry per speaker) and stays in sync with rename / reorder.
+    /// nil when the toggle is off → SpeakerCard + MacTextEditor both
+    /// fall back to default text color.
+    private var speakerColorsByName: [String: Color]? {
+        guard appState.multiTalkUseSpeakerColors else { return nil }
+        var map: [String: Color] = [:]
+        for (i, s) in viewModel.speakers.enumerated() {
+            map[s.name] = Theme.speakerColor(at: i)
+            // Also register under the voice name so colored tags work
+            // when the user is in `.voiceName` tag mode.
+            if let vn = viewModel.voiceNameResolver?(s.voiceID) {
+                map[vn] = Theme.speakerColor(at: i)
+            }
+        }
+        return map
+    }
+
+    /// NSColor-keyed variant for the AppKit MacTextEditor.
+    private var tagColorsForEditor: [String: NSColor]? {
+        speakerColorsByName.map { Dictionary(uniqueKeysWithValues: $0.map { ($0.key, NSColor($0.value)) }) }
     }
 
     // MARK: - Normalization picker (P1-N1)
@@ -166,9 +288,22 @@ struct MultiTalkView: View {
                         activeBackend: chatSettings.activeBackend,
                         canRemove: viewModel.speakers.count > 1,
                         disabled: viewModel.status.isWorking,
-                        onInsertToScript: { name in viewModel.insertSpeakerTag(name) },
+                        onInsertToScript: { name in
+                            // Honor the current tag mode: in .voiceName,
+                            // insert the assigned voice's display name
+                            // rather than the speaker's card label.
+                            let tagName: String
+                            if appState.multiTalkTagDisplayMode == .voiceName,
+                               let vn = viewModel.voiceNameResolver?(viewModel.speakers[idx].voiceID) {
+                                tagName = vn
+                            } else {
+                                tagName = name
+                            }
+                            viewModel.insertSpeakerTag(tagName)
+                        },
                         onRemove: { viewModel.removeSpeaker(at: idx) },
-                        cardIndex: idx
+                        cardIndex: idx,
+                        nameColor: appState.multiTalkUseSpeakerColors ? Theme.speakerColor(at: idx) : nil
                     )
                 }
             }

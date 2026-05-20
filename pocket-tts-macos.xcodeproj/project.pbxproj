@@ -109,7 +109,6 @@
 				D5ECD2142FB78D5A00C23A9D /* Sources */,
 				D5ECD2152FB78D5A00C23A9D /* Frameworks */,
 				D5ECD2162FB78D5A00C23A9D /* Resources */,
-				D59814A62FBD3CDB002E6B60 /* Strip non-stock voices for Release */,
 			);
 			buildRules = (
 			);
@@ -243,28 +242,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
-
-/* Begin PBXShellScriptBuildPhase section */
-		D59814A62FBD3CDB002E6B60 /* Strip non-stock voices for Release */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-			);
-			name = "Strip non-stock voices for Release";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/bash;
-			shellScript = "# Strip non-stock voice KV states from Release archives only.\n# Debug builds keep all bundled voices for development.\nif [ \"${CONFIGURATION}\" != \"Release\" ]; then\n    echo \"note: strip-custom-voices skipped (CONFIGURATION=${CONFIGURATION})\"\n    exit 0\nfi\n\nRESOURCES=\"${TARGET_BUILD_DIR}/${PRODUCT_NAME}.app/Contents/Resources\"\nif [ ! -d \"$RESOURCES\" ]; then\n    echo \"error: app Resources/ not found at $RESOURCES\" >&2\n    exit 1\nfi\n\nSTOCK_VOICES=(alba azelma cosette fantine javert jean marius)\n\nremoved=0\nkept=0\nfor f in \"$RESOURCES\"/*.safetensors; do\n    [ -e \"$f\" ] || continue\n    name=$(basename \"$f\" .safetensors)\n\n    # Non-voice model weights stay (LavaSR + MimiEncoder).\n    case \"$name\" in\n        lavasr_*|mimi_encoder_*)\n            kept=$((kept + 1))\n            continue\n            ;;\n    esac\n\n    is_stock=false\n    for s in \"${STOCK_VOICES[@]}\"; do\n        [ \"$name\" = \"$s\" ] && is_stock=true\n    done\n\n    if $is_stock; then\n        kept=$((kept + 1))\n    else\n        rm \"$f\"\n        removed=$((removed + 1))\n        echo \"warning: stripped $name.safetensors from Release bundle\"\n    fi\ndone\n\necho \"strip-custom-voices: removed $removed file(s); kept $kept file(s)\"\n";
-		};
-/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		D5ECD2142FB78D5A00C23A9D /* Sources */ = {

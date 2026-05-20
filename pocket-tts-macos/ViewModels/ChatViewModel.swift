@@ -143,6 +143,17 @@ final class ChatViewModel {
         let userText = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !userText.isEmpty else { return }
 
+        // Reset dictation state. If the user dictated something, then
+        // edited the draft and hit Enter (or clicked Send), the mic
+        // button was previously stuck on the paperplane "ready to
+        // send dictated text" icon — its state desynced because send()
+        // didn't know about the dictation flow. Stop the audio engine
+        // if still listening, then drop back to idle either way.
+        if dictation == .listening {
+            dictationController.stop()
+        }
+        dictation = .idle
+
         draft = ""
         messages.append(ChatMessage(role: .user, content: userText))
         let assistantID = UUID()

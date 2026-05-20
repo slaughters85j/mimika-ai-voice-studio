@@ -32,13 +32,31 @@ nonisolated enum MultiTalkScriptParser {
 
     /// `speakers` is the in-order list of speaker definitions from the UI.
     /// The first speaker becomes the "default" used before any `{Name}` tag.
-    static func parse(_ script: String, speakers: [MultiTalkSpeaker]) -> [MultiTalkChunk] {
+    /// `voiceNameForVoiceID` (optional) registers each speaker's voice
+    /// display name as a second alias, so the parser resolves
+    /// `{Voice Name}` tags in addition to `{Speaker label}` tags.
+    /// Used by the tag-mode picker in Multi-Talk — when the user toggles
+    /// to "Voice names", the rewriter swaps the tag text and the parser
+    /// still matches because both forms are registered.
+    static func parse(
+        _ script: String,
+        speakers: [MultiTalkSpeaker],
+        voiceNameForVoiceID: ((String) -> String?)? = nil
+    ) -> [MultiTalkChunk] {
         guard !speakers.isEmpty else { return [] }
 
         // Tokenize the script into a stream of (kind, payload, range) entries.
-        let speakerByName: [String: MultiTalkSpeaker] = Dictionary(
-            uniqueKeysWithValues: speakers.map { ($0.name, $0) }
-        )
+        // Register each speaker under its label, and additionally under
+        // the resolved voice name when the lookup is provided. If two
+        // speakers happen to share a voice (rare but legal), the LAST
+        // wins on the voice-name alias; the label alias is still unique.
+        var speakerByName: [String: MultiTalkSpeaker] = [:]
+        for s in speakers {
+            speakerByName[s.name] = s
+            if let voiceName = voiceNameForVoiceID?(s.voiceID) {
+                speakerByName[voiceName] = s
+            }
+        }
 
         var chunks: [MultiTalkChunk] = []
         var currentSpeaker = speakers[0]

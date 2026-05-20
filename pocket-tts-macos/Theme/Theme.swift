@@ -43,6 +43,27 @@ nonisolated enum Theme {
     static let errorFG   = Color(red: 0.95, green: 0.35, blue: 0.35)
     static let warningFG = Color(red: 0.95, green: 0.75, blue: 0.30)          // amber-400-ish
 
+    // MARK: Speaker palette
+    // Eight visually-distinct hues for the Multi-Talk speaker-colors
+    // toggle. Tuned for readability on the dark Theme.bgPrimary +
+    // Theme.bgTertiary surfaces. Indexed by speaker position (cycles
+    // if more than 8 speakers — unlikely in practice).
+    static let speakerColors: [Color] = [
+        Color(red: 1.00, green: 0.55, blue: 0.45),   // coral
+        Color(red: 1.00, green: 0.78, blue: 0.30),   // amber
+        Color(red: 0.60, green: 0.90, blue: 0.45),   // green
+        Color(red: 0.40, green: 0.85, blue: 0.90),   // cyan
+        Color(red: 0.55, green: 0.70, blue: 1.00),   // periwinkle
+        Color(red: 0.85, green: 0.60, blue: 1.00),   // lavender
+        Color(red: 1.00, green: 0.55, blue: 0.85),   // pink
+        Color(red: 1.00, green: 0.92, blue: 0.55),   // butter
+    ]
+
+    /// Cyclical palette lookup. Safe to call with any non-negative index.
+    static func speakerColor(at index: Int) -> Color {
+        speakerColors[(index % speakerColors.count + speakerColors.count) % speakerColors.count]
+    }
+
     // MARK: Radii (Tailwind defaults)
     static let radiusSmall: CGFloat = 4    // rounded
     static let radius:      CGFloat = 8    // rounded-lg (cards, panels, inputs)

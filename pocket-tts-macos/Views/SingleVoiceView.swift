@@ -11,7 +11,7 @@ import SwiftData
 
 struct SingleVoiceView: View {
     @Bindable var viewModel: SingleVoiceViewModel
-    let voices: [Voice]
+    let voices: [BundledVoice]
     @Binding var pendingReuse: PendingReuse?
     @Binding var chatSettings: ChatSettings
     @Environment(\.modelContext) private var modelContext

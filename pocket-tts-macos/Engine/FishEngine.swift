@@ -79,7 +79,7 @@ actor FishEngine: TTSEngineProtocol {
 
     nonisolated func availableVoiceIDs() -> [String] {
         // "fish-default" = no reference audio (Fish's built-in voice).
-        // Saved voices are discovered via FishVoiceManager at the UI layer.
+        // Saved voices are discovered via VoiceManager at the UI layer.
         ["fish-default"]
     }
 
@@ -212,11 +212,11 @@ actor FishEngine: TTSEngineProtocol {
         let codes = indices[0]
         eval(codes)
 
-        let codesDir = await FishVoiceManager.shared.codesDir()
+        let codesDir = await VoiceManager.shared.codesDir()
         let codesURL = codesDir.appendingPathComponent("\(voiceID)_codes.npy")
         try MLX.save(array: codes, url: codesURL)
 
-        await FishVoiceManager.shared.setCachedCodes(
+        await VoiceManager.shared.setCachedCodes(
             for: voiceID,
             codesPath: codesURL.path,
             codesLength: promptLength
@@ -236,11 +236,11 @@ actor FishEngine: TTSEngineProtocol {
     private nonisolated static func loadVoiceMeta(voiceID: String) async -> VoiceMeta? {
         guard voiceID != "fish-default" else { return nil }
         return await MainActor.run {
-            guard let voice = FishVoiceManager.shared.voice(for: voiceID) else { return nil }
+            guard let voice = VoiceManager.shared.voice(for: voiceID) else { return nil }
             // Prefer enhanced WAV if available
             let effectiveWAV: String
             if voice.isEnhanced {
-                let enhancedURL = FishVoiceManager.shared.enhancedWAVURL(for: voiceID)
+                let enhancedURL = VoiceManager.shared.enhancedWAVURL(for: voiceID)
                 if FileManager.default.fileExists(atPath: enhancedURL.path) {
                     effectiveWAV = enhancedURL.path
                 } else {

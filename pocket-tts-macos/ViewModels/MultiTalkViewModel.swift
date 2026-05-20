@@ -11,13 +11,35 @@ import Foundation
 import Observation
 import SwiftData
 
+// MARK: - SpeakerTagMode
+
+/// How `{...}` tags should read in the script body. Toggled by the
+/// Multi-Talk view's tag-mode picker; transforms the script in place.
+nonisolated enum SpeakerTagMode: String, CaseIterable, Identifiable, Sendable {
+    /// `{Speaker 1}` — the speaker card's editable name. Default;
+    /// matches the AI Writer's typical output format.
+    case speakerLabel
+    /// `{Beverly Crusher Normal}` — the assigned voice's display name.
+    /// Easier to read on long multi-speaker scripts.
+    case voiceName
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .speakerLabel: return "Speaker labels"
+        case .voiceName:    return "Voice names"
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class MultiTalkViewModel {
 
     // MARK: - Inputs
     var speakers: [MultiTalkSpeaker] = [
-        MultiTalkSpeaker(name: "Speaker 1", voiceID: Voice.default.id)
+        MultiTalkSpeaker(name: "Speaker 1", voiceID: BundledVoice.default.id)
     ]
     var script: String = ""
 
@@ -27,6 +49,15 @@ final class MultiTalkViewModel {
     /// target. Session-scoped (not persisted) — Electron's picker behaves
     /// the same way.
     var normalizationStrategy: MultiTalkNormalizationStrategy = .perVoice
+
+    /// View-supplied closure that resolves a voiceID to its display
+    /// name (e.g. `"cosette"` → `"Cosette"`, `"imported:<UUID>"` →
+    /// `"Beverly Crusher Normal"`). Set by MultiTalkView on appear and
+    /// consumed by `applyTagMode` and the synthesis parser. The view
+    /// is the source of truth because voice catalogs live there
+    /// (stock voices on the view's prop, saved voices on
+    /// VoiceManager.shared).
+    var voiceNameResolver: ((String) -> String?)?
 
     // MARK: - Outputs
     var status: SynthesisStatus = .idle
@@ -99,14 +130,14 @@ final class MultiTalkViewModel {
             MultiTalkSpeaker(name: ref.name, voiceID: ref.voiceID)
         }
         if self.speakers.isEmpty {
-            self.speakers = [MultiTalkSpeaker(name: "Speaker 1", voiceID: Voice.default.id)]
+            self.speakers = [MultiTalkSpeaker(name: "Speaker 1", voiceID: BundledVoice.default.id)]
         }
     }
 
     // MARK: - Speaker editing
     func addSpeaker() {
         let n = speakers.count + 1
-        speakers.append(MultiTalkSpeaker(name: "Speaker \(n)", voiceID: Voice.default.id))
+        speakers.append(MultiTalkSpeaker(name: "Speaker \(n)", voiceID: BundledVoice.default.id))
     }
 
     func removeSpeaker(at idx: Int) {
@@ -129,9 +160,128 @@ final class MultiTalkViewModel {
         editorBridge.insertAtCursor(snippet) { [weak self] s in self?.script.append(s) }
     }
 
+    // MARK: - Tag display mode
+
+    /// Rewrite all `{...}` tags in the script to match the requested
+    /// mode. Caller supplies `voiceNameLookup` because the view layer
+    /// is the source of truth for stock + saved voice names.
+    ///
+    /// For each tag in the script:
+    ///   * Look up which speaker it belongs to (by current name OR by
+    ///     resolved voice name — handles mid-flight scripts where the
+    ///     user has been mixing forms).
+    ///   * Rewrite using the matched speaker's `.speakerLabel` or
+    ///     `.voiceName` representation per `newMode`.
+    ///
+    /// Tags whose name matches no speaker (e.g. AI-generated names
+    /// the user hasn't created cards for) are left unchanged.
+    func applyTagMode(_ newMode: SpeakerTagMode) {
+        // (The mode itself lives on AppState — the picker's binding
+        // already wrote it. This function's job is just the script
+        // rewrite that should happen as a side effect of the toggle.)
+
+        // Build forward dictionaries: any recognized form of each
+        // speaker → that speaker.
+        var byAnyName: [String: MultiTalkSpeaker] = [:]
+        for s in speakers {
+            byAnyName[s.name] = s
+            if let vn = voiceNameResolver?(s.voiceID) {
+                byAnyName[vn] = s
+            }
+        }
+
+        let pattern = #"\{([^{}]+)\}"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return }
+        let ns = script as NSString
+        let matches = regex.matches(in: script, range: NSRange(location: 0, length: ns.length))
+
+        // Walk back to front so range edits don't invalidate earlier ranges.
+        var result = script
+        for match in matches.reversed() {
+            let nameRange = match.range(at: 1)
+            let name = ns.substring(with: nameRange).trimmingCharacters(in: .whitespaces)
+            guard let speaker = byAnyName[name] else { continue }
+            let replacement: String
+            switch newMode {
+            case .speakerLabel:
+                replacement = speaker.name
+            case .voiceName:
+                guard let vn = voiceNameResolver?(speaker.voiceID) else { continue }
+                replacement = vn
+            }
+            if replacement == name { continue }   // already in the right form
+            let nsResult = result as NSString
+            // Translate the original match's nameRange to the same
+            // logical position in `result` — they're equal until we
+            // mutate, and we're walking back-to-front, so the range
+            // is still valid against `result` here.
+            result = nsResult.replacingCharacters(in: nameRange, with: replacement)
+        }
+        if result != script { script = result }
+    }
+
+    /// Rewrite every `{oldName}` tag in the script body to `{newName}`.
+    /// Called from `MultiTalkView`'s `.onChange(of: viewModel.speakers)`
+    /// when a card's name field changes, so existing tags stay in sync.
+    /// No-op when `oldName == newName`, when either is whitespace-only,
+    /// or when the script has no matching tags (e.g. user is in
+    /// voice-name mode where tags don't use the card's label).
+    func renameSpeakerTags(from oldName: String, to newName: String) {
+        let oldTrimmed = oldName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let newTrimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !oldTrimmed.isEmpty, !newTrimmed.isEmpty, oldTrimmed != newTrimmed else { return }
+
+        // `oldName` is user input, so any regex metachar in it has to
+        // be escaped before we splice it into the pattern. Same for
+        // the replacement template (newTrimmed could include `$`).
+        let pattern = #"\{\s*"# + NSRegularExpression.escapedPattern(for: oldTrimmed) + #"\s*\}"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return }
+        let template = "{" + NSRegularExpression.escapedTemplate(for: newTrimmed) + "}"
+
+        let ns = script as NSString
+        let result = regex.stringByReplacingMatches(
+            in: script,
+            range: NSRange(location: 0, length: ns.length),
+            withTemplate: template
+        )
+        if result != script { script = result }
+    }
+
+    // MARK: - Script formatting
+
+    /// Insert a blank line before every `{Speaker}` and `[Xs]` tag that
+    /// directly follows a non-empty line. Idempotent — running twice
+    /// is a no-op. Helps readability on long multi-speaker scripts
+    /// without the user having to manually click + Enter at every
+    /// turn boundary (which is prone to clipping strings).
+    func formatScript() {
+        let lines = script.components(separatedBy: "\n")
+        var formatted: [String] = []
+        formatted.reserveCapacity(lines.count * 2)
+
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            let startsWithTag = trimmed.hasPrefix("{") || trimmed.hasPrefix("[")
+
+            // Insert a blank line BEFORE a tag-line if the previous
+            // appended line is non-empty (i.e. text was running into
+            // the tag without a paragraph break).
+            if startsWithTag,
+               let last = formatted.last,
+               !last.trimmingCharacters(in: .whitespaces).isEmpty
+            {
+                formatted.append("")
+            }
+            formatted.append(line)
+        }
+
+        let result = formatted.joined(separator: "\n")
+        if result != script { script = result }
+    }
+
     // MARK: - AI generation support
 
-    func applySpeakersFromGeneration(names: [String], voices: [Voice]) {
+    func applySpeakersFromGeneration(names: [String], voices: [BundledVoice]) {
         guard !names.isEmpty else { return }
         let voiceIDs = voices.map(\.id)
         speakers = names.enumerated().map { i, name in
@@ -143,7 +293,11 @@ final class MultiTalkViewModel {
 
     func synthesize() {
         guard status.canSynthesize else { return }
-        let chunks = MultiTalkScriptParser.parse(script, speakers: speakers)
+        let chunks = MultiTalkScriptParser.parse(
+            script,
+            speakers: speakers,
+            voiceNameForVoiceID: voiceNameResolver
+        )
 
         // Validate: must have at least one non-pause chunk and no unknown speakers
         let textChunks = chunks.compactMap { c -> (String, String, String)? in

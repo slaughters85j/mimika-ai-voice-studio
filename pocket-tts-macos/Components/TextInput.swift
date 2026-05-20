@@ -5,6 +5,7 @@
 //  Ports Electron's TextInput.tsx — label bar + pause-insert + big textarea
 //  + word/char counters.
 
+import AppKit
 import SwiftUI
 
 struct TextInput: View {
@@ -14,6 +15,7 @@ struct TextInput: View {
     var disabled: Bool = false
     var onGenerateClick: (() -> Void)?
     var onPauseClick: (() -> Void)?
+    var onFormatClick: (() -> Void)?
     var accessibilityID: String = "single.textInput"
     /// Optional cursor-aware insertion bridge. When passed, the editor swaps
     /// to an NSTextView-backed view so the view model can call
@@ -21,6 +23,11 @@ struct TextInput: View {
     /// rather than at end-of-buffer. Single Voice doesn't pass one (no
     /// inline insertion needed there).
     var editorBridge: TextEditorBridge?
+    /// Optional per-tag-name colors passed through to the underlying
+    /// MacTextEditor. Multi-Talk uses this to color `{Speaker N}` tags.
+    /// nil → no colorization (Single Voice + any caller that doesn't
+    /// care about tags).
+    var tagColors: [String: NSColor]? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.space3) {
@@ -66,6 +73,23 @@ struct TextInput: View {
                     .disabled(disabled)
                     .accessibilityIdentifier("\(accessibilityID).pauseButton")
                 }
+                if let onFormatClick {
+                    Button(action: onFormatClick) {
+                        Text("Format Script")
+                            .font(Theme.fontXS)
+                            .foregroundStyle(Theme.textSecondary)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: Theme.radius)
+                                    .stroke(Theme.borderColor, lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(disabled)
+                    .help("Insert blank lines before every {Speaker} / [Xs] tag for readability")
+                    .accessibilityIdentifier("\(accessibilityID).formatButton")
+                }
             }
 
             // Editor
@@ -88,7 +112,7 @@ struct TextInput: View {
                         .padding(.vertical, Theme.space3 + 4)
                         .allowsHitTesting(false)
                 }
-                MacTextEditor(text: $text, isEditable: !disabled, bridge: editorBridge)
+                MacTextEditor(text: $text, isEditable: !disabled, bridge: editorBridge, tagColors: tagColors)
                     .padding(.horizontal, Theme.space4 - 4)
                     .padding(.vertical, Theme.space3 - 6)
                     .accessibilityIdentifier(accessibilityID)

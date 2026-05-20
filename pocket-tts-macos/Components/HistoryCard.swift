@@ -9,7 +9,7 @@ import SwiftUI
 
 struct HistoryCard: View {
     let item: TTSHistoryItem
-    let voiceLookup: (String) -> Voice?
+    let voiceLookup: (String) -> BundledVoice?
 
     let onPin: () -> Void
     let onDelete: () -> Void

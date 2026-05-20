@@ -5,7 +5,7 @@
 //  Per-voice RMS target resolution and gain application (P1-N1).
 //
 //  Background: every imported voice's reference WAV is RMS-normalized to
-//  -16 dB at import time (`FishVoiceManager.rmsNormalizeWAV`). That value
+//  -16 dB at import time (`VoiceManager.rmsNormalizeWAV`). That value
 //  is also what Python's `_normalize_audio_rms` uses as default. So the
 //  engine's output, while not strictly guaranteed to land at -16 dB, is
 //  conditioned on a -16 dB prompt and lands close enough to make a
@@ -63,12 +63,12 @@ enum VoiceLevel {
     /// static gain ratio below.
     static let defaultTargetDB: Float = -16.0
 
-    /// Effective RMS target (dB) for any voice ID — saved FishVoice or
-    /// bundled `Voice`. Saved voices without an override and built-in
+    /// Effective RMS target (dB) for any voice ID — saved Voice or
+    /// bundled `BundledVoice`. Saved voices without an override and built-in
     /// voices both resolve to `defaultTargetDB`.
     @MainActor
     static func resolveTargetDB(forVoice voiceID: String) -> Float {
-        FishVoiceManager.shared.voice(for: voiceID)?.rmsTargetDB ?? defaultTargetDB
+        VoiceManager.shared.voice(for: voiceID)?.rmsTargetDB ?? defaultTargetDB
     }
 
     /// Linear gain factor that scales engine output (assumed at
@@ -80,7 +80,7 @@ enum VoiceLevel {
     }
 
     /// Convenience: gain factor for a voice ID. Must be invoked from the
-    /// main actor because it reads FishVoiceManager state.
+    /// main actor because it reads VoiceManager state.
     @MainActor
     static func gainFactor(forVoice voiceID: String) -> Float {
         gainFactor(targetDB: resolveTargetDB(forVoice: voiceID))

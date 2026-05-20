@@ -101,6 +101,31 @@ final class AppState {
 
     private static let chunkBudgetKey = "com.slaughtersj.pocket-tts-macos.pocketTTSChunkBudget"
 
+    // MARK: Multi-Talk script display
+    // Two readability preferences for the Multi-Talk view. Lives at
+    // app scope (not in the view model) so the user's choice survives
+    // launches without us needing a separate persistence layer.
+
+    /// `{Speaker N}` vs `{Voice Name}` for script body tags. Persisted
+    /// as the enum's raw string. Defaults to .speakerLabel so a fresh
+    /// install matches the AI Writer's typical output format.
+    var multiTalkTagDisplayMode: SpeakerTagMode = .speakerLabel {
+        didSet {
+            UserDefaults.standard.set(multiTalkTagDisplayMode.rawValue, forKey: Self.multiTalkTagDisplayModeKey)
+        }
+    }
+
+    /// Whether speaker cards + script tags render in unique colors.
+    /// Defaults off — color is opt-in, not the default style.
+    var multiTalkUseSpeakerColors: Bool = false {
+        didSet {
+            UserDefaults.standard.set(multiTalkUseSpeakerColors, forKey: Self.multiTalkUseSpeakerColorsKey)
+        }
+    }
+
+    private static let multiTalkTagDisplayModeKey = "com.slaughtersj.pocket-tts-macos.multiTalkTagDisplayMode"
+    private static let multiTalkUseSpeakerColorsKey = "com.slaughtersj.pocket-tts-macos.multiTalkUseSpeakerColors"
+
     /// SwiftData context for the app-wide models (LocalLLMEndpoint,
     /// SystemPrompt, history). Set by `ContentView.onAppear` once the
     /// `@Environment(\.modelContext)` is in scope. View models that
@@ -145,6 +170,10 @@ final class AppState {
         self.chatSettings = SettingsStore.load()
         let savedBudget = UserDefaults.standard.integer(forKey: Self.chunkBudgetKey)
         self.pocketTTSChunkBudget = (15...50).contains(savedBudget) ? savedBudget : 50
+
+        let savedTagMode = UserDefaults.standard.string(forKey: Self.multiTalkTagDisplayModeKey)
+        self.multiTalkTagDisplayMode = SpeakerTagMode(rawValue: savedTagMode ?? "") ?? .speakerLabel
+        self.multiTalkUseSpeakerColors = UserDefaults.standard.bool(forKey: Self.multiTalkUseSpeakerColorsKey)
     }
 
     /// Build the Pocket-TTS engine + player once at app launch.
