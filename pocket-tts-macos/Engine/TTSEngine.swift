@@ -652,22 +652,30 @@ actor TTSEngine: TTSEngineProtocol {
 
     private nonisolated static func findImportedVoiceKVPath(importID: String) throws -> URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let catalogURL = appSupport.appendingPathComponent("pocket-tts-macos/fish-voices/voices.json")
+        let voicesDir = appSupport.appendingPathComponent("pocket-tts-macos/fish-voices", isDirectory: true)
+        let catalogURL = voicesDir.appendingPathComponent("voices.json")
 
-        // Try reading persisted path from catalog
+        // Try reading persisted path from catalog. voices.json stores
+        // basenames (post step-2 path migration); legacy data may have
+        // absolutes. lastPathComponent normalizes either case, then we
+        // resolve against the current voicesDir.
         if let data = try? Data(contentsOf: catalogURL) {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
             if let voices = try? decoder.decode([Voice].self, from: data),
                let voice = voices.first(where: { $0.id == importID }),
-               let kvPath = voice.pocketTTSKVPath,
-               FileManager.default.fileExists(atPath: kvPath) {
-                return URL(fileURLWithPath: kvPath)
+               let storedKV = voice.pocketTTSKVPath
+            {
+                let basename = (storedKV as NSString).lastPathComponent
+                let kvURL = voicesDir.appendingPathComponent(basename)
+                if FileManager.default.fileExists(atPath: kvURL.path) {
+                    return kvURL
+                }
             }
         }
 
         // Fallback to conventional path
-        let fallback = appSupport.appendingPathComponent("pocket-tts-macos/fish-voices/\(importID)_kv.safetensors")
+        let fallback = voicesDir.appendingPathComponent("\(importID)_kv.safetensors")
         guard FileManager.default.fileExists(atPath: fallback.path) else {
             throw TTSEngineError.voiceNotFound("imported:\(importID) — KV not found")
         }

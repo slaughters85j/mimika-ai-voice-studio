@@ -16,7 +16,11 @@ struct Voice: Identifiable, Codable, Equatable, Sendable {
     let id: String
     var name: String
     var description: String
-    let wavPath: String
+    /// In memory: absolute path to the WAV file in the current container.
+    /// On disk (voices.json): basename only (`<UUID>.wav`). VoiceManager
+    /// translates at the load/save boundary so the catalog is portable
+    /// across container moves / bundle-ID changes / sandbox migrations.
+    var wavPath: String
     let createdAt: Date
     var transcript: String?
     var transcribedAt: Date?
@@ -204,13 +208,50 @@ final class VoiceManager {
             let data = try Data(contentsOf: catalogURL)
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
-            voices = try decoder.decode([Voice].self, from: data)
+            let raw = try decoder.decode([Voice].self, from: data)
+            // Migrate paths to absolute against the CURRENT voicesDir.
+            // Handles three cases uniformly via lastPathComponent:
+            //   (1) Legacy absolute path with stale container prefix — rebase
+            //   (2) Legacy absolute path with current prefix — round-trips
+            //   (3) New portable basename — joins with voicesDir
+            voices = raw.map(resolvePaths)
             voices.removeAll { !FileManager.default.fileExists(atPath: $0.wavPath) }
             sortVoices()
         } catch {
             print("[VoiceManager] failed to load catalog: \(error)")
         }
         print("[VoiceManager] loaded \(voices.count) voices")
+    }
+
+    // MARK: - Path normalization
+    // voices.json stores basenames only (e.g. "<UUID>.wav"); in-memory
+    // Voice values carry absolute paths. These two helpers are the
+    // round-trip at the load / save boundary.
+
+    private func resolvePaths(_ voice: Voice) -> Voice {
+        var v = voice
+        v.wavPath = absolutePath(forStoredPath: v.wavPath)
+        v.cachedCodesPath = v.cachedCodesPath.map { absolutePath(forStoredPath: $0) }
+        v.pocketTTSKVPath = v.pocketTTSKVPath.map { absolutePath(forStoredPath: $0) }
+        return v
+    }
+
+    private func toPortablePaths(_ voice: Voice) -> Voice {
+        var v = voice
+        v.wavPath = basename(of: v.wavPath)
+        v.cachedCodesPath = v.cachedCodesPath.map { basename(of: $0) }
+        v.pocketTTSKVPath = v.pocketTTSKVPath.map { basename(of: $0) }
+        return v
+    }
+
+    private func absolutePath(forStoredPath stored: String) -> String {
+        // Take the basename whether the stored value is absolute or
+        // relative; join with the current voicesDir.
+        voicesDir.appendingPathComponent(basename(of: stored)).path
+    }
+
+    private nonisolated func basename(of path: String) -> String {
+        (path as NSString).lastPathComponent
     }
 
     // MARK: - Sort invariant
@@ -227,7 +268,10 @@ final class VoiceManager {
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            let data = try encoder.encode(voices)
+            // Strip voicesDir prefix from every path so the on-disk
+            // catalog is portable. In-memory `voices` is unchanged.
+            let portable = voices.map(toPortablePaths)
+            let data = try encoder.encode(portable)
             try data.write(to: catalogURL, options: .atomic)
         } catch {
             print("[VoiceManager] failed to save catalog: \(error)")
