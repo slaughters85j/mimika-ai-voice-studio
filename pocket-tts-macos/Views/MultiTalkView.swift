@@ -66,6 +66,7 @@ struct MultiTalkView: View {
                     disabled: viewModel.status.isWorking,
                     onGenerateClick: { showGenerator = true },
                     onPauseClick: { showPauseModal = true },
+                    onFormatClick: { viewModel.formatScript() },
                     accessibilityID: "multi.scriptEditor",
                     editorBridge: viewModel.editorBridge
                 )

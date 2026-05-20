@@ -129,6 +129,38 @@ final class MultiTalkViewModel {
         editorBridge.insertAtCursor(snippet) { [weak self] s in self?.script.append(s) }
     }
 
+    // MARK: - Script formatting
+
+    /// Insert a blank line before every `{Speaker}` and `[Xs]` tag that
+    /// directly follows a non-empty line. Idempotent — running twice
+    /// is a no-op. Helps readability on long multi-speaker scripts
+    /// without the user having to manually click + Enter at every
+    /// turn boundary (which is prone to clipping strings).
+    func formatScript() {
+        let lines = script.components(separatedBy: "\n")
+        var formatted: [String] = []
+        formatted.reserveCapacity(lines.count * 2)
+
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            let startsWithTag = trimmed.hasPrefix("{") || trimmed.hasPrefix("[")
+
+            // Insert a blank line BEFORE a tag-line if the previous
+            // appended line is non-empty (i.e. text was running into
+            // the tag without a paragraph break).
+            if startsWithTag,
+               let last = formatted.last,
+               !last.trimmingCharacters(in: .whitespaces).isEmpty
+            {
+                formatted.append("")
+            }
+            formatted.append(line)
+        }
+
+        let result = formatted.joined(separator: "\n")
+        if result != script { script = result }
+    }
+
     // MARK: - AI generation support
 
     func applySpeakersFromGeneration(names: [String], voices: [BundledVoice]) {

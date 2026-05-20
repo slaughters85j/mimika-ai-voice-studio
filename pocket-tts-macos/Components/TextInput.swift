@@ -14,6 +14,7 @@ struct TextInput: View {
     var disabled: Bool = false
     var onGenerateClick: (() -> Void)?
     var onPauseClick: (() -> Void)?
+    var onFormatClick: (() -> Void)?
     var accessibilityID: String = "single.textInput"
     /// Optional cursor-aware insertion bridge. When passed, the editor swaps
     /// to an NSTextView-backed view so the view model can call
@@ -65,6 +66,23 @@ struct TextInput: View {
                     .buttonStyle(.plain)
                     .disabled(disabled)
                     .accessibilityIdentifier("\(accessibilityID).pauseButton")
+                }
+                if let onFormatClick {
+                    Button(action: onFormatClick) {
+                        Text("Format Script")
+                            .font(Theme.fontXS)
+                            .foregroundStyle(Theme.textSecondary)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: Theme.radius)
+                                    .stroke(Theme.borderColor, lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(disabled)
+                    .help("Insert blank lines before every {Speaker} / [Xs] tag for readability")
+                    .accessibilityIdentifier("\(accessibilityID).formatButton")
                 }
             }
 
