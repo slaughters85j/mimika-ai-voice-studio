@@ -67,12 +67,17 @@ The Voice Manager (waveform icon in the app header) is the canonical place to im
 WAV → [LavaSR enhancement (optional)] → [Fish DAC encode] + [MimiEncoder → voice_prompt_phase → KV safetensors]
 ```
 
-- **LavaSR Enhancement** — MLX-native port of the Vocos BWE (bandwidth extension) model. Uses a custom ISTFT head matching the Python Vocos pipeline exactly: periodic Hann window, window-squared overlap-add normalization, and "same" padding. Best suited for noisy or low-quality recordings — clean studio audio may sound worse after enhancement due to inherent model artifacts.
+**Storage:** Saved voices live in the app's sandbox container — `~/Library/Containers/<bundle-id>/Data/Library/Application Support/pocket-tts-macos/saved-voices/`. Each voice is a triplet (`<UUID>.wav`, `<UUID>_codes.npy`, `<UUID>_kv.safetensors`) plus an optional `<UUID>_enhanced.wav`, with a `voices.json` catalog at the same directory. The catalog stores basenames only — paths are resolved against the current container at load time so the catalog survives sandbox migrations, bundle-ID changes, and backup restores. The seven Kyutai stock voices ship in `Resources/voice_kv_states/` in the app bundle; custom voices never enter source.
+
+- **LavaSR Enhancement** — MLX-native port of the Vocos BWE (bandwidth extension) model. Uses a custom ISTFT head matching the Python Vocos pipeline exactly: periodic Hann window, window-squared overlap-add normalization, and "same" padding. Off by default for new voices until the ULUNAS denoiser port + artifact tuning land; can introduce perceptible artifacts on clean source audio. Best suited for noisy or low-quality recordings.
 - **RMS Normalization** — All imported voices are automatically RMS-normalized to -16 dB at import time, ensuring consistent volume for encoding regardless of whether enhancement is applied.
 - **Per-voice loudness target** — Each saved voice carries its own RMS target (-30 to -6 dB) configured in the Enhancement Studio. Single Voice applies the target automatically as a streaming-friendly static gain relative to the -16 dB conditioning baseline. Multi-Talk adds a 3-way segmented picker (Per voice / Match loudest / Match quietest) mirroring the Electron reference, so multi-speaker dialogues can be balanced without re-baking voice KV states.
 - **Enhancement Studio** — A/B comparison (Play original vs enhanced), Accept & Save / Reject / Re-enhance flow. Denoise toggle and RMS target level (-30 to -6 dB) configurable per voice.
 - **Mono preconditioning** — Stereo or non-44.1kHz WAVs are automatically converted to mono 44.1kHz at import time for consistent downstream processing.
 - **Memory management** — All import models (MimiEncoder, LavaSR, voice_prompt_phase) unload after encoding. Fish engine unloads when switching to Pocket-TTS. MLX GPU cache cleared on unload.
+- **Reconcile-on-boot** — Stale catalog rows (files vanished since last launch) get their path fields nulled at startup, before any UI mounts. Logs `[VoiceManager] reconcile: cleared N stale path(s)` when applicable. Idempotent.
+- **Recover from Disk** — When `saved-voices/` contains `<UUID>_kv.safetensors` files with no matching catalog row, the Voice Manager shows a "Recover from Disk" section listing the adoptable orphans (KV header parses + companion WAV present). Type a display name → Adopt → catalog row created. Unparseable / partial orphans are logged but not surfaced.
+- **Name collision rejection** — Importing with a name that case-insensitively matches an existing voice fails inline on the Save Voice Preset screen instead of silently creating a duplicate. Other import failures (disk, conversion) surface the same way.
 
 ## AI Script Writer
 
@@ -120,16 +125,15 @@ xcodebuild -project pocket-tts-macos.xcodeproj \
 
 ### Release archives
 
-Before archiving for public distribution, run the strip script to ensure only the seven Kyutai stock voices end up bundled:
+The source tree's `Resources/voice_kv_states/` is stock-only by construction — `sync-assets.sh` only copies the seven Kyutai voices, and custom voices live exclusively in the user's app container. So the archive workflow is just:
 
 ```bash
-./scripts/strip-custom-voices.sh
+./scripts/sync-assets.sh
 xcodebuild archive ...
 # sign + notarize
-./scripts/sync-assets.sh   # restore dev state
 ```
 
-The strip script is idempotent. After archive, verify by listing `.app/Contents/Resources/*.safetensors` — should show only the seven stock voice names (`alba`, `azelma`, `cosette`, `fantine`, `javert`, `jean`, `marius`) alongside the `lavasr_*` and `mimi_encoder_*` model weights.
+No pre-archive strip step. Verify by listing `.app/Contents/Resources/*.safetensors` after building — should show only `alba`, `azelma`, `cosette`, `fantine`, `javert`, `jean`, `marius` alongside the `lavasr_*` and `mimi_encoder_*` model weights.
 
 ## Remaining Work
 
