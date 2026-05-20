@@ -17,7 +17,7 @@ final class MultiTalkViewModel {
 
     // MARK: - Inputs
     var speakers: [MultiTalkSpeaker] = [
-        MultiTalkSpeaker(name: "Speaker 1", voiceID: Voice.default.id)
+        MultiTalkSpeaker(name: "Speaker 1", voiceID: BundledVoice.default.id)
     ]
     var script: String = ""
 
@@ -99,14 +99,14 @@ final class MultiTalkViewModel {
             MultiTalkSpeaker(name: ref.name, voiceID: ref.voiceID)
         }
         if self.speakers.isEmpty {
-            self.speakers = [MultiTalkSpeaker(name: "Speaker 1", voiceID: Voice.default.id)]
+            self.speakers = [MultiTalkSpeaker(name: "Speaker 1", voiceID: BundledVoice.default.id)]
         }
     }
 
     // MARK: - Speaker editing
     func addSpeaker() {
         let n = speakers.count + 1
-        speakers.append(MultiTalkSpeaker(name: "Speaker \(n)", voiceID: Voice.default.id))
+        speakers.append(MultiTalkSpeaker(name: "Speaker \(n)", voiceID: BundledVoice.default.id))
     }
 
     func removeSpeaker(at idx: Int) {
@@ -131,7 +131,7 @@ final class MultiTalkViewModel {
 
     // MARK: - AI generation support
 
-    func applySpeakersFromGeneration(names: [String], voices: [Voice]) {
+    func applySpeakersFromGeneration(names: [String], voices: [BundledVoice]) {
         guard !names.isEmpty else { return }
         let voiceIDs = voices.map(\.id)
         speakers = names.enumerated().map { i, name in

@@ -35,7 +35,7 @@ struct VoiceManagerView: View {
     @State private var rmsTargetDB: Float = -16.0
     @State private var savedVoiceID: String?
     @State private var isDropTargeted = false
-    @State private var voiceToDelete: FishVoice?
+    @State private var voiceToDelete: Voice?
     @State private var encodingComplete = false
 
     // Audio playback for comparison
@@ -85,7 +85,7 @@ struct VoiceManagerView: View {
             Button("Cancel", role: .cancel) { voiceToDelete = nil }
             Button("Delete", role: .destructive) {
                 if let voice = voiceToDelete {
-                    FishVoiceManager.shared.deleteVoice(id: voice.id)
+                    VoiceManager.shared.deleteVoice(id: voice.id)
                     voiceToDelete = nil
                 }
             }
@@ -119,7 +119,7 @@ struct VoiceManagerView: View {
     }
 
     private func verifyAndEncodeVoices() async {
-        let needsEncoding = FishVoiceManager.shared.verifyVoiceStates()
+        let needsEncoding = VoiceManager.shared.verifyVoiceStates()
         for voiceID in needsEncoding { onEncodeVoice?(voiceID) }
     }
 
@@ -439,7 +439,7 @@ struct VoiceManagerView: View {
 
     private var voiceNameHeader: some View {
         Group {
-            if let id = savedVoiceID, let name = FishVoiceManager.shared.voice(for: id)?.name {
+            if let id = savedVoiceID, let name = VoiceManager.shared.voice(for: id)?.name {
                 HStack(spacing: 6) {
                     Text("Voice:").font(Theme.fontXS).foregroundStyle(Theme.textSecondary)
                     Text(name).font(Theme.fontSMBold).foregroundStyle(Theme.textPrimary)
@@ -498,7 +498,7 @@ struct VoiceManagerView: View {
     // MARK: - Voices list
 
     private var voicesList: some View {
-        let voices = FishVoiceManager.shared.voices
+        let voices = VoiceManager.shared.voices
         return VStack(alignment: .leading, spacing: Theme.space3) {
             HStack {
                 Text("My Voices").font(Theme.fontSMBold).foregroundStyle(Theme.textPrimary)
@@ -518,7 +518,7 @@ struct VoiceManagerView: View {
         }
     }
 
-    private func voiceRow(_ voice: FishVoice) -> some View {
+    private func voiceRow(_ voice: Voice) -> some View {
         HStack(spacing: Theme.space3) {
             Text(voice.name).font(Theme.fontSM).foregroundStyle(Theme.textPrimary).lineLimit(1)
             Spacer()
@@ -535,7 +535,7 @@ struct VoiceManagerView: View {
         .background(Theme.bgTertiary.opacity(0.3)).clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall))
     }
 
-    private func statusBadges(_ voice: FishVoice) -> [String] {
+    private func statusBadges(_ voice: Voice) -> [String] {
         var b: [String] = []
         if voice.isEnhanced { b.append("Enhanced") }
         if voice.cachedCodesPath != nil && voice.pocketTTSKVPath != nil { b.append("Ready") }
@@ -553,8 +553,8 @@ struct VoiceManagerView: View {
         guard url.startAccessingSecurityScopedResource() else { return }
         defer { url.stopAccessingSecurityScopedResource() }
         do {
-            let voice = try FishVoiceManager.shared.importVoice(from: url, name: name)
-            if !voiceDescription.isEmpty { FishVoiceManager.shared.setDescription(voiceDescription, for: voice.id) }
+            let voice = try VoiceManager.shared.importVoice(from: url, name: name)
+            if !voiceDescription.isEmpty { VoiceManager.shared.setDescription(voiceDescription, for: voice.id) }
             savedVoiceID = voice.id
             if enableEnhancement {
                 importStep = .enhancementSettings
@@ -572,8 +572,8 @@ struct VoiceManagerView: View {
         guard let voiceID = savedVoiceID else { return }
         // P1-N1: persist the slider's chosen RMS target on the voice so
         // Single Voice + Multi-Talk pick it up when this voice plays
-        // back. Stored on the FishVoice catalog so it survives relaunch.
-        FishVoiceManager.shared.setRmsTargetDB(rmsTargetDB, for: voiceID)
+        // back. Stored on the Voice catalog so it survives relaunch.
+        VoiceManager.shared.setRmsTargetDB(rmsTargetDB, for: voiceID)
         importStep = .enhancing
         encodingComplete = false
         onEnhanceVoice?(voiceID)
@@ -583,8 +583,8 @@ struct VoiceManagerView: View {
 
     private func pollForCompletion(voiceID: String) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-            let voice = FishVoiceManager.shared.voice(for: voiceID)
-            let enhancedURL = FishVoiceManager.shared.enhancedWAVURL(for: voiceID)
+            let voice = VoiceManager.shared.voice(for: voiceID)
+            let enhancedURL = VoiceManager.shared.enhancedWAVURL(for: voiceID)
 
             // Show comparison as soon as enhanced WAV exists
             if importStep == .enhancing,
@@ -616,7 +616,7 @@ struct VoiceManagerView: View {
         guard let voiceID = savedVoiceID else { return }
         stopPlayback()
         // Delete the entire voice — user rejected it
-        FishVoiceManager.shared.deleteVoice(id: voiceID)
+        VoiceManager.shared.deleteVoice(id: voiceID)
         resetImport()
     }
 
@@ -632,7 +632,7 @@ struct VoiceManagerView: View {
         // P1-N1: pick up any slider tweak the user made on the comparison
         // screen — `runEnhancement` already persisted the pre-enhance
         // value, but the slider remains editable here too.
-        FishVoiceManager.shared.setRmsTargetDB(rmsTargetDB, for: voiceID)
+        VoiceManager.shared.setRmsTargetDB(rmsTargetDB, for: voiceID)
         // Enhancement already saved — just encode for both backends
         onEncodeVoice?(voiceID)
         resetImport()
@@ -642,13 +642,13 @@ struct VoiceManagerView: View {
 
     private func playOriginal() {
         guard let voiceID = savedVoiceID,
-              let url = FishVoiceManager.shared.wavURL(for: voiceID) else { return }
+              let url = VoiceManager.shared.wavURL(for: voiceID) else { return }
         togglePlayback(url: url, isOriginal: true)
     }
 
     private func playEnhanced() {
         guard let voiceID = savedVoiceID else { return }
-        let url = FishVoiceManager.shared.enhancedWAVURL(for: voiceID)
+        let url = VoiceManager.shared.enhancedWAVURL(for: voiceID)
         guard FileManager.default.fileExists(atPath: url.path) else { return }
         togglePlayback(url: url, isOriginal: false)
     }

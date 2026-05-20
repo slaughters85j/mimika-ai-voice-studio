@@ -15,7 +15,7 @@ import SwiftUI
 struct ChatSettingsView: View {
     @Binding var isPresented: Bool
     @Binding var settings: ChatSettings
-    let voices: [Voice]
+    let voices: [BundledVoice]
     let onSave: (ChatSettings) -> Void
 
     @State private var workingCopy: ChatSettings
@@ -24,7 +24,7 @@ struct ChatSettingsView: View {
     init(
         isPresented: Binding<Bool>,
         settings: Binding<ChatSettings>,
-        voices: [Voice],
+        voices: [BundledVoice],
         onSave: @escaping (ChatSettings) -> Void
     ) {
         self._isPresented = isPresented
@@ -53,7 +53,7 @@ struct ChatSettingsView: View {
     // MARK: - Sections
 
     private var voiceSection: some View {
-        let importedVoices = FishVoiceManager.shared.voices.filter { $0.pocketTTSKVPath != nil }
+        let importedVoices = VoiceManager.shared.voices.filter { $0.pocketTTSKVPath != nil }
         let builtInVoices = voices
             .filter { $0.type == .predefined }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }

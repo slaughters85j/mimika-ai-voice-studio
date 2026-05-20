@@ -16,7 +16,7 @@ struct ContentView: View {
     @State private var historyVM = HistoryViewModel()
     @State private var chatVM: ChatViewModel?
 
-    @State private var voices: [Voice] = []
+    @State private var voices: [BundledVoice] = []
 
     var body: some View {
         VStack(spacing: 0) {
@@ -143,19 +143,19 @@ struct ContentView: View {
                         let pttsEncoder = PocketTTSVoiceEncoder.shared
                         await pttsEncoder.bootstrap()
                         let pttsWAV: URL? = {
-                            let voice = FishVoiceManager.shared.voice(for: voiceID)
+                            let voice = VoiceManager.shared.voice(for: voiceID)
                             if voice?.isEnhanced == true {
-                                let enhanced = FishVoiceManager.shared.enhancedWAVURL(for: voiceID)
+                                let enhanced = VoiceManager.shared.enhancedWAVURL(for: voiceID)
                                 if FileManager.default.fileExists(atPath: enhanced.path) { return enhanced }
                             }
-                            return FishVoiceManager.shared.wavURL(for: voiceID)
+                            return VoiceManager.shared.wavURL(for: voiceID)
                         }()
                         if let wavURL = pttsWAV {
-                            let kvDir = FishVoiceManager.shared.codesDir()
+                            let kvDir = VoiceManager.shared.codesDir()
                             let kvURL = kvDir.appendingPathComponent("\(voiceID)_kv.safetensors")
                             do {
                                 try await pttsEncoder.encodeVoice(wavURL: wavURL, outputURL: kvURL)
-                                FishVoiceManager.shared.setPocketTTSKVPath(kvURL.path, for: voiceID)
+                                VoiceManager.shared.setPocketTTSKVPath(kvURL.path, for: voiceID)
                                 print("[ContentView] Pocket-TTS KV bake complete for \(voiceID)")
                             } catch {
                                 print("[ContentView] Pocket-TTS KV bake failed: \(error)")
@@ -166,7 +166,7 @@ struct ContentView: View {
                         if appState.chatSettings.activeBackend != .fishSpeech {
                             await appState.fishEngine?.unload()
                         }
-                        let voiceName = FishVoiceManager.shared.voice(for: voiceID)?.name ?? "Voice"
+                        let voiceName = VoiceManager.shared.voice(for: voiceID)?.name ?? "Voice"
                         showVoiceReadyToast(voiceName)
                         print("[ContentView] import pipeline complete, memory released")
                     }
@@ -176,11 +176,11 @@ struct ContentView: View {
                         // Step 1: Enhance
                         let enhancer = VoiceEnhancer.shared
                         await enhancer.bootstrapIfNeeded()
-                        guard let wavURL = FishVoiceManager.shared.wavURL(for: voiceID) else { return }
-                        let outURL = FishVoiceManager.shared.enhancedWAVURL(for: voiceID)
+                        guard let wavURL = VoiceManager.shared.wavURL(for: voiceID) else { return }
+                        let outURL = VoiceManager.shared.enhancedWAVURL(for: voiceID)
                         do {
                             try await enhancer.enhance(inputURL: wavURL, outputURL: outURL)
-                            FishVoiceManager.shared.setEnhanced(for: voiceID)
+                            VoiceManager.shared.setEnhanced(for: voiceID)
                         } catch {
                             print("[VoiceEnhancer] enhance failed: \(error)")
                         }
@@ -200,19 +200,19 @@ struct ContentView: View {
                         let pttsEncoder = PocketTTSVoiceEncoder.shared
                         await pttsEncoder.bootstrap()
                         let pttsWAV: URL? = {
-                            let voice = FishVoiceManager.shared.voice(for: voiceID)
+                            let voice = VoiceManager.shared.voice(for: voiceID)
                             if voice?.isEnhanced == true {
-                                let enhanced = FishVoiceManager.shared.enhancedWAVURL(for: voiceID)
+                                let enhanced = VoiceManager.shared.enhancedWAVURL(for: voiceID)
                                 if FileManager.default.fileExists(atPath: enhanced.path) { return enhanced }
                             }
-                            return FishVoiceManager.shared.wavURL(for: voiceID)
+                            return VoiceManager.shared.wavURL(for: voiceID)
                         }()
                         if let wavURL = pttsWAV {
-                            let kvDir = FishVoiceManager.shared.codesDir()
+                            let kvDir = VoiceManager.shared.codesDir()
                             let kvURL = kvDir.appendingPathComponent("\(voiceID)_kv.safetensors")
                             do {
                                 try await pttsEncoder.encodeVoice(wavURL: wavURL, outputURL: kvURL)
-                                FishVoiceManager.shared.setPocketTTSKVPath(kvURL.path, for: voiceID)
+                                VoiceManager.shared.setPocketTTSKVPath(kvURL.path, for: voiceID)
                                 print("[ContentView] Pocket-TTS KV bake complete for \(voiceID)")
                             } catch {
                                 print("[ContentView] Pocket-TTS KV bake failed: \(error)")
@@ -223,7 +223,7 @@ struct ContentView: View {
                         if appState.chatSettings.activeBackend != .fishSpeech {
                             await appState.fishEngine?.unload()
                         }
-                        let voiceName = FishVoiceManager.shared.voice(for: voiceID)?.name ?? "Voice"
+                        let voiceName = VoiceManager.shared.voice(for: voiceID)?.name ?? "Voice"
                         showVoiceReadyToast(voiceName)
                         print("[ContentView] import pipeline complete, memory released")
                     }
@@ -408,11 +408,11 @@ struct ContentView: View {
         if chatVM == nil {
             chatVM = ChatViewModel(engine: engine, player: player, settings: appState.chatSettings, appState: appState)
         }
-        // Voice catalog: discovered by VoiceLoader at engine init; map IDs → Voice.
+        // BundledVoice catalog: discovered by VoiceLoader at engine init; map IDs → BundledVoice.
         let ids = engine.availableVoiceIDs()
         voices = ids.map { id in
-            let type = Voice.voiceType(forID: id)
-            return type == .predefined ? Voice(predefined: id) : Voice(custom: id)
+            let type = BundledVoice.voiceType(forID: id)
+            return type == .predefined ? BundledVoice(predefined: id) : BundledVoice(custom: id)
         }
     }
 

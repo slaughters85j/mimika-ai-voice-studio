@@ -640,7 +640,7 @@ actor TTSEngine: TTSEngineProtocol {
         if let cached = importedVoiceCache[importID] { return cached }
 
         // Read the persisted KV path from the voice catalog JSON on disk.
-        // Can't access @MainActor FishVoiceManager from this actor, so we
+        // Can't access @MainActor VoiceManager from this actor, so we
         // parse the catalog file directly.
         let kvPath = try Self.findImportedVoiceKVPath(importID: importID)
 
@@ -658,7 +658,7 @@ actor TTSEngine: TTSEngineProtocol {
         if let data = try? Data(contentsOf: catalogURL) {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
-            if let voices = try? decoder.decode([FishVoice].self, from: data),
+            if let voices = try? decoder.decode([Voice].self, from: data),
                let voice = voices.first(where: { $0.id == importID }),
                let kvPath = voice.pocketTTSKVPath,
                FileManager.default.fileExists(atPath: kvPath) {

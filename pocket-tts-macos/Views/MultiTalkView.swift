@@ -10,7 +10,7 @@ import SwiftData
 
 struct MultiTalkView: View {
     @Bindable var viewModel: MultiTalkViewModel
-    let voices: [Voice]
+    let voices: [BundledVoice]
     @Binding var pendingReuse: PendingReuse?
     @Environment(\.modelContext) private var modelContext
 

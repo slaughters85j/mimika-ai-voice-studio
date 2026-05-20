@@ -1,5 +1,5 @@
 //
-//  FishVoiceManager.swift
+//  VoiceManager.swift
 //  pocket-tts-macos
 //
 //  Manages saved WAV reference voices for Fish Speech voice cloning.
@@ -10,9 +10,9 @@
 import Foundation
 import Observation
 
-// MARK: - FishVoice
+// MARK: - Voice
 
-struct FishVoice: Identifiable, Codable, Equatable, Sendable {
+struct Voice: Identifiable, Codable, Equatable, Sendable {
     let id: String
     var name: String
     var description: String
@@ -31,15 +31,15 @@ struct FishVoice: Identifiable, Codable, Equatable, Sendable {
     var rmsTargetDB: Float?
 }
 
-// MARK: - FishVoiceManager
+// MARK: - VoiceManager
 
 @MainActor
 @Observable
-final class FishVoiceManager {
+final class VoiceManager {
 
-    static let shared = FishVoiceManager()
+    static let shared = VoiceManager()
 
-    private(set) var voices: [FishVoice] = []
+    private(set) var voices: [Voice] = []
 
     private let voicesDir: URL
     private let catalogURL: URL
@@ -58,7 +58,7 @@ final class FishVoiceManager {
 
     // MARK: - Import (step 1: copy WAV)
 
-    func importVoice(from sourceURL: URL, name: String) throws -> FishVoice {
+    func importVoice(from sourceURL: URL, name: String) throws -> Voice {
         let id = UUID().uuidString
         let destURL = voicesDir.appendingPathComponent("\(id).wav")
 
@@ -71,7 +71,7 @@ final class FishVoiceManager {
         // Normalize volume to -16 dB RMS for consistent encoding input
         try rmsNormalizeWAV(at: destURL)
 
-        let voice = FishVoice(
+        let voice = Voice(
             id: id,
             name: name,
             description: "",
@@ -186,7 +186,7 @@ final class FishVoiceManager {
 
     // MARK: - Lookup
 
-    func voice(for id: String) -> FishVoice? {
+    func voice(for id: String) -> Voice? {
         voices.first { $0.id == id }
     }
 
@@ -204,13 +204,13 @@ final class FishVoiceManager {
             let data = try Data(contentsOf: catalogURL)
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
-            voices = try decoder.decode([FishVoice].self, from: data)
+            voices = try decoder.decode([Voice].self, from: data)
             voices.removeAll { !FileManager.default.fileExists(atPath: $0.wavPath) }
             sortVoices()
         } catch {
-            print("[FishVoiceManager] failed to load catalog: \(error)")
+            print("[VoiceManager] failed to load catalog: \(error)")
         }
-        print("[FishVoiceManager] loaded \(voices.count) voices")
+        print("[VoiceManager] loaded \(voices.count) voices")
     }
 
     // MARK: - Sort invariant
@@ -230,7 +230,7 @@ final class FishVoiceManager {
             let data = try encoder.encode(voices)
             try data.write(to: catalogURL, options: .atomic)
         } catch {
-            print("[FishVoiceManager] failed to save catalog: \(error)")
+            print("[VoiceManager] failed to save catalog: \(error)")
         }
     }
 

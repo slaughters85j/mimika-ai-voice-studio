@@ -10,7 +10,7 @@ import SwiftUI
 
 struct VoiceSelector: View {
     @Binding var selectedVoiceID: String
-    let voices: [Voice]
+    let voices: [BundledVoice]
     var activeBackend: TTSBackendType = .pocketTTS
     var disabled: Bool = false
     var label: String = "Voice"
@@ -33,7 +33,7 @@ struct VoiceSelector: View {
     // MARK: - Pocket-TTS picker
 
     private var pocketTTSPicker: some View {
-        let importedVoices = FishVoiceManager.shared.voices
+        let importedVoices = VoiceManager.shared.voices
             .filter { $0.pocketTTSKVPath != nil }
         let builtInVoices = voices
             .filter { $0.type == .predefined }
@@ -66,7 +66,7 @@ struct VoiceSelector: View {
     // MARK: - Fish picker
 
     private var fishPicker: some View {
-        let fishVoices = FishVoiceManager.shared.voices
+        let fishVoices = VoiceManager.shared.voices
 
         return VStack(alignment: .leading, spacing: Theme.space2) {
             Picker("", selection: $selectedVoiceID) {

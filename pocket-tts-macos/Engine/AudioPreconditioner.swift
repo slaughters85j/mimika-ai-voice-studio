@@ -4,7 +4,7 @@
 //  Single source of truth for converting reference voice WAV files to the
 //  formats the various downstream encoders need. Replaces three nearly
 //  identical (and all buggy) AVAudioConverter call sites in
-//  PocketTTSVoiceEncoder, VoiceEnhancer, and FishVoiceManager.
+//  PocketTTSVoiceEncoder, VoiceEnhancer, and VoiceManager.
 //
 //  Background.
 //  AVAudioConverter.convert(to:error:withInputFrom:) is easy to misuse with

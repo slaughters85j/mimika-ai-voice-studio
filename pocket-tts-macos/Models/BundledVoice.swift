@@ -1,5 +1,5 @@
 //
-//  Voice.swift
+//  BundledVoice.swift
 //  pocket-tts-macos
 //
 
@@ -15,13 +15,13 @@ enum VoiceType: String, Codable, Hashable {
     case custom
 }
 
-// MARK: - Voice
+// MARK: - BundledVoice
 // Lightweight catalog entry. Source of truth for v1 is the set of `<id>.safetensors`
 // files in Resources/voice_kv_states/ — VoiceLoader.loadAll() builds this catalog
 // dynamically from the bundled files, classifying each id as predefined/custom by
-// membership in `Voice.stockIDs`.
+// membership in `BundledVoice.stockIDs`.
 
-nonisolated struct Voice: Identifiable, Codable, Hashable, Sendable {
+nonisolated struct BundledVoice: Identifiable, Codable, Hashable, Sendable {
     let id: String
     let name: String
     let description: String
@@ -73,9 +73,9 @@ nonisolated struct Voice: Identifiable, Codable, Hashable, Sendable {
 }
 
 // MARK: - Default
-extension Voice {
+extension BundledVoice {
     /// The default voice for Phase 0c / first launch. `cosette` is the voice the
     /// PoC end-to-end audio was validated with; downstream phases will persist
     /// the user's last selection.
-    static let `default` = Voice(predefined: "cosette")
+    static let `default` = BundledVoice(predefined: "cosette")
 }

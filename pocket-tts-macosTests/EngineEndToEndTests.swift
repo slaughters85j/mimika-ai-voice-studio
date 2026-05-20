@@ -55,7 +55,7 @@ final class EngineEndToEndTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(ids.count, 30, "expected ≥30 voices in catalog; got \(ids.count): \(ids)")
         XCTAssertTrue(ids.contains(testVoiceID), "catalog missing default voice '\(testVoiceID)': \(ids)")
         // Stock voices must all be present
-        for stock in Voice.stockIDs {
+        for stock in BundledVoice.stockIDs {
             XCTAssertTrue(ids.contains(stock), "stock voice '\(stock)' missing from catalog")
         }
     }

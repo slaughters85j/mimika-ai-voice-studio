@@ -22,7 +22,7 @@ nonisolated struct MultiTalkSpeaker: Identifiable, Equatable, Hashable, Sendable
 
 struct SpeakerCard: View {
     @Binding var speaker: MultiTalkSpeaker
-    let voices: [Voice]
+    let voices: [BundledVoice]
     var activeBackend: TTSBackendType = .pocketTTS
     let canRemove: Bool
     var disabled: Bool = false
@@ -74,7 +74,7 @@ struct SpeakerCard: View {
 
                 Group {
                     if activeBackend == .pocketTTS {
-                        let importedVoices = FishVoiceManager.shared.voices.filter { $0.pocketTTSKVPath != nil }
+                        let importedVoices = VoiceManager.shared.voices.filter { $0.pocketTTSKVPath != nil }
                         let builtInVoices = voices
                             .filter { $0.type == .predefined }
                             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
@@ -93,7 +93,7 @@ struct SpeakerCard: View {
                             }
                         }
                     } else {
-                        let fishVoices = FishVoiceManager.shared.voices
+                        let fishVoices = VoiceManager.shared.voices
                         Picker("", selection: $speaker.voiceID) {
                             Text("Default Voice").tag("fish-default")
                             if !fishVoices.isEmpty {

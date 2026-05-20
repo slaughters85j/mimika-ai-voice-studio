@@ -16,7 +16,7 @@ final class SingleVoiceViewModel {
 
     // MARK: - Inputs
     var text: String = "This is a test. It's only a test. Practice makes perfect."
-    var selectedVoiceID: String = Voice.default.id
+    var selectedVoiceID: String = BundledVoice.default.id
 
     // MARK: - Outputs
     var status: SynthesisStatus = .idle
