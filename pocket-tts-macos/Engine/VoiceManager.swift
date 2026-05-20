@@ -112,6 +112,17 @@ final class VoiceManager {
     // MARK: - Import (step 1: copy WAV)
 
     func importVoice(from sourceURL: URL, name: String) throws -> Voice {
+        // Reject case-insensitive name collisions before doing any
+        // file I/O. Without this the user can build up multiple
+        // "Beverly Crusher Normal" rows in the picker — same UI,
+        // different UUIDs, no way to tell them apart at the call site.
+        let normalized = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let dup = voices.first(where: {
+            $0.name.compare(normalized, options: .caseInsensitive) == .orderedSame
+        }) {
+            throw ImportError.nameAlreadyExists(existing: dup.name)
+        }
+
         let id = UUID().uuidString
         let destURL = voicesDir.appendingPathComponent("\(id).wav")
 
@@ -362,6 +373,17 @@ final class VoiceManager {
             case .alreadyAdopted:   return "This voice is already in the catalog."
             case .filesMissing:     return "The voice's files are no longer on disk."
             case .kvUnparseable:    return "The voice's KV file is corrupt or wrong format."
+            }
+        }
+    }
+
+    enum ImportError: LocalizedError {
+        case nameAlreadyExists(existing: String)
+
+        var errorDescription: String? {
+            switch self {
+            case .nameAlreadyExists(let existing):
+                return "A voice named \"\(existing)\" already exists. Pick a different name."
             }
         }
     }

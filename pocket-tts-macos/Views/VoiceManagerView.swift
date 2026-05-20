@@ -44,6 +44,12 @@ struct VoiceManagerView: View {
     @State private var orphanNames: [String: String] = [:]
     @State private var orphanError: String? = nil
 
+    // Surfaces failures from the import flow (name collision, disk
+    // I/O, conversion) inline on the Save Voice Preset screen.
+    // Previously the catch in saveVoiceAndProceed only printed — the
+    // user saw the Save button do nothing.
+    @State private var importError: String? = nil
+
     // Audio playback for comparison
     @State private var isPlayingOriginal = false
     @State private var isPlayingEnhanced = false
@@ -129,6 +135,7 @@ struct VoiceManagerView: View {
         voiceDescription = ""
         savedVoiceID = nil
         encodingComplete = false
+        importError = nil
     }
 
     private func verifyAndEncodeVoices() async {
@@ -201,6 +208,12 @@ struct VoiceManagerView: View {
                 .foregroundStyle(Theme.textPrimary)
             }
             .toggleStyle(.checkbox)
+
+            if let err = importError {
+                Text(err)
+                    .font(Theme.fontXS)
+                    .foregroundStyle(Theme.errorFG)
+            }
 
             HStack {
                 cancelButton(action: resetImport)
@@ -675,6 +688,7 @@ struct VoiceManagerView: View {
         // it we still try to read, which works for the drag-drop case.
         let didStartScope = url.startAccessingSecurityScopedResource()
         defer { if didStartScope { url.stopAccessingSecurityScopedResource() } }
+        importError = nil
         do {
             let voice = try VoiceManager.shared.importVoice(from: url, name: name)
             if !voiceDescription.isEmpty { VoiceManager.shared.setDescription(voiceDescription, for: voice.id) }
@@ -687,6 +701,16 @@ struct VoiceManagerView: View {
                 resetImport()
             }
         } catch {
+            // Surface the failure inline on the save-preset screen
+            // (LocalizedError → errorDescription for our typed errors;
+            // localizedDescription for system errors like disk full).
+            let message: String
+            if let typed = error as? LocalizedError, let desc = typed.errorDescription {
+                message = desc
+            } else {
+                message = error.localizedDescription
+            }
+            importError = message
             print("[VoiceManager] import failed: \(error)")
         }
     }
