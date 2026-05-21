@@ -54,19 +54,10 @@ actor AudioFileLoader {
     func load(_ url: URL, targetSampleRate: Int = 24_000) async throws -> LoadedAudio {
         let asset = AVURLAsset(url: url)
 
-        // Load duration + tracks via the modern async API on macOS 13+.
-        let durationCM: CMTime
-        let audioTracks: [AVAssetTrack]
-        let videoTracks: [AVAssetTrack]
-        if #available(macOS 13.0, iOS 16.0, *) {
-            durationCM = try await asset.load(.duration)
-            audioTracks = try await asset.loadTracks(withMediaType: .audio)
-            videoTracks = try await asset.loadTracks(withMediaType: .video)
-        } else {
-            durationCM = asset.duration
-            audioTracks = asset.tracks(withMediaType: .audio)
-            videoTracks = asset.tracks(withMediaType: .video)
-        }
+        // Load duration + tracks via the modern async API.
+        let durationCM = try await asset.load(.duration)
+        let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+        let videoTracks = try await asset.loadTracks(withMediaType: .video)
 
         guard let track = audioTracks.first else {
             throw LoaderError.noAudioTrack(url)
