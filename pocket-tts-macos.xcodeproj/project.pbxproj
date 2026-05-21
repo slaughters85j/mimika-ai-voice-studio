@@ -10,6 +10,7 @@
 		D52D51B52FBA6FD00037F6C4 /* MLXAudioCore in Frameworks */ = {isa = PBXBuildFile; productRef = D52D51B42FBA6FD00037F6C4 /* MLXAudioCore */; };
 		D52D51BF2FBA6FD00037F6C4 /* MLXAudioTTS in Frameworks */ = {isa = PBXBuildFile; productRef = D52D51BE2FBA6FD00037F6C4 /* MLXAudioTTS */; };
 		D59BDE252FBF93C100080D3F /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = D59BDE242FBF93C100080D3F /* WhisperKit */; };
+		D59BDF482FBFA91F00080D3F /* SpeakerKit in Frameworks */ = {isa = PBXBuildFile; productRef = D59BDF472FBFA91F00080D3F /* SpeakerKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -59,6 +60,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				D59BDE252FBF93C100080D3F /* WhisperKit in Frameworks */,
+				D59BDF482FBFA91F00080D3F /* SpeakerKit in Frameworks */,
 				D52D51BF2FBA6FD00037F6C4 /* MLXAudioTTS in Frameworks */,
 				D52D51B52FBA6FD00037F6C4 /* MLXAudioCore in Frameworks */,
 			);
@@ -124,6 +126,7 @@
 				D52D51B42FBA6FD00037F6C4 /* MLXAudioCore */,
 				D52D51BE2FBA6FD00037F6C4 /* MLXAudioTTS */,
 				D59BDE242FBF93C100080D3F /* WhisperKit */,
+				D59BDF472FBFA91F00080D3F /* SpeakerKit */,
 			);
 			productName = "pocket-tts-macos";
 			productReference = D5ECD2182FB78D5A00C23A9D /* pocket-tts-macos.app */;
@@ -661,6 +664,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = D59BDE232FBF93C100080D3F /* XCRemoteSwiftPackageReference "WhisperKit" */;
 			productName = WhisperKit;
+		};
+		D59BDF472FBFA91F00080D3F /* SpeakerKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D59BDE232FBF93C100080D3F /* XCRemoteSwiftPackageReference "WhisperKit" */;
+			productName = SpeakerKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
