@@ -14,6 +14,11 @@ struct SingleVoiceView: View {
     let voices: [BundledVoice]
     @Binding var pendingReuse: PendingReuse?
     @Binding var chatSettings: ChatSettings
+    /// Set true to open the Voice Changer sheet (audio-in → re-voice
+    /// with one of the available voices). Bound to
+    /// `AppState.showsVoiceChanger` so the same flag is toggled by the
+    /// File menu shortcut (⌥⌘V).
+    @Binding var showsVoiceChanger: Bool
     @Environment(\.modelContext) private var modelContext
 
     @State private var showGenerator = false
@@ -44,6 +49,30 @@ struct SingleVoiceView: View {
                         onPause:      { viewModel.pause() },
                         onResume:     { viewModel.resume() }
                     )
+
+                    // Voice Changer entry-point. Sits in the sidebar
+                    // VStack next to the voice picker because it's an
+                    // audio-in / audio-out concern, not a text-editor
+                    // toolbar action. The matching File-menu shortcut
+                    // (⌥⌘V) lives in pocket_tts_macosApp.swift and
+                    // toggles the same AppState flag.
+                    Button(action: { showsVoiceChanger = true }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "waveform.and.mic")
+                                .font(.system(size: 13))
+                            Text("Change a Recording's Voice…")
+                                .font(Theme.fontSM)
+                        }
+                        .foregroundStyle(Theme.textPrimary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(Theme.bgTertiary)
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(viewModel.status.isWorking)
+                    .help("Open the Voice Changer: transcribe an audio file and re-voice it with one of your voices (⌥⌘V)")
+                    .accessibilityIdentifier("single.voiceChangerButton")
 
                     if chatSettings.activeBackend == .pocketTTS {
                         StatusIndicator(status: viewModel.status)

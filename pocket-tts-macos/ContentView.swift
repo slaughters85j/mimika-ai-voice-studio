@@ -15,6 +15,7 @@ struct ContentView: View {
     @State private var multiVM: MultiTalkViewModel?
     @State private var historyVM = HistoryViewModel()
     @State private var chatVM: ChatViewModel?
+    @State private var voiceChangerVM: VoiceChangerViewModel?
 
     @State private var voices: [BundledVoice] = []
 
@@ -123,6 +124,9 @@ struct ContentView: View {
                     chatVM?.settings = newSettings
                 }
             )
+        }
+        .sheet(isPresented: $appState.showsVoiceChanger) {
+            voiceChangerSheetBody
         }
         .sheet(isPresented: $appState.showsVoiceManager) {
             VoiceManagerView(
@@ -322,7 +326,8 @@ struct ContentView: View {
                     viewModel: singleVM,
                     voices: voices,
                     pendingReuse: $appState.pendingReuse,
-                    chatSettings: $appState.chatSettings
+                    chatSettings: $appState.chatSettings,
+                    showsVoiceChanger: $appState.showsVoiceChanger
                 )
             case .multi:
                 MultiTalkView(
@@ -386,6 +391,43 @@ struct ContentView: View {
                 .multiTalk:   multiBody,
             ]
         )
+    }
+
+    // MARK: - Voice Changer sheet body
+
+    /// Builds the Voice Changer sheet against the currently-active
+    /// engine. The VM is rebuilt on each presentation so a backend
+    /// swap between opens (Pocket-TTS ↔ Fish) picks up the right
+    /// engine without a stale capture. Falls back to a tiny loading
+    /// placeholder if the engine hasn't bootstrapped yet — the
+    /// ⌥⌘V menu shortcut can fire before launch finishes since it's
+    /// not gated by the tabs' readyView guard.
+    @ViewBuilder
+    private var voiceChangerSheetBody: some View {
+        if appState.engine != nil {
+            let vm = voiceChangerVM ?? {
+                let new = VoiceChangerViewModel(engine: appState.activeEngine)
+                voiceChangerVM = new
+                return new
+            }()
+            VoiceChangerSheet(
+                isPresented: $appState.showsVoiceChanger,
+                viewModel: vm,
+                voices: voices,
+                modelManager: WhisperModelManager.shared,
+                chatSettings: $appState.chatSettings
+            )
+            .onDisappear { voiceChangerVM = nil }
+        } else {
+            VStack(spacing: Theme.space3) {
+                ProgressView().controlSize(.large).tint(Theme.accent)
+                Text("Loading TTS engine…")
+                    .font(Theme.fontSM)
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            .frame(width: 540, height: 200)
+            .background(Theme.bgPrimary)
+        }
     }
 
     // MARK: - VM bootstrap

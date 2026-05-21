@@ -70,6 +70,11 @@ final class AppState {
     /// Voice Manager sheet visibility.
     var showsVoiceManager: Bool = false
 
+    /// Voice Changer sheet visibility. Reachable from Single Voice's
+    /// sidebar button OR the File → Convert Recording… menu item
+    /// (⌥⌘V) declared in `pocket_tts_macosApp.swift`.
+    var showsVoiceChanger: Bool = false
+
     /// Toast notification shown when a voice finishes encoding.
     var toastMessage: String?
 

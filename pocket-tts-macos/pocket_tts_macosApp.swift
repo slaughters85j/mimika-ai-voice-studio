@@ -37,6 +37,17 @@ struct pocket_tts_macosApp: App {
                 }
                 .keyboardShortcut(",", modifiers: .command)
             }
+            // File-menu entry for Voice Changer. Bound to the same
+            // AppState flag the Single Voice sidebar button toggles so
+            // the keyboard shortcut works from any tab (Chat,
+            // Multi-Talk, History) without requiring the user to
+            // switch to Single Voice first.
+            CommandGroup(before: .appSettings) {
+                Button("Convert Recording…") {
+                    appState.showsVoiceChanger = true
+                }
+                .keyboardShortcut("v", modifiers: [.command, .option])
+            }
             // Edit > Find submenu — Cmd+F opens the find bar inside the
             // currently-focused NSTextView (Single Voice + Multi-Talk
             // script editors via `MacTextEditor`). Each item sends the
