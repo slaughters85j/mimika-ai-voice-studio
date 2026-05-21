@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		D52D51B52FBA6FD00037F6C4 /* MLXAudioCore in Frameworks */ = {isa = PBXBuildFile; productRef = D52D51B42FBA6FD00037F6C4 /* MLXAudioCore */; };
 		D52D51BF2FBA6FD00037F6C4 /* MLXAudioTTS in Frameworks */ = {isa = PBXBuildFile; productRef = D52D51BE2FBA6FD00037F6C4 /* MLXAudioTTS */; };
+		D59BDE252FBF93C100080D3F /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = D59BDE242FBF93C100080D3F /* WhisperKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -57,6 +58,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D59BDE252FBF93C100080D3F /* WhisperKit in Frameworks */,
 				D52D51BF2FBA6FD00037F6C4 /* MLXAudioTTS in Frameworks */,
 				D52D51B52FBA6FD00037F6C4 /* MLXAudioCore in Frameworks */,
 			);
@@ -121,6 +123,7 @@
 			packageProductDependencies = (
 				D52D51B42FBA6FD00037F6C4 /* MLXAudioCore */,
 				D52D51BE2FBA6FD00037F6C4 /* MLXAudioTTS */,
+				D59BDE242FBF93C100080D3F /* WhisperKit */,
 			);
 			productName = "pocket-tts-macos";
 			productReference = D5ECD2182FB78D5A00C23A9D /* pocket-tts-macos.app */;
@@ -206,6 +209,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				D52D51AF2FBA6FD00037F6C4 /* XCRemoteSwiftPackageReference "mlx-audio-swift" */,
+				D59BDE232FBF93C100080D3F /* XCRemoteSwiftPackageReference "WhisperKit" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = D5ECD2192FB78D5A00C23A9D /* Products */;
@@ -632,6 +636,14 @@
 				kind = branch;
 			};
 		};
+		D59BDE232FBF93C100080D3F /* XCRemoteSwiftPackageReference "WhisperKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/argmaxinc/WhisperKit";
+			requirement = {
+				kind = exactVersion;
+				version = 1.0.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -644,6 +656,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = D52D51AF2FBA6FD00037F6C4 /* XCRemoteSwiftPackageReference "mlx-audio-swift" */;
 			productName = MLXAudioTTS;
+		};
+		D59BDE242FBF93C100080D3F /* WhisperKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D59BDE232FBF93C100080D3F /* XCRemoteSwiftPackageReference "WhisperKit" */;
+			productName = WhisperKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
