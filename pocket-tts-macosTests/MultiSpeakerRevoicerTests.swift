@@ -12,6 +12,7 @@
 import XCTest
 @testable import pocket_tts_macos
 
+@MainActor
 final class MultiSpeakerRevoicerTests: XCTestCase {
 
     private let sampleRate = 24_000

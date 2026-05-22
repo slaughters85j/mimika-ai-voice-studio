@@ -67,7 +67,11 @@ protocol SourceSeparator: Sendable {
     /// from a SwiftUI `body` — must be cheap (no disk hash, no model
     /// compile). A common impl checks for the presence of a single
     /// sentinel file under Application Support and returns immediately.
-    func isModelDownloaded() -> Bool
+    ///
+    /// Marked `nonisolated` so the fast synchronous probe can be called
+    /// from the pipeline `actor` (non-`@MainActor`) without an `await`
+    /// hop, despite the project's `-default-isolation MainActor` flag.
+    nonisolated func isModelDownloaded() -> Bool
 
     /// Download + install the model if it isn't already present.
     /// Idempotent — a no-op when `isModelDownloaded()` is already

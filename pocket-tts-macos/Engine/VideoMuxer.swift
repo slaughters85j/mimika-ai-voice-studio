@@ -43,7 +43,25 @@
 import AVFoundation
 import Foundation
 
-actor VideoMuxer {
+// MARK: - VideoMuxing
+
+/// Protocol surface for muxing a re-voiced audio track into a copy
+/// of an existing video. Lifted out of the concrete `VideoMuxer`
+/// actor so the Speaker Isolator VM can take `any VideoMuxing` for
+/// dependency injection — production wires the real `VideoMuxer`;
+/// tests can stub the mux step to skip AVAssetExportSession entirely.
+protocol VideoMuxing: Sendable {
+    func mux(
+        audioSamples: [Float],
+        sampleRate: Int,
+        videoAsset: AVURLAsset,
+        outputURL: URL
+    ) async throws
+}
+
+// MARK: - VideoMuxer
+
+actor VideoMuxer: VideoMuxing {
 
     enum MuxerError: Error, CustomStringConvertible {
         case noVideoTrack(URL)

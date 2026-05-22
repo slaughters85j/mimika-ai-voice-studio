@@ -32,7 +32,32 @@
 
 import Foundation
 
-actor MultiSpeakerRevoicer {
+// MARK: - MultiSpeakerRevoicing
+
+/// Protocol surface for the multi-speaker revoice + combine step.
+/// Lifted out of the concrete `MultiSpeakerRevoicer` actor so the
+/// Speaker Isolator VM can take `any MultiSpeakerRevoicing` for
+/// dependency injection — production wires the real revoicer;
+/// tests stub it to skip Voice Changer model loads entirely.
+///
+/// The associated types `Disposition` + `SpeakerAssignment` live on
+/// the concrete `MultiSpeakerRevoicer` rather than this protocol,
+/// because they're shared by every conformance — re-defining them
+/// per backend would require shuffling call sites for no benefit.
+protocol MultiSpeakerRevoicing: Sendable {
+    func revoice(
+        sampleRate: Int,
+        totalDurationSec: Double,
+        assignments: [MultiSpeakerRevoicer.SpeakerAssignment],
+        engine: any TTSEngineProtocol,
+        stt: STTProvider,
+        onProgress: (@Sendable (String, Int, Int) -> Void)?
+    ) async throws -> [Float]
+}
+
+// MARK: - MultiSpeakerRevoicer
+
+actor MultiSpeakerRevoicer: MultiSpeakerRevoicing {
 
     enum RevoicerError: Error, CustomStringConvertible {
         case sttFailed(speakerID: String, Error)

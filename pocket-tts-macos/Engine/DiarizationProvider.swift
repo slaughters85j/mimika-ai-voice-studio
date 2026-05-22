@@ -94,6 +94,24 @@ protocol DiarizationProvider: Sendable {
         _ audio: URL,
         settings: DiarizationSettings
     ) async throws -> [DiarizedSegment]
+
+    /// True iff the backend's model weights are installed locally
+    /// and loadable without further network I/O. Async to support
+    /// actor-isolated impls (file checks are cheap but the actor's
+    /// serial executor still has to schedule the call). Production
+    /// impls should NOT touch the network here.
+    func isModelDownloaded() async -> Bool
+
+    /// Download + install the model if missing. Idempotent — a
+    /// no-op when `isModelDownloaded()` is already true.
+    /// `progress` is fed a `Foundation.Progress` from the
+    /// underlying downloader; nil means "I don't care about
+    /// progress, just return when done". Closure is `@Sendable`
+    /// because callers (the VM) typically dispatch UI updates
+    /// from MainActor while the downloader runs off-actor.
+    func ensureModelsReady(
+        progress: (@Sendable (Progress) -> Void)?
+    ) async throws
 }
 
 extension DiarizationProvider {
