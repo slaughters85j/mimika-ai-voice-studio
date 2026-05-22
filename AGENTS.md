@@ -59,11 +59,13 @@ Per synthesis call:
 - **EOS:** CaLM's EOS head signals end; pipeline runs `frames_after_eos` more then stops
 - **Numerical equivalence:** validated end-to-end vs PyTorch reference; e2e spectrum correlation 0.97
 
-Full conversion details in `pocket-tts-core-ml-conversion/NOTES.md`.
+Conversion details are intentionally kept out of the app repo. The app consumes
+checked-in Core ML resources and should not depend on a separate conversion
+workspace at runtime.
 
 ---
 
-## Project layout (target — being built out)
+## Project Layout
 
 ```
 pocket-tts-macos/
@@ -72,48 +74,97 @@ pocket-tts-macos/
 ├── pocket-tts-macos/
 │   ├── road-map.md
 │   ├── App/
-│   │   └── PocketTTSMacOSApp.swift   (@main, rename from default template)
+│   │   ├── PocketTTSMacOSApp.swift   (@main)
+│   │   ├── AppState.swift            (global app state + engine ownership)
+│   │   └── SynthesisStatus.swift
+│   ├── Models/
+│   │   ├── BundledVoice.swift        (stock voice catalog entry)
+│   │   └── ChatModels.swift
 │   ├── Engine/
-│   │   ├── TTSEngine.swift           (orchestrator)
+│   │   ├── TTSEngine.swift           (Core ML synthesis orchestrator)
+│   │   ├── TTSEngineProtocol.swift   (testable engine surface)
 │   │   ├── Tokenizer.swift           (SentencePiece wrapper)
 │   │   ├── VoiceLoader.swift         (safetensors → MLMultiArray)
 │   │   ├── VoiceManager.swift        (saved-voices/ catalog + import + orphan recovery)
-│   │   ├── BundledVoice.swift        (Models/) — stock voice catalog entry
+│   │   ├── WhisperKitSTT.swift       (Whisper transcription backend)
+│   │   ├── WhisperModelManager.swift (Whisper model download/lifecycle)
+│   │   ├── SpeakerIsolator.swift     (segment-based speaker extraction)
+│   │   ├── SpeakerKitDiarizationProvider.swift
+│   │   ├── MultiSpeakerRevoicer.swift
+│   │   ├── AudioFileLoader.swift     (decode mono/stereo inputs)
+│   │   ├── AudioBuffer.swift
+│   │   ├── SourceSeparator.swift     (Phase 7 separation protocol)
+│   │   ├── DemucsSourceSeparator.swift
+│   │   ├── DemucsChunker.swift
+│   │   ├── DemucsModelManager.swift
+│   │   ├── DemucsModelInstaller.swift
+│   │   ├── DemucsZipExtractor.swift
+│   │   ├── DemucsModelVariant.swift
+│   │   ├── DemucsStemMap.swift
+│   │   ├── DemucsResampler.swift
+│   │   ├── SeparatedStems.swift
+│   │   ├── VideoMuxer.swift
 │   │   └── ModelPaths.swift          (bundle-resource resolution)
 │   ├── Audio/
 │   │   ├── StreamingPlayer.swift     (AVAudioEngine source node)
 │   │   ├── WAVEncoder.swift
-│   │   └── AACMP3Encoder.swift       (AVAssetWriter)
+│   │   └── AACEncoder.swift          (AVAssetWriter)
 │   ├── Persistence/
-│   │   └── DataModels.swift          (SwiftData @Model types — Phase 3)
-│   ├── ViewModels/                    (Phase 2+)
+│   │   ├── DataModels.swift          (SwiftData @Model types)
+│   │   ├── AppDataStore.swift
+│   │   └── HistoryStore.swift
+│   ├── ViewModels/
+│   │   ├── SingleVoiceViewModel.swift
+│   │   ├── MultiTalkViewModel.swift
+│   │   ├── ChatViewModel.swift
+│   │   ├── HistoryViewModel.swift
+│   │   ├── VoiceChangerViewModel.swift
+│   │   ├── SpeakerIsolatorViewModel.swift
+│   │   ├── SpeakerIsolatorViewModel+Convert.swift
+│   │   ├── SpeakerIsolatorViewModel+ChangeVoices.swift
+│   │   ├── SpeakerIsolatorViewModel+Exports.swift
+│   │   └── SpeakerIsolatorPipeline.swift
 │   ├── Views/
 │   │   ├── ContentView.swift         (NavigationSplitView)
 │   │   ├── SingleVoiceView.swift
-│   │   ├── MultiTalkView.swift       (Phase 3)
-│   │   ├── HistoryView.swift         (Phase 3)
-│   │   └── ChatView.swift            (Phase 4)
+│   │   ├── MultiTalkView.swift
+│   │   ├── HistoryView.swift
+│   │   ├── ChatView.swift
+│   │   ├── VoiceChangerSheet.swift
+│   │   ├── SpeakerIsolatorSheet.swift
+│   │   ├── WhisperModelManagerSheet.swift
+│   │   ├── DemucsModelManagerSheet.swift
+│   │   └── SpeakerIsolator/
+│   │       ├── AudioPreservationSection.swift
+│   │       ├── DiarizationSettingsPanel.swift
+│   │       ├── SeparationProgressLabel.swift
+│   │       ├── SeparationStatusBanner.swift
+│   │       └── SpeakerRow.swift
 │   ├── Components/
 │   │   ├── VoiceSelector.swift
 │   │   ├── SpeakerCard.swift
-│   │   ├── Orb.swift                 (Phase 5)
+│   │   ├── OrbView.swift             (Metal orb)
 │   │   ├── StatusIndicator.swift
 │   │   ├── PauseModal.swift
 │   │   ├── AudioPlayer.swift
+│   │   ├── MiniAudioPlayer.swift
 │   │   └── SynthesizeButton.swift
 │   ├── Networking/
-│   │   └── LocalLLMClient.swift      (OpenAI-compatible: LM Studio, Ollama, llama.cpp server, etc.)
-│   ├── Resources/                     (bundled assets — synced via scripts/sync-assets.sh)
+│   │   ├── LocalLLMClient.swift      (OpenAI-compatible local endpoint)
+│   │   ├── ScriptGenerator.swift
+│   │   └── SentenceDetector.swift
+│   ├── Resources/
 │   │   ├── mlpackages/
 │   │   │   ├── prompt_phase.mlpackage
 │   │   │   ├── calm_stateful.mlpackage      (fp32 compute)
 │   │   │   ├── mimi_stateful.mlpackage      (fp32 compute, 8192-slot KV cache)
 │   │   │   └── voice_prompt_phase.mlpackage (voice-import baker)
+│   │   ├── lavasr/                    (voice enhancement resources)
 │   │   ├── tokenizer.model
 │   │   ├── tokenizer_vocab.json
 │   │   └── voice_kv_states/*.safetensors    (stock-only; the 7 Kyutai voices)
 │   └── Assets.xcassets/
-├── pocket-tts-macosTests/
+├── pocket-tts-macosTests/              (XCTest unit tests + fixtures + mocks)
 └── pocket-tts-macosUITests/
 ```
 
@@ -143,6 +194,41 @@ The two stores are surfaced together in pickers but managed separately. **Voices
 1. **Directory migration** from legacy `fish-voices/` → `saved-voices/` (in-place, idempotent).
 2. **Reconcile with disk** — clears stale catalog rows whose files vanished.
 3. **Orphan recovery** — surfaces adoptable file triplets (KV + WAV, with parseable KV header) that have no catalog row, in the Voice Manager UI.
+
+---
+
+## Phase 7 — Speaker Isolation Audio Preservation
+
+Phase 7 adds optional HTDemucs source separation to Speaker Isolator so
+music / SFX / ambient audio can survive underneath revoiced speech.
+
+**Locked implementation shape:**
+- Main app stays Swift / Core ML only. Do not add Python, PyInstaller, shell
+  subprocess model tooling, or runtime service dependencies to the app.
+- HTDemucs is downloaded as a user-managed `.mlpackage`; do not vendor the
+  hundreds-of-MB model weights into the app bundle or test target.
+- `DemucsSourceSeparator` runs CPU-only. GPU / ANE dispatch is known to trip
+  the macOS GPU watchdog on the ISTFT graph.
+- The Speaker Isolator flow is diarize-first: load 24 kHz mono, diarize,
+  publish initial speakers, then optionally run source separation and replace
+  the speaker rows with cleaner vocals + a separated Background row.
+- Missing separator model is a soft fallback. If the user has Audio
+  Preservation enabled but HTDemucs is not installed, run the v1 path and show
+  a persistent warning; do not auto-download the 287 MB model during isolation.
+- Background audio is represented as a synthetic `SpeakerTrack` with
+  `.useOriginal` and `isolatedSamples` equal to the music / ambient stem. Do
+  not add a separate `musicStem` parameter to `MultiSpeakerRevoicer`.
+
+**Review guardrails that future agents should re-check:**
+- Model readiness must validate a non-empty installed mlpackage, not just that
+  the expected folder exists. Empty / partial manual placement should fall back
+  or redownload instead of reaching Core ML load failure.
+- Separation progress must reflect real chunk progress and ETA if the UI says
+  "chunk N of M". A static `chunk 1 of 1` placeholder is not acceptable for
+  multi-minute separations.
+- "Manage Separation Models..." must remain reachable after the model is
+  installed so users can delete it, reveal the folder, or manually place an
+  mlpackage from another machine.
 
 ---
 
@@ -185,7 +271,7 @@ This is **not** a Ubiquitous Analytics project. The UA brand-token rule does not
 
 ### Coding workflow
 
-- **Refactor over add.** Reuse existing types; check `pocket-tts-core-ml-conversion/swift_harness/` and `macos-service/PocketTTSMenuBar/` before writing new code from scratch
+- **Refactor over add.** Reuse existing types in this repo before writing new code from scratch
 - No mocking in dev/prod code. Mocks live in `pocket-tts-macosTests/` only
 - Don't introduce a new pattern or library to "fix" something — first exhaust the existing pattern, then propose replacement
 - Don't make changes unrelated to the task at hand
@@ -195,8 +281,6 @@ This is **not** a Ubiquitous Analytics project. The UA brand-token rule does not
 
 ## Hard rules — do NOT
 
-- ❌ Modify anything under `/Users/system-backup/dev_local/pocket-tts/` (read-only reference)
-- ❌ Modify anything under `/Users/system-backup/dev_local/pocket-tts-core-ml-conversion/` except for generating new `.mlpackage`s and validators
 - ❌ Re-download model weights — they're already in `~/.cache/huggingface/hub/`
 - ❌ Add a Python runtime / PyInstaller / `subprocess` to this app — the whole point is to escape Python
 - ❌ Bundle `calm_step.mlpackage` or `mimi_decoder.mlpackage` (dev artifacts only)
@@ -227,7 +311,7 @@ See `pocket-tts-macos/road-map.md` for the canonical phased plan with hour estim
 Quick status:
 
 - [x] Phase −1: project bootstrap (Xcode project, git, GitHub remote, road-map, AGENTS.md)
-- [x] Phase 0a — voice KV state precompute: 7 voices exported to `/Users/system-backup/dev_local/pocket-tts-core-ml-conversion/voice_kv_states/*.safetensors` (T_voice 125–161 per voice)
+- [x] Phase 0a — voice KV state precompute completed for the 7 stock voices (T_voice 125–161 per voice)
 - [x] Phase 0b — `prompt_phase.mlpackage` converted, 140 MB, validated against PyTorch at 1.84% worst K rel-err (passing 5% threshold). Notable: ANE compile rejects multi-position SDPA; runs CPU+GPU
 - [x] Phase 0c — Swift engine: Tokenizer, VoiceLoader, TTSEngine + Xcode project scaffolding
 - [x] Phase 0d — end-to-end Swift unit test (text → wav, no Python)
@@ -237,4 +321,4 @@ Quick status:
 - [x] Phase 4: LM Studio chat
 - [x] Phase 5: Orb (Metal shader port)
 - [ ] Phase 6: polish, signing, notarization, Sparkle, DMG
-- [ ] Deferred v2: voice cloning, EnhancementStudio, AudioCompare, iOS variant
+- [ ] Deferred v2: EnhancementStudio, AudioCompare, iOS variant
