@@ -28,6 +28,9 @@ pocket-tts-macos/Resources/
 *.wav
 *.aiff
 
+# Test fixtures (committed deliberately — small + needed for parity tests)
+!pocket-tts-macosTests/Fixtures/*.wav
+
 # Profiles
 *.trace
 *.app.dSYM
