@@ -27,6 +27,20 @@ import Foundation
 
 // MARK: - DemucsResampler
 
+/// One-shot flag for the AVAudioConverter input block. The closure
+/// signature is `@Sendable` under strict concurrency, which forbids
+/// capturing a mutable `var consumed: Bool` directly. A reference-
+/// type wrapper marked `@unchecked Sendable` + `nonisolated(unsafe)`
+/// on the mutable property works because AVAudioConverter invokes
+/// the block synchronously from the calling thread — there's no
+/// real cross-thread mutation despite the Sendable annotation.
+/// `nonisolated(unsafe)` is required because the project's
+/// `-default-isolation MainActor` flag otherwise makes `value`
+/// MainActor-isolated, which the @Sendable closure can't access.
+private final class _ConverterConsumedFlag: @unchecked Sendable {
+    nonisolated(unsafe) var value: Bool = false
+}
+
 nonisolated enum DemucsResampler {
 
     // MARK: - Errors
@@ -102,11 +116,11 @@ nonisolated enum DemucsResampler {
             pcmFormat: dstFmt, frameCapacity: dstCapacity
         ) else { throw ResamplerError.bufferInitFailed("dest mono buffer") }
 
-        var consumed = false
+        let consumed = _ConverterConsumedFlag()
         var convertError: NSError?
         _ = converter.convert(to: dstBuf, error: &convertError) { _, outStatus in
-            if consumed { outStatus.pointee = .endOfStream; return nil }
-            consumed = true; outStatus.pointee = .haveData
+            if consumed.value { outStatus.pointee = .endOfStream; return nil }
+            consumed.value = true; outStatus.pointee = .haveData
             return srcBuf
         }
         if let e = convertError { throw ResamplerError.convertFailed(e) }
@@ -170,11 +184,11 @@ nonisolated enum DemucsResampler {
             pcmFormat: dstFmt, frameCapacity: AVAudioFrameCount(outFrames)
         ) else { throw ResamplerError.bufferInitFailed("dest stereo buffer") }
 
-        var consumed = false
+        let consumed = _ConverterConsumedFlag()
         var convertError: NSError?
         _ = converter.convert(to: dstBuf, error: &convertError) { _, outStatus in
-            if consumed { outStatus.pointee = .endOfStream; return nil }
-            consumed = true; outStatus.pointee = .haveData
+            if consumed.value { outStatus.pointee = .endOfStream; return nil }
+            consumed.value = true; outStatus.pointee = .haveData
             return srcBuf
         }
         if let e = convertError { throw ResamplerError.convertFailed(e) }

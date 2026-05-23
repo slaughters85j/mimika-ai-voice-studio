@@ -63,8 +63,15 @@ final class MockSourceSeparator: SourceSeparator, @unchecked Sendable {
 
     // MARK: - SourceSeparator
 
-    func separate(_ input: AudioBuffer) async throws -> SeparatedStems {
+    func separate(
+        _ input: AudioBuffer,
+        onProgress: (@Sendable (_ chunk: Int, _ total: Int, _ etaSec: Int?) -> Void)?
+    ) async throws -> SeparatedStems {
         separateCallCount += 1
+        // Fire a single synthetic progress event so callers that
+        // observe progress get one tick; real separators fire per
+        // chunk, but the mock just signals "in progress".
+        onProgress?(0, 1, nil)
         if separateDelay > 0 {
             try await Task.sleep(nanoseconds: UInt64(separateDelay * 1_000_000_000))
         }

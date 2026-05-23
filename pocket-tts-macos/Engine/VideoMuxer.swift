@@ -52,8 +52,7 @@ import Foundation
 /// tests can stub the mux step to skip AVAssetExportSession entirely.
 protocol VideoMuxing: Sendable {
     func mux(
-        audioSamples: [Float],
-        sampleRate: Int,
+        audio: AudioBuffer,
         videoAsset: AVURLAsset,
         outputURL: URL
     ) async throws
@@ -86,34 +85,40 @@ actor VideoMuxer: VideoMuxing {
         }
     }
 
-    /// Mux `audioSamples` into a copy of `videoAsset`'s video track,
-    /// writing the resulting `.mp4` to `outputURL`.
+    /// Mux `audio` into a copy of `videoAsset`'s video track, writing
+    /// the resulting `.mp4` to `outputURL`. The audio buffer's layout
+    /// (mono or stereo) flows through to the AAC encode + mux: stereo
+    /// AudioBuffer → stereo AAC track in the output; mono → mono AAC.
     ///
     /// - Parameters:
-    ///   - audioSamples: mono Float32 PCM, the combined revoiced track
-    ///     from `MultiSpeakerRevoicer`.
-    ///   - sampleRate: sample rate of `audioSamples`. Forwarded to the
-    ///     AAC encoder.
+    ///   - audio: combined revoiced output from `MultiSpeakerRevoicer`.
+    ///     For Phase 7 AP-on the buffer is stereo 44.1 kHz; for AP-off
+    ///     it's mono 24 kHz. Sample rate + channel count flow through
+    ///     to the AAC encoder unchanged.
     ///   - videoAsset: the original input video. Its `.video` track is
     ///     copied verbatim; original `.audio` tracks are discarded.
     ///   - outputURL: destination `.mp4`. Any existing file at the URL
     ///     is removed before writing.
     func mux(
-        audioSamples: [Float],
-        sampleRate: Int,
+        audio: AudioBuffer,
         videoAsset: AVURLAsset,
         outputURL: URL
     ) async throws {
-        // 1. Pre-encode audio to a temp AAC .m4a so the export can run
-        //    passthrough (no audio re-encode at composition time).
+        // 1. Pre-encode audio to a temp AAC .m4a so the export can
+        //    run passthrough (no audio re-encode at composition
+        //    time). Use the `.music` quality preset — stereo at
+        //    44.1 kHz for AP-on, mono at 24 kHz for AP-off. The
+        //    AudioBuffer-aware `write` dispatches on the buffer's
+        //    channel layout so the AAC track in the output matches
+        //    the bed-based mix's format end-to-end.
         let tempAudioURL = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("video-muxer-audio-\(UUID().uuidString).m4a")
         defer { try? FileManager.default.removeItem(at: tempAudioURL) }
 
         try await AACEncoder.write(
-            samples: audioSamples,
+            audioBuffer: audio,
             to: tempAudioURL,
-            sampleRate: sampleRate
+            quality: .music
         )
 
         let audioAsset = AVURLAsset(url: tempAudioURL)

@@ -143,6 +143,39 @@ actor SpeakerKitDiarizationProvider: DiarizationProvider {
             throw ProviderError.audioLoadFailed(error)
         }
 
+        // AGC-style pre-boost for SpeakerKit's embedding model.
+        // Pyannote's neural embedder is trained on speech at roughly
+        // broadcast / podcast loudness (~-20 dBFS RMS); quiet inputs
+        // (broadcast dialog under -35 LUFS, post-separation vocals
+        // stems, low-volume captures) can produce embeddings clustered
+        // near the model's noise-prior region, which then makes
+        // distinct voices look "too close" to each other and the VBx
+        // clustering merges them. Same trick we apply to STT input
+        // upstream of the revoicer — boost quiet audio so the model
+        // sees signal in its trained range.
+        //
+        // Speaker identity is preserved by a uniform multiplier (gain
+        // is linear, doesn't change spectral content). Cap at 50x
+        // (~+34 dB) so a near-silent input doesn't get its noise
+        // floor amplified into faux speech. Soft-clip transient peaks
+        // past ±1.0 so the boosted buffer stays within representable
+        // float range without hard distortion.
+        let diarizeSamples: [Float] = {
+            let inputRMS = MultiSpeakerRevoicer.rmsOfActiveSamples(loaded.samples)
+            let diarTargetRMS: Float = 0.1   // -20 dBFS
+            guard inputRMS > 0 else { return loaded.samples }
+            let raw = diarTargetRMS / inputRMS
+            let boost = min(max(1.0, raw), 50.0)
+            guard boost > 1.001 else { return loaded.samples }
+            let boosted = loaded.samples.map {
+                MultiSpeakerRevoicer.softClip($0 * boost)
+            }
+            let dbBoost = 20.0 * log10(Double(boost))
+            print(String(format: "[SpeakerKit] diarize pre-boost %.2fx (+%.1f dB; inputRMS=%.4f → target 0.1)",
+                         boost, dbBoost, inputRMS))
+            return boosted
+        }()
+
         let kit = makeOrReuseDiarizer()
 
         // Translate the backend-agnostic settings struct into the
@@ -162,12 +195,12 @@ actor SpeakerKitDiarizationProvider: DiarizationProvider {
         let result: DiarizationResult
         do {
             if let options {
-                print("[SpeakerKit] diarize start (\(loaded.samples.count) samples @ 16kHz) — settings: numSpeakers=\(options.numberOfSpeakers.map(String.init) ?? "auto") clusterThreshold=\(options.clusterDistanceThreshold.map { String(format: "%.3f", $0) } ?? "default")")
+                print("[SpeakerKit] diarize start (\(diarizeSamples.count) samples @ 16kHz) — settings: numSpeakers=\(options.numberOfSpeakers.map(String.init) ?? "auto") clusterThreshold=\(options.clusterDistanceThreshold.map { String(format: "%.3f", $0) } ?? "default")")
             } else {
-                print("[SpeakerKit] diarize start (\(loaded.samples.count) samples @ 16kHz) — settings: defaults")
+                print("[SpeakerKit] diarize start (\(diarizeSamples.count) samples @ 16kHz) — settings: defaults")
             }
             result = try await kit.diarize(
-                audioArray: loaded.samples,
+                audioArray: diarizeSamples,
                 options: options,
                 progressCallback: nil
             )

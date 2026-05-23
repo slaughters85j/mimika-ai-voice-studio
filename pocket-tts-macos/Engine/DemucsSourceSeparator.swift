@@ -14,14 +14,32 @@
 //  any change here MUST keep `.cpuOnly` or every separation run will
 //  silently stall the system UI for ~30 seconds before recovering.
 //
-//  Memory profile per `separate(_:)` call:
+//  Stereo native (44.1 kHz):
+//    The separator returns stems at HTDemucs's native rate + layout:
+//    stereo (L/R) Float32 at 44.1 kHz, wrapped in `AudioBuffer` via
+//    `SeparatedStems`. No per-stem `(L+R)/2` mono downmix, no
+//    44.1 → 24 kHz resample, no makeup-gain compensation. The
+//    downstream Speaker Isolator + revoicer pipeline carries stereo
+//    44.1 end-to-end so loudness, stereo width, and the 12-22 kHz
+//    air band all survive into the final mix.
+//
+//    Earlier mono 24 kHz iterations of this code (with a +4.7 dB
+//    symmetric makeup gain compensating for the downmix loss) landed
+//    within ~0.25 LU of source on loudness but lost stereo width and
+//    the air band — measurable as `presence (2-6k) 20.4% → 9.94%`
+//    and `high (6-12k) 0.8% → 0.5%` in spectral A/B testing.
+//    Preserving the stems at source rate + layout closes both gaps.
+//
+//  Memory profile per `separate(_:)` call (stereo native):
 //    * Working set per chunk: ~3 MB stereo input + ~12 MB output
-//      MLMultiArray + ~4 MB four-mono-stems
-//    * Growing 24 kHz masters: ~85 MB for a 30 min clip per stem,
-//      so ~170 MB total
-//    * Total peak: ~190 MB. Bounded by chunk-by-chunk downmix
-//      (Codex F5 fix); a naive "decode whole file to 44.1 kHz
-//      stereo, then process" path would peak at ~2.5 GB.
+//      MLMultiArray. No per-chunk mono downmix buffer needed.
+//    * Growing 44.1 stereo masters: ~620 MB total for a 30 min clip
+//      (4 buffers × ~155 MB each = vocalsL/R + musicL/R, Float32).
+//    * Total peak: ~635 MB. Acceptable on M-series chips with
+//      ≥ 16 GB unified memory; the prior mono 24 kHz path peaked at
+//      ~190 MB, so this is ~3.3× the memory footprint for the same
+//      input length. A future streaming-to-disk path (Phase 8 if
+//      OOMs appear) would cap this; for now in-memory is fine.
 
 @preconcurrency import AVFoundation
 @preconcurrency import CoreML
@@ -62,12 +80,10 @@ actor DemucsSourceSeparator: SourceSeparator {
 
     // MARK: - Tunables (fixed by the converted model)
 
-    /// Source rate the model expects.
+    /// Source rate the model expects + the rate the stems are returned
+    /// at. The downstream Speaker Isolator + revoicer carry this rate
+    /// end-to-end now (stereo native; no downsample).
     private nonisolated static let sourceSampleRate: Int = 44_100
-
-    /// Downstream pipeline rate. Stems get resampled here before the
-    /// caller gets them.
-    private nonisolated static let targetSampleRate: Int = 24_000
 
     /// Frames per Core ML window. Matches the conversion script's
     /// fixed input shape (7.8 s at 44.1 kHz).
@@ -76,13 +92,8 @@ actor DemucsSourceSeparator: SourceSeparator {
     /// Overlap between consecutive chunks in source-rate frames.
     /// ~25 % of chunkSize44k — enough headroom for the triangular
     /// OLA to fade across the model's window-boundary artifacts.
-    ///
-    /// 85_995 (NOT 86_000) is intentional: 85995 × 24000 / 44100 =
-    /// 46_800 exactly, so the per-chunk overlap maps cleanly to an
-    /// integer count of 24 kHz frames. Using a non-integer-mapping
-    /// number (86000 → 46_802.72 floored to 46_802) would drift
-    /// chunk placement by ~0.72 samples per chunk in the 24 kHz
-    /// master — small but cumulative across long inputs.
+    /// Maps to a 25 % overlap of the COLA-friendly triangular
+    /// window.
     private nonisolated static let overlap44k: Int = 85_995
 
     /// `MLFeatureProvider` input key the conversion script set.
@@ -115,10 +126,19 @@ actor DemucsSourceSeparator: SourceSeparator {
 
     // MARK: - SourceSeparator (nonisolated)
 
-    /// Synchronous file probe — safe in a SwiftUI body. Just checks
-    /// that the mlpackage dir exists; doesn't compile or load it.
+    /// Synchronous probe — safe in a SwiftUI body. Mirrors
+    /// `DemucsModelManager.isDownloaded(_:)`: the mlpackage dir
+    /// must exist AND be non-empty. A bare-folder existence
+    /// check would let a partial / aborted manual placement
+    /// (empty `htdemucs.mlpackage/` dir) slip past the VM's
+    /// soft-fallback gate and fail inside `MLModel(contentsOf:)`
+    /// at the first separate() call.
     nonisolated func isModelDownloaded() -> Bool {
-        FileManager.default.fileExists(atPath: modelFolderURL.path)
+        guard let entries = try? FileManager.default
+            .contentsOfDirectory(atPath: modelFolderURL.path) else {
+            return false
+        }
+        return !entries.isEmpty
     }
 
     /// Delegates to `DemucsModelManager.shared.download`. Idempotent
@@ -133,16 +153,27 @@ actor DemucsSourceSeparator: SourceSeparator {
 
     /// Run HTDemucs on `input`. Stereo at 44.1 kHz is the native
     /// model rate; mono inputs are upmixed (L = R = mono) and
-    /// non-44.1 kHz inputs are resampled. Returns mono 24 kHz vocals
-    /// + music stems.
-    func separate(_ input: AudioBuffer) async throws -> SeparatedStems {
+    /// non-44.1 kHz inputs are resampled. Returns stereo 44.1 kHz
+    /// `SeparatedStems` (no downmix, no resample).
+    ///
+    /// `onProgress` is invoked BEFORE each chunk's Core ML
+    /// inference, with the chunk index, the total chunk count,
+    /// and a rolling ETA estimate based on elapsed wall time
+    /// (nil during the first chunk; from chunk 1 onward, equals
+    /// `(remaining * elapsed/done)` rounded to the nearest second).
+    /// The callback is `@Sendable` so a MainActor caller can
+    /// dispatch UI updates from it.
+    func separate(
+        _ input: AudioBuffer,
+        onProgress: (@Sendable (_ chunk: Int, _ total: Int, _ etaSec: Int?) -> Void)?
+    ) async throws -> SeparatedStems {
         try Task.checkCancellation()
         guard input.sampleCount > 0 else { throw SeparatorError.inputEmpty }
         guard isModelDownloaded() else {
             throw SeparatorError.modelNotDownloaded(modelFolderURL)
         }
 
-        let model = try loadModelIfNeeded()
+        let model = try await loadModelIfNeeded()
         let stereoAt44k = try Self.normalizeToStereo44k(input)
         guard case let .stereo(srcL, srcR) = stereoAt44k.channels else {
             throw SeparatorError.resampleFailed("expected stereo after normalize")
@@ -154,61 +185,63 @@ actor DemucsSourceSeparator: SourceSeparator {
             overlap: Self.overlap44k
         )
 
-        // Pre-compute 24 kHz target dimensions. Integer division
-        // matches what AVAudioConverter will produce after a perfect
-        // chunk: the per-chunk resample is pinned to this exact
-        // length so OLA stays aligned across chunks.
-        let chunkSize24k = Self.scale(Self.chunkSize44k)
-        let overlap24k = Self.scale(Self.overlap44k)
-        let hop24k = chunkSize24k - overlap24k
-        let totalSamples24k = offsets.isEmpty
+        // 44.1 stereo masters: vocalsL, vocalsR, musicL, musicR.
+        // Sized to cover every chunk's full 7.8 s window even when
+        // the last chunk's window extends past the input end (we
+        // trim back to the real source length at the bottom).
+        let hop44k = Self.chunkSize44k - Self.overlap44k
+        let totalSamples44k = offsets.isEmpty
             ? 0
-            : (offsets.count - 1) * hop24k + chunkSize24k
+            : (offsets.count - 1) * hop44k + Self.chunkSize44k
+        var vocalsLMaster = [Float](repeating: 0, count: totalSamples44k)
+        var vocalsRMaster = [Float](repeating: 0, count: totalSamples44k)
+        var musicLMaster = [Float](repeating: 0, count: totalSamples44k)
+        var musicRMaster = [Float](repeating: 0, count: totalSamples44k)
 
-        var vocalsMaster = [Float](repeating: 0, count: totalSamples24k)
-        var musicMaster = [Float](repeating: 0, count: totalSamples24k)
-        // Pre-compute the four edge windows so the per-chunk loop
-        // just picks one — avoids reallocating ~187k Floats 4× per
-        // chunk. Master needs full OLA-1.0 weight across its entire
-        // span; only chunks at the master's boundary use the
-        // `.leading` / `.trailing` / `.isolated` variants to avoid
-        // the audible fade-in/out at the start + end.
+        // Pre-compute the four edge windows at 44.1 — same COLA-
+        // friendly triangular shape as the prior 24 kHz path, just
+        // scaled to source rate.
         let windowIsolated = DemucsChunker.triangularWindow(
-            chunkLength: chunkSize24k, overlapSamples: overlap24k, edge: .isolated
+            chunkLength: Self.chunkSize44k, overlapSamples: Self.overlap44k, edge: .isolated
         )
         let windowLeading = DemucsChunker.triangularWindow(
-            chunkLength: chunkSize24k, overlapSamples: overlap24k, edge: .leading
+            chunkLength: Self.chunkSize44k, overlapSamples: Self.overlap44k, edge: .leading
         )
         let windowMiddle = DemucsChunker.triangularWindow(
-            chunkLength: chunkSize24k, overlapSamples: overlap24k, edge: .middle
+            chunkLength: Self.chunkSize44k, overlapSamples: Self.overlap44k, edge: .middle
         )
         let windowTrailing = DemucsChunker.triangularWindow(
-            chunkLength: chunkSize24k, overlapSamples: overlap24k, edge: .trailing
+            chunkLength: Self.chunkSize44k, overlapSamples: Self.overlap44k, edge: .trailing
         )
 
-        // Reusable mono Float buffer pre-allocated outside the loop;
-        // we copy into it each iteration. Saves a `[Float](...)` per
-        // chunk per stem, which on a 30-min clip is ~370 chunks × 4
-        // stems = ~1500 allocations otherwise.
-        var stemMono = [Float](repeating: 0, count: Self.chunkSize44k)
+        let startedAt = Date()
+        let totalChunks = offsets.count
 
         for (i, (start44k, _)) in offsets.enumerated() {
             try Task.checkCancellation()
 
-            // Pick the window for this chunk's position in the
-            // master. Single-chunk inputs use `.isolated` (no
-            // tapering); first/last of multi use `.leading` /
-            // `.trailing` (taper only the interior flank); middle
-            // chunks use the full triangular window.
-            let window24k: [Float]
-            if offsets.count == 1 {
-                window24k = windowIsolated
-            } else if i == 0 {
-                window24k = windowLeading
-            } else if i == offsets.count - 1 {
-                window24k = windowTrailing
+            // Rolling ETA — same logic as the prior code path.
+            let etaSec: Int?
+            if i == 0 {
+                etaSec = nil
             } else {
-                window24k = windowMiddle
+                let elapsed = Date().timeIntervalSince(startedAt)
+                let perChunk = elapsed / Double(i)
+                let remaining = Double(totalChunks - i) * perChunk
+                etaSec = Int(remaining.rounded())
+            }
+            onProgress?(i, totalChunks, etaSec)
+
+            // Pick the OLA window for this chunk's position.
+            let window: [Float]
+            if offsets.count == 1 {
+                window = windowIsolated
+            } else if i == 0 {
+                window = windowLeading
+            } else if i == offsets.count - 1 {
+                window = windowTrailing
+            } else {
+                window = windowMiddle
             }
 
             let (chunkL, chunkR) = Self.sliceChunk(
@@ -230,71 +263,89 @@ actor DemucsSourceSeparator: SourceSeparator {
             }
             try Self.validateOutputShape(output)
 
-            // Per-stem mono downmix:  vocals = (L+R)/2, similarly for
-            // drums, bass, other. Then music = drums + bass + other.
-            // Sum (not average) — see SeparatedStems contract.
-            Self.downmixStem(
-                output, channels: DemucsStemMap.vocalsChannels, into: &stemMono
+            // OLA-add the 6 channels of interest (vocals L+R,
+            // music L = drums.L + bass.L + other.L, music R = same
+            // for right) directly into the 44.1 stereo masters at
+            // source rate. No downmix, no resample, no makeup gain
+            // — the model's native output IS the production stem.
+            let offset44k = i * hop44k
+            Self.olaChannel(
+                output, channelIdx: DemucsStemMap.vocalsChannels.left,
+                into: &vocalsLMaster, offset: offset44k, window: window
             )
-            let vocals24k = try resampleMono(
-                stemMono, from: Self.sourceSampleRate,
-                to: Self.targetSampleRate, targetLength: chunkSize24k
+            Self.olaChannel(
+                output, channelIdx: DemucsStemMap.vocalsChannels.right,
+                into: &vocalsRMaster, offset: offset44k, window: window
             )
-
-            // Build music = drums + bass + other (sum) into stemMono.
-            Self.downmixStem(
-                output, channels: DemucsStemMap.drumsChannels, into: &stemMono
+            Self.olaSumChannels(
+                output,
+                channels: (
+                    DemucsStemMap.drumsChannels.left,
+                    DemucsStemMap.bassChannels.left,
+                    DemucsStemMap.otherChannels.left
+                ),
+                into: &musicLMaster, offset: offset44k, window: window
             )
-            var musicMono = stemMono
-            Self.downmixStem(
-                output, channels: DemucsStemMap.bassChannels, into: &stemMono
-            )
-            for k in 0..<Self.chunkSize44k { musicMono[k] += stemMono[k] }
-            Self.downmixStem(
-                output, channels: DemucsStemMap.otherChannels, into: &stemMono
-            )
-            for k in 0..<Self.chunkSize44k { musicMono[k] += stemMono[k] }
-            let music24k = try resampleMono(
-                musicMono, from: Self.sourceSampleRate,
-                to: Self.targetSampleRate, targetLength: chunkSize24k
-            )
-
-            // Overlap-add at 24 kHz
-            let offset24k = i * hop24k
-            DemucsChunker.overlapAdd(
-                into: &vocalsMaster,
-                chunk: vocals24k, offset: offset24k, window: window24k
-            )
-            DemucsChunker.overlapAdd(
-                into: &musicMaster,
-                chunk: music24k, offset: offset24k, window: window24k
+            Self.olaSumChannels(
+                output,
+                channels: (
+                    DemucsStemMap.drumsChannels.right,
+                    DemucsStemMap.bassChannels.right,
+                    DemucsStemMap.otherChannels.right
+                ),
+                into: &musicRMaster, offset: offset44k, window: window
             )
         }
 
         // Trim trailing zero-padding from masters. The last chunk
-        // padded past the input's real end; the corresponding 24 kHz
-        // tail is silence by construction.
-        let realTotal24k = min(
-            totalSamples24k,
-            Int(Double(srcL.count) * Double(Self.targetSampleRate) / Double(Self.sourceSampleRate))
-        )
-        let vocalsOut = Array(vocalsMaster.prefix(realTotal24k))
-        let musicOut = Array(musicMaster.prefix(realTotal24k))
+        // padded past the input's real end; the corresponding tail
+        // is silence by construction.
+        let realTotal = min(totalSamples44k, srcL.count)
+        let vocalsL = Array(vocalsLMaster.prefix(realTotal))
+        let vocalsR = Array(vocalsRMaster.prefix(realTotal))
+        let musicL = Array(musicLMaster.prefix(realTotal))
+        let musicR = Array(musicRMaster.prefix(realTotal))
+
         return SeparatedStems(
-            vocals: vocalsOut, music: musicOut,
-            sampleRate: Self.targetSampleRate
+            vocals: AudioBuffer.stereo(
+                left: vocalsL, right: vocalsR, sampleRate: Self.sourceSampleRate
+            ),
+            music: AudioBuffer.stereo(
+                left: musicL, right: musicR, sampleRate: Self.sourceSampleRate
+            )
         )
     }
 
     // MARK: - Model loading
 
-    private func loadModelIfNeeded() throws -> MLModel {
+    private func loadModelIfNeeded() async throws -> MLModel {
         if let existing = loadedModel { return existing }
         let config = MLModelConfiguration()
         // CPU-ONLY is mandatory — see file header.
         config.computeUnits = .cpuOnly
+
+        // Core ML's `MLModel(contentsOf:)` requires a COMPILED
+        // `.mlmodelc` directory, not a raw `.mlpackage`. Xcode
+        // compiles bundled models at build time, but mlpackages
+        // downloaded at runtime have to be compiled by us via
+        // `MLModel.compileModel(at:)`. Without this step Core ML
+        // throws "Unable to load model: ... Compile the model with
+        // Xcode or `MLModel.compileModel(at:)`" — exactly the
+        // crash the Manage Models flow shipped without before
+        // manual QA caught it.
+        //
+        // The compiled `.mlmodelc` lands in `NSTemporaryDirectory`
+        // and is cleaned up by macOS at some point — the cost
+        // (~3-10 s for HTDemucs's graph on M1) is paid ONCE per
+        // actor lifetime because the loaded model is cached in
+        // `loadedModel` below. A future optimization could copy
+        // the compiled artifact alongside the .mlpackage at
+        // install time so the compile cost is amortized across
+        // app launches; for v1 the per-session cost is hidden in
+        // the "Loading audio…" status.
         do {
-            let model = try MLModel(contentsOf: modelFolderURL, configuration: config)
+            let compiledURL = try await MLModel.compileModel(at: modelFolderURL)
+            let model = try MLModel(contentsOf: compiledURL, configuration: config)
             loadedModel = model
             return model
         } catch {
@@ -315,35 +366,7 @@ actor DemucsSourceSeparator: SourceSeparator {
         }
     }
 
-    // MARK: - Audio resampling (per-chunk)
-
-    /// Thin wrapper over `DemucsResampler.resampleMono` that maps
-    /// the resampler's error type into the separator's.
-    private func resampleMono(
-        _ samples: [Float],
-        from sourceRate: Int,
-        to targetRate: Int,
-        targetLength: Int
-    ) throws -> [Float] {
-        do {
-            return try DemucsResampler.resampleMono(
-                samples,
-                from: sourceRate, to: targetRate,
-                targetLength: targetLength
-            )
-        } catch {
-            throw SeparatorError.resampleFailed(error.localizedDescription)
-        }
-    }
-
     // MARK: - Static helpers
-
-    /// Scale a source-rate sample count to target rate using
-    /// integer arithmetic. Floor-truncates — paired with the per-
-    /// chunk padding above to keep OLA aligned.
-    private nonisolated static func scale(_ srcSamples: Int) -> Int {
-        Int(Double(srcSamples) * Double(targetSampleRate) / Double(sourceSampleRate))
-    }
 
     /// Slice `[start, start+length)` from `left`/`right`, zero-
     /// padding when the range extends past the input end. Returns
@@ -426,22 +449,57 @@ actor DemucsSourceSeparator: SourceSeparator {
         }
     }
 
-    /// Average L and R channels of `stem` (per DemucsStemMap pair)
-    /// into the pre-allocated `mono`. Writes exactly `chunkSize44k`
-    /// samples; caller's `mono` MUST be sized for that.
-    private nonisolated static func downmixStem(
+    /// Window-multiply one channel of the model output and OLA-add
+    /// into a 44.1 kHz master. Reads samples direct from the
+    /// `MLMultiArray.dataPointer` so the per-chunk loop doesn't
+    /// allocate a 343980-element intermediate `[Float]`.
+    private nonisolated static func olaChannel(
         _ output: MLMultiArray,
-        channels: (left: Int, right: Int),
-        into mono: inout [Float]
+        channelIdx: Int,
+        into master: inout [Float],
+        offset: Int,
+        window: [Float]
     ) {
+        precondition(window.count == chunkSize44k,
+                     "olaChannel: window must match chunkSize44k")
+        precondition(offset + chunkSize44k <= master.count,
+                     "olaChannel: offset + chunkSize44k exceeds master")
         let basePtr = output.dataPointer.bindMemory(
             to: Float.self,
             capacity: DemucsStemMap.totalChannels * chunkSize44k
         )
-        let leftPtr = basePtr + channels.left * chunkSize44k
-        let rightPtr = basePtr + channels.right * chunkSize44k
+        let chPtr = basePtr + channelIdx * chunkSize44k
         for k in 0..<chunkSize44k {
-            mono[k] = (leftPtr[k] + rightPtr[k]) * 0.5
+            master[offset + k] += chPtr[k] * window[k]
+        }
+    }
+
+    /// Sum three channels of the model output sample-by-sample, then
+    /// window-multiply and OLA-add into a 44.1 kHz master. Used for
+    /// the music stem's per-channel sum (drums + bass + other);
+    /// bundling the three-channel sum + the window multiply into one
+    /// pass halves the per-sample work versus three `olaChannel`
+    /// calls.
+    private nonisolated static func olaSumChannels(
+        _ output: MLMultiArray,
+        channels: (Int, Int, Int),
+        into master: inout [Float],
+        offset: Int,
+        window: [Float]
+    ) {
+        precondition(window.count == chunkSize44k,
+                     "olaSumChannels: window must match chunkSize44k")
+        precondition(offset + chunkSize44k <= master.count,
+                     "olaSumChannels: offset + chunkSize44k exceeds master")
+        let basePtr = output.dataPointer.bindMemory(
+            to: Float.self,
+            capacity: DemucsStemMap.totalChannels * chunkSize44k
+        )
+        let p0 = basePtr + channels.0 * chunkSize44k
+        let p1 = basePtr + channels.1 * chunkSize44k
+        let p2 = basePtr + channels.2 * chunkSize44k
+        for k in 0..<chunkSize44k {
+            master[offset + k] += (p0[k] + p1[k] + p2[k]) * window[k]
         }
     }
 }

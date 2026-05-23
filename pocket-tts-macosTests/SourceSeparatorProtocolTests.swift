@@ -37,8 +37,14 @@ final class SourceSeparatorProtocolTests: XCTestCase {
         let cannedSampleRate: Int
         let modelDownloaded: Bool
 
-        func separate(_ input: AudioBuffer) async throws -> SeparatedStems {
-            SeparatedStems(
+        func separate(
+            _ input: AudioBuffer,
+            onProgress: (@Sendable (_ chunk: Int, _ total: Int, _ etaSec: Int?) -> Void)?
+        ) async throws -> SeparatedStems {
+            // Drive the callback once so a non-nil consumer sees
+            // at least one tick. Real separators fire per chunk.
+            onProgress?(0, 1, nil)
+            return SeparatedStems(
                 vocals: cannedVocals,
                 music: cannedMusic,
                 sampleRate: cannedSampleRate

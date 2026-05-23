@@ -446,7 +446,25 @@ struct ContentView: View {
     private var speakerIsolatorSheetBody: some View {
         if appState.engine != nil {
             let vm = speakerIsolatorVM ?? {
-                let new = SpeakerIsolatorViewModel(engine: appState.activeEngine)
+                // Phase 7: wire up the HTDemucs source separator at
+                // the EXPECTED install path (not the existence-
+                // checked `modelFolderURL`) so the VM always has
+                // `hasSourceSeparator == true` and the toggle is
+                // visible. The separator's own `isModelDownloaded()`
+                // probes the path at gate time, so an un-installed
+                // model still soft-falls back to v1 with the
+                // banner — no need to delay separator construction
+                // until after a download.
+                let demucsPath = DemucsModelManager.shared
+                    .expectedModelFolderURL(for: .htdemucs)
+                let separator = DemucsSourceSeparator(
+                    variant: .htdemucs,
+                    modelFolderURL: demucsPath
+                )
+                let new = SpeakerIsolatorViewModel(
+                    engine: appState.activeEngine,
+                    sourceSeparator: separator
+                )
                 speakerIsolatorVM = new
                 return new
             }()
@@ -455,6 +473,7 @@ struct ContentView: View {
                 viewModel: vm,
                 voices: voices,
                 modelManager: WhisperModelManager.shared,
+                demucsModelManager: DemucsModelManager.shared,
                 chatSettings: $appState.chatSettings
             )
             .onDisappear { speakerIsolatorVM = nil }

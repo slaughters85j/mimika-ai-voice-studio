@@ -62,10 +62,25 @@ extension SpeakerIsolatorViewModel {
             }
             return MultiSpeakerRevoicer.SpeakerAssignment(
                 speakerID: track.id,
-                isolatedSamples: track.isolatedSamples,
-                disposition: disposition
+                disposition: disposition,
+                segmentRanges: track.segmentRanges,
+                // `isolatedSamples` on SpeakerTrack is already mono 24
+                // kHz (preview format) — exactly what the bed-based
+                // revoicer needs for the `.revoice` path's STT input
+                // + RMS normalization. For `.useOriginal` and
+                // `.discard` the field is unread.
+                isolatedMono24k: track.isolatedSamples
             )
         }
+        // Bed handoff: convertAndIsolate populated vocalsBed +
+        // musicBed before status went to .done; if both are nil here
+        // something is seriously off (button shouldn't be enabled).
+        // Guard but treat as a programmer error.
+        guard let vocalsBed = self.vocalsBed else {
+            setStatus(.error("Internal: no vocalsBed set before revoice"))
+            return
+        }
+        let musicBedSnapshot = self.musicBed
         let engine = self.engine
         let pipeline = self.pipeline
         let videoAssetSnapshot = self.videoAsset
@@ -73,8 +88,9 @@ extension SpeakerIsolatorViewModel {
         inflightTask = Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                let combined: [Float] = try await pipeline.runRevoicePhase(
-                    sampleRate: 24_000,
+                let combined: AudioBuffer = try await pipeline.runRevoicePhase(
+                    vocalsBed: vocalsBed,
+                    musicBed: musicBedSnapshot,
                     totalDurationSec: totalDuration,
                     assignments: assignments,
                     engine: engine,
@@ -117,7 +133,7 @@ extension SpeakerIsolatorViewModel {
     /// would have already returned, leaving the mux orphaned in
     /// an untracked child Task).
     private func handleVideoSaveFlow(
-        combined: [Float],
+        combined: AudioBuffer,
         videoAsset: AVURLAsset,
         pipeline: SpeakerIsolatorPipeline
     ) async throws {
@@ -144,7 +160,7 @@ extension SpeakerIsolatorViewModel {
     /// (no inner Task wrapper) so Stop during mux propagates
     /// correctly via `Task.cancel()`.
     private func runVideoMux(
-        combined: [Float],
+        combined: AudioBuffer,
         videoAsset: AVURLAsset,
         pipeline: SpeakerIsolatorPipeline
     ) async throws {
@@ -169,8 +185,7 @@ extension SpeakerIsolatorViewModel {
 
         setStatus(.muxingVideo)
         try await pipeline.runVideoMuxPhase(
-            audioSamples: combined,
-            sampleRate: 24_000,
+            audio: combined,
             videoAsset: videoAsset,
             outputURL: outURL
         )

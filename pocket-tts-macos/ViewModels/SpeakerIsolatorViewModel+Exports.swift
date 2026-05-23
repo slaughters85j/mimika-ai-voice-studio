@@ -103,7 +103,13 @@ extension SpeakerIsolatorViewModel {
     /// Save panel with `configureExportPanel`, refuses to overwrite
     /// the input file, and either advances state to `.done` or
     /// `.error` based on the write result.
-    func saveCombinedAudio(_ samples: [Float]) {
+    ///
+    /// Format follows the bed-based mix: AP-on path yields a stereo
+    /// 44.1 kHz AudioBuffer; AP-off path yields mono 24 kHz. The
+    /// AudioBuffer-aware `WAVEncoder.write` dispatcher picks the
+    /// right encoder shape so the WAV's channel + rate fields match
+    /// the perceived output.
+    func saveCombinedAudio(_ combined: AudioBuffer) {
         let panel = NSSavePanel()
         panel.title = "Export re-voiced audio"
         panel.allowedContentTypes = [.wav]
@@ -123,7 +129,7 @@ extension SpeakerIsolatorViewModel {
             return
         }
         do {
-            try WAVEncoder.write(samples: samples, to: outURL, sampleRate: 24_000)
+            try WAVEncoder.write(audioBuffer: combined, to: outURL)
             statusDoneIfActive()
         } catch {
             statusError("Failed to write \(outURL.lastPathComponent): \(error.localizedDescription)")

@@ -92,6 +92,9 @@ Both Single Voice and Multi-Talk views have an "AI Write" button that opens an L
 - **Single Voice** — text editor, voice picker, synthesize, inline audio player
 - **Multi-Talk** — multi-speaker scripts with `{Speaker}` tags and `[Xs]` pause markers
 - **Chat** — LM Studio integration with streaming TTS, dictation, transcript export, orb visualizer
+- **Voice Changer** — drop an audio/video file, transcribe via WhisperKit or Apple Speech, re-voice with any installed voice while preserving the original timeline (silence + pause structure)
+- **Speaker Isolation** — drop a multi-speaker audio/video file, diarize via SpeakerKit (Argmax's on-device pyannote), get per-speaker isolated tracks + a Background pseudo-row. Per-speaker actions: Use Original / Discard / Re-voice. Closed-loop video output via AVFoundation re-mux.
+  - **Audio Preservation** (optional, opt-in) — when enabled, an on-device HTDemucs Core ML model separates the input into vocals + drums + bass + other stems. Re-voiced speakers ride on top of the preserved music stem, so background audio survives the re-voice. Model is a 287 MB user-downloaded `.mlpackage`; soft-falls back to v1 (music goes silent under revoiced speech) when not installed, with a banner pointing at the Manage Separation Models sheet.
 - **History** — SwiftData-backed log with "Reuse Setup"
 - **Text Normalizer** — numbers, currency, units, abbreviations, domain terms, acronyms (~1000 lines)
 - **Metal Orb** — raymarched volumetric plasma driven by real-time audio amplitude
@@ -149,7 +152,8 @@ No pre-archive strip step. Verify by listing `.app/Contents/Resources/*.safetens
 | Project | Role |
 |---------|------|
 | [pocket-tts](https://github.com/slaughters85j/pocket-tts) | Original Python/Electron app — reference implementation |
-| [pocket-tts-core-ml-conversion](https://github.com/slaughters85j/pocket-tts-core-ml-conversion) | Core ML conversion scripts, validators, Swift CLI harness |
+| [pocket-tts-core-ml-conversion](https://github.com/slaughters85j/pocket-tts-core-ml-conversion) | Core ML conversion scripts, validators, Swift CLI harness for the Pocket-TTS models |
+| [pocket-tts-demucs-coreml-conversion](https://github.com/slaughters85j/pocket-tts-demucs-coreml-conversion) | PyTorch → Core ML conversion + numerical-parity validators for the Phase 7 HTDemucs source-separation model. Published artifact lives at [`slaughters85j/htdemucs-coreml`](https://huggingface.co/slaughters85j/htdemucs-coreml) on Hugging Face (MIT, FP32, 287 MB zipped). |
 | [mlx-audio-swift (fork)](https://github.com/slaughters85j/mlx-audio-swift) | Forked to expose Fish S2 Pro codec + refCodes API |
 
 ## Authors

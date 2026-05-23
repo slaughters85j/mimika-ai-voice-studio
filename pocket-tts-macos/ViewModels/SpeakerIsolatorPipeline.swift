@@ -138,7 +138,10 @@ actor SpeakerIsolatorPipeline {
         progress: (@Sendable (Progress) -> Void)?
     ) async throws {
         guard let separator else { return }
-        if await separator.isModelDownloaded() { return }
+        // `isModelDownloaded()` is nonisolated on the protocol — no
+        // `await` needed; the previous suspension was a no-op that
+        // emitted a "no async operations" diagnostic.
+        if separator.isModelDownloaded() { return }
         try await separator.ensureModelsReady(progress: progress)
     }
 
@@ -186,21 +189,24 @@ actor SpeakerIsolatorPipeline {
 
     // MARK: - Phase: isolation
 
-    /// Split `samples` into per-speaker isolated buffers using the
+    /// Split `input` into per-speaker isolated buffers using the
     /// timing in `segments`. Pure stateless math — wraps
     /// `SpeakerIsolator.isolate` so callers go through one phase
     /// method per logical step. NOT actor-hop dependent
     /// (SpeakerIsolator is a static enum). Returns the array
     /// sorted by first-utterance time, same as upstream.
+    ///
+    /// Channel layout matches the input: mono in → mono per-speaker
+    /// out (v1 / AP-off path); stereo in → stereo per-speaker out
+    /// (Phase 7 AP-on path, where vocals stem stays at 44.1 stereo
+    /// through isolation).
     nonisolated func runIsolationPhase(
-        samples: [Float],
-        sampleRate: Int,
+        input: AudioBuffer,
         segments: [DiarizedSegment],
         preserveSilence: Bool = true
-    ) -> [(speakerID: String, samples: [Float])] {
+    ) -> [(speakerID: String, samples: AudioBuffer)] {
         SpeakerIsolator.isolate(
-            inputSamples: samples,
-            sampleRate: sampleRate,
+            input: input,
             segments: segments,
             preserveSilence: preserveSilence
         )
@@ -213,14 +219,12 @@ actor SpeakerIsolatorPipeline {
     /// extract). Wrapper over `SpeakerIsolator.extractBackground`
     /// — same reasoning as the isolation wrapper.
     nonisolated func extractBackgroundFromMix(
-        samples: [Float],
-        sampleRate: Int,
+        input: AudioBuffer,
         speakerSegments: [DiarizedSegment],
         totalDurationSec: Double
-    ) -> (samples: [Float], ranges: [ClosedRange<Double>])? {
+    ) -> (samples: AudioBuffer, ranges: [ClosedRange<Double>])? {
         SpeakerIsolator.extractBackground(
-            inputSamples: samples,
-            sampleRate: sampleRate,
+            input: input,
             speakerSegments: speakerSegments,
             totalDurationSec: totalDurationSec
         )
@@ -233,34 +237,47 @@ actor SpeakerIsolatorPipeline {
     /// separator was injected — the VM guards against this by
     /// checking `hasSourceSeparator` before calling.
     ///
-    /// The separator's chunk-by-chunk inference checks
+    /// `onProgress` forwards through to the separator's per-
+    /// chunk callback so the VM can light up
+    /// `.separatingSources(chunk:total:etaSec:)` with real
+    /// numbers. The separator's chunk-by-chunk inference checks
     /// `Task.checkCancellation()` between chunks, so a VM-level
-    /// cancel propagates here within ~5-8 s of the user clicking
-    /// Stop (one chunk's wall time).
+    /// cancel propagates here within ~5-8 s (one chunk's wall
+    /// time).
     func runSourceSeparationPhase(
-        input: AudioBuffer
+        input: AudioBuffer,
+        onProgress: (@Sendable (_ chunk: Int, _ total: Int, _ etaSec: Int?) -> Void)?
     ) async throws -> SeparatedStems {
         guard let separator else {
             throw PipelineError.sourceSeparationDisabled
         }
-        return try await separator.separate(input)
+        return try await separator.separate(input, onProgress: onProgress)
     }
 
     // MARK: - Phase: revoice
 
-    /// Run the multi-speaker revoice + combine pipeline. Wraps
-    /// the injected `MultiSpeakerRevoicing` so the VM doesn't
-    /// have to thread the revoicer through itself.
+    /// Run the bed-based multi-speaker revoice + combine. Wraps the
+    /// injected `MultiSpeakerRevoicing`. Output format follows the
+    /// bed's format:
+    ///   * AP-on (HTDemucs ran): `vocalsBed` is stereo 44.1 kHz, so
+    ///     output is stereo 44.1.
+    ///   * AP-off (legacy path): `vocalsBed` is mono 24 kHz + musicBed
+    ///     is nil, so output is mono 24 kHz — identical to v1.
+    /// See `MultiSpeakerRevoicer` for the per-speaker
+    /// modification semantics (`.useOriginal` no-op, `.discard`
+    /// zero-out, `.revoice` zero-out + TTS overlay).
     func runRevoicePhase(
-        sampleRate: Int,
+        vocalsBed: AudioBuffer,
+        musicBed: AudioBuffer?,
         totalDurationSec: Double,
         assignments: [MultiSpeakerRevoicer.SpeakerAssignment],
         engine: any TTSEngineProtocol,
         stt: STTProvider,
         onProgress: (@Sendable (String, Int, Int) -> Void)?
-    ) async throws -> [Float] {
+    ) async throws -> AudioBuffer {
         try await revoicer.revoice(
-            sampleRate: sampleRate,
+            vocalsBed: vocalsBed,
+            musicBed: musicBed,
             totalDurationSec: totalDurationSec,
             assignments: assignments,
             engine: engine,
@@ -275,14 +292,12 @@ actor SpeakerIsolatorPipeline {
     /// `videoAsset`'s video track, writing the resulting `.mp4`
     /// to `outputURL`. Forwards to the injected `VideoMuxing`.
     func runVideoMuxPhase(
-        audioSamples: [Float],
-        sampleRate: Int,
+        audio: AudioBuffer,
         videoAsset: AVURLAsset,
         outputURL: URL
     ) async throws {
         try await muxer.mux(
-            audioSamples: audioSamples,
-            sampleRate: sampleRate,
+            audio: audio,
             videoAsset: videoAsset,
             outputURL: outputURL
         )

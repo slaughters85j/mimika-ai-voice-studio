@@ -217,7 +217,16 @@ nonisolated enum TextNormalizer {
         // Whisper sometimes emits: `blank_audio`, `blank audio`,
         // `blank _audio` (space then underscore), `BLANK__AUDIO`
         // (double underscore), etc.
-        pattern: #"[\[\(]\s*(silence|blank[ _]*audio|no[ _]*audio|music|laughter|laughs|applause|clapping|noise|background[ _]*noise|inaudible|unintelligible|crosstalk|cough|coughs|sigh|sighs|breathing)\s*[\]\)]"#,
+        //
+        // Compound forms: each keyword optionally followed by a
+        // single descriptive word (`music playing`, `music stops`,
+        // `audience laughs`, etc.). Whisper hallucinates these on
+        // content it can't transcribe — common on hip-hop rap over
+        // music where the ASR falls back to descriptors instead of
+        // lyrics. The `(?:\s+(?:playing|...))?` non-capture group
+        // matches the compound suffix when present without requiring
+        // it.
+        pattern: #"[\[\(]\s*(silence|blank[ _]*audio|no[ _]*audio|music(?:\s+(?:playing|plays|stops?|starts?|stopping|starting|fading|fades?|over|begins?|ends?|continues?))?|laughter|laughs|laugh|applause|claps|clapping|noise|background[ _]*noise|inaudible|unintelligible|crosstalk|cough|coughs|sigh|sighs|breathing|chuckles?|murmurs?|typing|clicking|static|hissing|footsteps?)\s*[\]\)]"#,
         options: .caseInsensitive
     )
 

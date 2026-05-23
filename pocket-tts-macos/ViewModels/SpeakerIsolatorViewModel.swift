@@ -141,14 +141,34 @@ final class SpeakerIsolatorViewModel {
         var isBackground: Bool { id == backgroundSpeakerID }
 
         static func == (lhs: SpeakerTrack, rhs: SpeakerTrack) -> Bool {
-            // Compare identity + UI-mutable fields. Skip
-            // isolatedSamples + segmentRanges (large + immutable;
-            // identity is sufficient).
+            // Compare identity + UI-mutable fields PLUS an O(1)
+            // content fingerprint on `isolatedSamples`. The
+            // fingerprint catches the `convertAndIsolate` step 6 →
+            // step 10 swap: the same `id`/`displayName`/etc. but
+            // freshly-rebuilt isolatedSamples (mix-derived rows
+            // replaced by vocals-stem-derived rows). Without the
+            // fingerprint here, SwiftUI's diff returns "equal" and
+            // skips SpeakerRow re-render — which means
+            // MiniAudioPlayer's `.id(...)` modifier never re-evaluates
+            // and its temp-WAV-cached AVAudioPlayer keeps playing the
+            // stale step-6 (mix-contaminated) audio. The bug
+            // manifested as: per-row preview sounds contaminated
+            // until the user changes any UI field (which DID change
+            // Equatable's result) at which point the player rebuilds
+            // with the clean post-step-10 samples.
+            //
+            // Fingerprint is `count ^ last-sample-bit-pattern` —
+            // matches the SpeakerRow's `.id(...)` modifier so the
+            // two stay in sync. Statistical collision requires
+            // matching length AND identical last sample, vanishingly
+            // unlikely for real speech content.
             lhs.id == rhs.id
                 && lhs.displayName == rhs.displayName
                 && lhs.segments == rhs.segments
                 && lhs.durationSec == rhs.durationSec
                 && lhs.action == rhs.action
+                && lhs.isolatedSamples.count == rhs.isolatedSamples.count
+                && lhs.isolatedSamples.last == rhs.isolatedSamples.last
         }
     }
 
@@ -184,6 +204,23 @@ final class SpeakerIsolatorViewModel {
     /// vocals stem, appending a Background SpeakerTrack with the
     /// music stem.
     var audioPreservationEnabled: Bool = true
+
+    /// Phase 7 stereo bed: the vocals bed for the final mix. Set by
+    /// `convertAndIsolate()` after isolation completes. AP-on:
+    /// stereo 44.1 kHz HTDemucs vocals stem (model native, no
+    /// downmix). AP-off: the original 24 kHz mono mix (legacy v1
+    /// behavior — final mix collapses to mono with no music bed).
+    /// Consumed by `runChangeVoicesPipeline` as the substrate that
+    /// per-speaker actions modify (`.useOriginal` no-op, `.discard`
+    /// zero-out, `.revoice` zero-out + TTS overlay).
+    var vocalsBed: AudioBuffer?
+
+    /// Phase 7 stereo bed: the music bed (HTDemucs's drums + bass +
+    /// other summed per channel). Set only when AP-on; nil for
+    /// AP-off so the final mix has no separate music contribution.
+    /// User can opt this out via the Background row's `.discard`
+    /// action.
+    var musicBed: AudioBuffer?
 
     /// Set to `true` by `convertAndIsolate()` when audio preservation
     /// was REQUESTED (toggle on + separator wired up) but couldn't
@@ -293,6 +330,8 @@ final class SpeakerIsolatorViewModel {
         inputAudioURL = nil
         inputDurationSec = nil
         speakers = []
+        vocalsBed = nil
+        musicBed = nil
         videoAsset = nil
         expandedSpeakerID = nil
         playingSpeakerID = nil
@@ -306,6 +345,8 @@ final class SpeakerIsolatorViewModel {
     func clearResults() {
         cancel()
         speakers = []
+        vocalsBed = nil
+        musicBed = nil
         videoAsset = nil
         expandedSpeakerID = nil
         playingSpeakerID = nil

@@ -52,13 +52,19 @@ protocol SourceSeparator: Sendable {
     /// Run the model on `input` and return the post-downsample,
     /// post-mono-downmix vocals + music stems at 24 kHz.
     ///
-    /// Implementations MAY chunk the input internally (HTDemucs has
-    /// a fixed 7.8 s window, so a 5-minute clip needs ~38 forward
-    /// passes); progress reporting for the chunk loop is the
-    /// implementation's concern. The VM-level
-    /// `Status.separatingSources(chunk:total:etaSec:)` is updated by
-    /// the caller, not by this method.
-    func separate(_ input: AudioBuffer) async throws -> SeparatedStems
+    /// Implementations MAY chunk the input internally (HTDemucs
+    /// has a fixed 7.8 s window, so a 5-minute clip needs ~38
+    /// forward passes). The `onProgress` callback — when
+    /// non-nil — fires BEFORE each chunk is processed with the
+    /// current chunk index, the total chunk count, and a rolling
+    /// ETA estimate based on observed chunk timing (nil during
+    /// the first chunk, when no timing sample yet exists). The
+    /// callback is `@Sendable` so a `@MainActor` caller can
+    /// dispatch UI updates from it safely.
+    func separate(
+        _ input: AudioBuffer,
+        onProgress: (@Sendable (_ chunk: Int, _ total: Int, _ etaSec: Int?) -> Void)?
+    ) async throws -> SeparatedStems
 
     // MARK: - Model lifecycle
 
@@ -90,4 +96,14 @@ protocol SourceSeparator: Sendable {
     func ensureModelsReady(
         progress: (@Sendable (Progress) -> Void)?
     ) async throws
+}
+
+extension SourceSeparator {
+    /// Convenience for callers that don't need per-chunk progress.
+    /// Forwards to the progress-aware variant with `nil`. Lets
+    /// tests + the `SourceSeparatorProtocolTests` stub keep their
+    /// existing `separator.separate(input)` call shape.
+    func separate(_ input: AudioBuffer) async throws -> SeparatedStems {
+        try await separate(input, onProgress: nil)
+    }
 }

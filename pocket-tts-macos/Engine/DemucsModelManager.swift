@@ -143,14 +143,35 @@ final class DemucsModelManager {
 
     /// Where a downloaded variant's mlpackage folder lives.
     /// `installed/<rawValue>-<version>/<rawValue>.mlpackage`.
-    /// Returns nil if the variant isn't downloaded — call
-    /// `isDownloaded` first if a non-nil path matters.
+    /// Returns nil if the variant isn't downloaded yet OR if the
+    /// folder exists but is empty (a stale / partial install left
+    /// over from a previous failed run, or a user who created the
+    /// dir then aborted before placing files). The non-empty
+    /// check MUST mirror `isDownloaded(_:)`: otherwise `download
+    /// (_:)`'s short-circuit could return an empty-folder URL and
+    /// silently skip the actual fetch.
     func modelFolderURL(for variant: DemucsModelVariant) -> URL? {
-        let folder = installedDir
+        let folder = expectedModelFolderURL(for: variant)
+        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: folder.path),
+              !entries.isEmpty else {
+            return nil
+        }
+        return folder
+    }
+
+    /// The path the mlpackage WOULD live at if downloaded. Returned
+    /// unconditionally (no existence check) so the
+    /// `DemucsSourceSeparator` can be constructed at app launch
+    /// with the future install location — its own
+    /// `isModelDownloaded()` then probes the path each time the VM
+    /// gates separation. Without this, ContentView would have to
+    /// hold off constructing the separator until after a download
+    /// completes, and the VM's `hasSourceSeparator` flag would
+    /// flip mid-session.
+    func expectedModelFolderURL(for variant: DemucsModelVariant) -> URL {
+        installedDir
             .appendingPathComponent(variant.installedFolderName, isDirectory: true)
             .appendingPathComponent("\(variant.rawValue).mlpackage", isDirectory: true)
-        guard FileManager.default.fileExists(atPath: folder.path) else { return nil }
-        return folder
     }
 
     /// "Folder exists + contains a non-empty mlpackage." A partial
@@ -222,8 +243,18 @@ final class DemucsModelManager {
     /// two parallel downloads.
     @discardableResult
     func download(_ variant: DemucsModelVariant) async throws -> URL {
-        // Short-circuit if it's already on disk + valid.
+        // Short-circuit if it's already on disk + valid. The
+        // `modelFolderURL` accessor mirrors `isDownloaded`'s
+        // non-empty check, so an empty-folder placeholder won't
+        // sneak past this gate. We ALSO defensively rescan +
+        // register the variant in `downloaded` before returning,
+        // so a manually-placed mlpackage that arrived between app
+        // launch and the first download-button click flips the
+        // UI state without requiring a separate rescan call.
         if let existing = modelFolderURL(for: variant) {
+            if !downloaded.contains(variant) {
+                downloaded.insert(variant)
+            }
             return existing
         }
 

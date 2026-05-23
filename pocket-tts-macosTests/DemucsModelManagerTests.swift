@@ -199,6 +199,61 @@ final class DemucsModelManagerTests: XCTestCase {
                        "modelFolderURL should point at the manually-placed mlpackage root")
     }
 
+    // MARK: - Empty-folder regression (was: download() no-op bug)
+
+    /// If a previous run left a stale-empty `htdemucs.mlpackage/`
+    /// dir (or a user created the dir then aborted), the manager
+    /// MUST still drive a fresh download — not short-circuit on
+    /// the empty folder's mere existence. `modelFolderURL(for:)`'s
+    /// non-empty check is what gates this; if anyone reverts to
+    /// a bare `fileExists`, the download button silently no-ops
+    /// and the user has no way to recover except deleting the
+    /// folder by hand.
+    func test_downloadDoesNotShortCircuitOnEmptyFolder() async throws {
+        // Hand-create an empty mlpackage dir.
+        let mlpkgRoot = tempBase
+            .appendingPathComponent("installed", isDirectory: true)
+            .appendingPathComponent("htdemucs-v1", isDirectory: true)
+            .appendingPathComponent("htdemucs.mlpackage", isDirectory: true)
+        try FileManager.default.createDirectory(at: mlpkgRoot, withIntermediateDirectories: true)
+        // Note: NOT writing any files inside; folder stays empty.
+
+        // Mock returns 500 once so we can confirm the network was
+        // hit instead of the bad short-circuit.
+        MockHTTPResponder.enqueueSuccess(bytes: Data(), statusCode: 500)
+
+        let manager = DemucsModelManager(
+            urlSession: session,
+            backoffPolicy: .none,   // single attempt, no retries
+            baseDir: tempBase
+        )
+
+        // isDownloaded reports false (empty dir).
+        XCTAssertFalse(manager.downloaded.contains(.htdemucs),
+                       "rescan() at init must not have registered the empty dir")
+        XCTAssertFalse(manager.isDownloaded(.htdemucs),
+                       "isDownloaded must report false on an empty mlpackage dir")
+        XCTAssertNil(manager.modelFolderURL(for: .htdemucs),
+                     "modelFolderURL must return nil on an empty dir " +
+                     "(non-empty check mirrors isDownloaded)")
+
+        // download() should NOT short-circuit on the empty folder —
+        // it should hit the network + fail (our 500 mock).
+        do {
+            _ = try await manager.download(.htdemucs)
+            XCTFail("expected .downloadFailed (500 mock + empty folder)")
+        } catch DemucsModelManager.ManagerError.downloadFailed {
+            // Pass.
+        } catch {
+            XCTFail("expected .downloadFailed, got \(error)")
+        }
+
+        // The mock got hit exactly once — proves the short-circuit
+        // didn't fire. If the bug regresses, requestCount == 0.
+        XCTAssertEqual(MockHTTPResponder.requestCount, 1,
+                       "empty-folder short-circuit must not skip the network")
+    }
+
     // MARK: - Idempotent already-downloaded path
 
     func test_downloadShortCircuitsWhenAlreadyInstalled() async throws {
