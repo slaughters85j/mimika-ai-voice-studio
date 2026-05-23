@@ -186,6 +186,121 @@ nonisolated enum TextNormalizer {
         return lines.joined(separator: "\n")
     }
 
+    // MARK: - STT artifact stripping
+    //
+    // ASR backends can emit non-speech markers as bracketed text like
+    // `[music]`, `[silence]`, `[BLANK_AUDIO]`, `[laughter]`,
+    // `[applause]`. These flow downstream into the TTS pipeline and get
+    // spoken literally ("bracket music bracket") unless we strip them
+    // upstream of synthesis.
+    //
+    // Distinct from `stripStageDirections` because the strip set is
+    // a FIXED whitelist of known ASR artifacts — we don't want to
+    // strip every bracketed token (Pause markers `[1.5s]` and any
+    // legitimate user-intent bracketed content stay). The whitelist
+    // is case-insensitive and tolerates spaces / underscores
+    // (`[no audio]`, `[BLANK_AUDIO]`, etc.).
+    //
+    // Add new artifacts here as we see them in console logs — the
+    // MultiSpeakerRevoicer logs every transcribed segment so the
+    // common ones are easy to spot.
+
+    private static let whisperArtifactRegex = try! NSRegularExpression(
+        // Brackets or parens wrapping a known artifact keyword.
+        // Asterisk-wrapped variants (`*music*`) are already covered
+        // by `stripStageDirections.asteriskAction` when that runs;
+        // here we focus on the bracket/paren forms that survive
+        // stripStageDirections's default (brackets-preserved) mode.
+        //
+        // The space/underscore class uses `[ _]*` (zero-or-more) so
+        // multi-word artifacts tolerate any combination of separators
+        // ASR output sometimes varies separators: `blank_audio`,
+        // `blank audio`, `blank _audio` (space then underscore),
+        // `BLANK__AUDIO` (double underscore), etc.
+        //
+        // Compound forms: each keyword optionally followed by a
+        // single descriptive word (`music playing`, `music stops`,
+        // `audience laughs`, etc.). ASR systems can hallucinate these
+        // on content they can't transcribe — historically common on
+        // hip-hop rap over music where the backend fell back to
+        // descriptors instead of lyrics. The
+        // `(?:\s+(?:playing|...))?` non-capture group matches the
+        // compound suffix when present without requiring it.
+        pattern: #"[\[\(]\s*(silence|blank[ _]*audio|no[ _]*audio|music(?:\s+(?:playing|plays|stops?|starts?|stopping|starting|fading|fades?|over|begins?|ends?|continues?))?|laughter|laughs|laugh|applause|claps|clapping|noise|background[ _]*noise|inaudible|unintelligible|crosstalk|cough|coughs|sigh|sighs|breathing|chuckles?|murmurs?|typing|clicking|static|hissing|footsteps?)\s*[\]\)]"#,
+        options: .caseInsensitive
+    )
+
+    /// Dialogue-turn arrow emitted by some ASR outputs. Appears both at segment start
+    /// (`">> Hello"`) and mid-segment (`"What we do. >> There's
+    /// more"`). Strip with no whitespace consumption so the
+    /// surrounding text doesn't run together; the subsequent
+    /// space-collapse pass tidies up.
+    private static let whisperDialogueArrowRegex = try! NSRegularExpression(
+        pattern: #">>"#,
+        options: []
+    )
+
+    /// Leading dialogue dash at segment start (`"- That's Hawkins"`).
+    /// Anchored to the start of the string so internal hyphens in
+    /// words like `self-help` or `co-worker` survive. Tolerates
+    /// hyphen-minus, em dash, and en dash. Trailing space requirement
+    /// keeps it from matching legitimate negative numbers like `-5`.
+    private static let whisperLeadingDashRegex = try! NSRegularExpression(
+        pattern: #"^\s*[-—–]+\s+"#,
+        options: []
+    )
+
+    /// Strip the known ASR-emitted non-speech markers (see comment
+    /// above for the bracketed list) plus dialogue-marker artifacts
+    /// (`>>`, leading `- `), trailing/leading orphan parens
+    /// (`"text. ("` → `"text."`), empty paren pairs, and finally
+    /// drops the whole segment if no letters survive (catches lone
+    /// parens like `"("`, `"( )"`, `") ( )"` emitted when the backend
+    /// hallucinates a marker around what was actually silence).
+    /// Collapses doubled spaces left behind. Safe to call on any
+    /// text — no-op if no artifacts present.
+    static func stripWhisperArtifacts(_ text: String) -> String {
+        var out = text
+        var range = NSRange(location: 0, length: (out as NSString).length)
+        out = whisperArtifactRegex.stringByReplacingMatches(in: out, range: range, withTemplate: "")
+
+        range = NSRange(location: 0, length: (out as NSString).length)
+        out = whisperDialogueArrowRegex.stringByReplacingMatches(in: out, range: range, withTemplate: "")
+
+        range = NSRange(location: 0, length: (out as NSString).length)
+        out = whisperLeadingDashRegex.stringByReplacingMatches(in: out, range: range, withTemplate: "")
+
+        // Empty paren pairs: `( )`, `(  )`, `()` → drop. These show up
+        // when ASR marked something as parenthetical but left it
+        // empty (a transcription of a sigh / pause that came out
+        // blank).
+        out = out.replacingOccurrences(of: #"\(\s*\)"#, with: "", options: .regularExpression)
+
+        // Trailing orphan parens at end of segment (after optional
+        // sentence-final punctuation): `"text. ("` → `"text."`,
+        // `"text )"` → `"text"`. Strict pattern requires a space
+        // before the paren so legitimate compound text like
+        // "text(note)" survives.
+        out = out.replacingOccurrences(of: #"\s+[\(\)]+\s*$"#, with: "", options: .regularExpression)
+
+        // Leading orphan parens: `") text"` → `"text"`. Same logic.
+        out = out.replacingOccurrences(of: #"^\s*[\(\)]+\s+"#, with: "", options: .regularExpression)
+
+        out = out.replacingOccurrences(of: "  +", with: " ", options: .regularExpression)
+        out = out.replacingOccurrences(of: " ([,.!?;:])", with: "$1", options: .regularExpression)
+        out = out.trimmingCharacters(in: .whitespaces)
+
+        // Final sanity check: if nothing letter-shaped remains, the
+        // segment was entirely ASR noise (parens, punctuation,
+        // whitespace). Drop it → TimelineAlignedRenderer skips empty
+        // segments so the timeline slot becomes silence instead of
+        // a TTS reading of "open paren".
+        if !out.contains(where: { $0.isLetter }) {
+            return ""
+        }
+        return out
+    }
+
     // MARK: - Public API
 
     static func normalize(_ text: String) -> String {

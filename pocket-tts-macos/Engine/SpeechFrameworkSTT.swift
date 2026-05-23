@@ -3,10 +3,9 @@
 //  pocket-tts-macos
 //
 //  Reference / fallback STTProvider built on Apple's `Speech` framework
-//  (`SFSpeechRecognizer`). Used by Voice Changer when no Whisper model
-//  has been downloaded — slower and less accurate than WhisperKit but
-//  always available because the entitlements + Info.plist key already
-//  ship for Chat-tab dictation (DictationController.swift).
+//  (`SFSpeechRecognizer`). The production Voice Changer path now uses
+//  FluidAudio / Parakeet; this stays as the Apple Speech backend for
+//  reference and possible fallback use.
 //
 //  Notes:
 //    * `Speech` capability + `NSSpeechRecognitionUsageDescription` are
@@ -131,9 +130,23 @@ actor SpeechFrameworkSTT: STTProvider {
     /// utterance. Mirrors how humans naturally clause speech and keeps
     /// the downstream `[Xs]` markers from peppering every word
     /// boundary.
+    ///
+    /// - Parameter separator: how adjacent spans within the same
+    ///   utterance get joined. Defaults to `" "` for the original
+    ///   word-level callers (Apple Speech-style spans) whose spans
+    ///   are bare words without embedded whitespace. Pass `""` for
+    ///   SentencePiece-style sub-word token callers (FluidAudio /
+    ///   Parakeet) whose spans already encode word boundaries via a
+    ///   leading space on word-start tokens — adding another space
+    ///   between them would double-space and turn "▁eat" + "ing"
+    ///   into "eat ing" instead of "eating". The leading space on
+    ///   the first word-start token surfaces as a single leading
+    ///   space on the segment text, which we trim once at the
+    ///   segment boundary below.
     nonisolated static func coalesce(
         _ words: [WordSpan],
-        utteranceGapSec: Double
+        utteranceGapSec: Double,
+        separator: String = " "
     ) -> [TranscribedSegment] {
         guard !words.isEmpty else { return [] }
         var out: [TranscribedSegment] = []
@@ -145,7 +158,8 @@ actor SpeechFrameworkSTT: STTProvider {
             let gap = w.timestamp - endSec
             if gap >= utteranceGapSec {
                 out.append(TranscribedSegment(
-                    text: buffer.joined(separator: " "),
+                    text: buffer.joined(separator: separator)
+                        .trimmingCharacters(in: .whitespacesAndNewlines),
                     startSec: startSec,
                     endSec: endSec
                 ))
@@ -157,7 +171,8 @@ actor SpeechFrameworkSTT: STTProvider {
             endSec = w.timestamp + w.duration
         }
         out.append(TranscribedSegment(
-            text: buffer.joined(separator: " "),
+            text: buffer.joined(separator: separator)
+                .trimmingCharacters(in: .whitespacesAndNewlines),
             startSec: startSec,
             endSec: endSec
         ))

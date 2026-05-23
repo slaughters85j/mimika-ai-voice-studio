@@ -34,6 +34,17 @@ nonisolated struct SynthesisOptions: Sendable {
     /// user can tune per script. Range used by the UI: 15–50.
     var chunkTokenBudget: Int = 50
 
+    /// Phase 9. When `true` and the renderer's per-segment synthesis
+    /// runs longer than its source-timed slot, the renderer time-
+    /// compresses the segment (pitch-preserving, via
+    /// `WSOLATimeCompressor`) so the new voice lands inside the
+    /// original timing instead of being hard-clipped mid-syllable.
+    /// Defaults to ON; surfaced in the Voice Changer + Speaker
+    /// Isolator sheets as "Match original speaking pace". Has no
+    /// effect outside the timeline-aligned render path (single-voice
+    /// streaming, multi-talk script mode don't run the gate).
+    var matchOriginalPace: Bool = true
+
     init() {}
 }
 

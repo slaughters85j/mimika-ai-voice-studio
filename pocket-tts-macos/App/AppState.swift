@@ -75,6 +75,11 @@ final class AppState {
     /// (⌥⌘V) declared in `pocket_tts_macosApp.swift`.
     var showsVoiceChanger: Bool = false
 
+    /// Speaker Isolator sheet visibility. Reachable from Multi-Talk's
+    /// sidebar button OR the File → Isolate Speakers… menu item
+    /// (⌥⌘I) declared in `pocket_tts_macosApp.swift`.
+    var showsSpeakerIsolator: Bool = false
+
     /// Toast notification shown when a voice finishes encoding.
     var toastMessage: String?
 

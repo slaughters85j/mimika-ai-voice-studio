@@ -3,9 +3,9 @@
 //  pocket-tts-macos
 //
 //  Pluggable speech-to-text interface used by VoiceChangerPipeline.
-//  Implementations decide the backend (Apple Speech via
-//  SpeechFrameworkSTT, WhisperKit via WhisperKitSTT, etc.); the
-//  pipeline only cares about the timestamped segments coming back.
+//  Implementations decide the backend (Parakeet via FluidAudio,
+//  Apple Speech fallback / reference, etc.); the pipeline only cares
+//  about the timestamped segments coming back.
 //
 //  Contract:
 //    * `transcribeSegments` returns segments in chronological order.

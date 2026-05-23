@@ -29,6 +29,24 @@
 //  one-shot synth, plus a small per-invocation overhead. Memory: one
 //  master `[Float]` sized to total input duration (e.g. 5 min @ 24 kHz
 //  mono Float32 ≈ 29 MB — fine).
+//
+//  Phase 9: pace-fit gate. When the synthesized segment runs longer
+//  than its source-timed slot AND `options.matchOriginalPace` is on,
+//  pitch-preserving time-compression (WSOLATimeCompressor) shrinks
+//  the segment to fit instead of letting the existing clip-with-fade
+//  cut words mid-syllable. Gate thresholds:
+//      overshoot ≤ 1.05  → passthrough (cross-fade absorbs the slop)
+//      1.05 < overshoot ≤ 1.30 → compress by overshoot ratio
+//      1.30 < overshoot ≤ 1.60 → compress by 1.30 cap, accept some
+//                                  clip-with-fade on the remainder
+//      overshoot > 1.60  → hard fallback to clip-with-fade
+//                                  (WSOLA quality degrades audibly
+//                                  above this ratio; logged so the
+//                                  user can see which segments are
+//                                  fundamentally incompatible).
+//  When `options.matchOriginalPace` is off, the gate is bypassed and
+//  the renderer falls back to today's clip-with-fade behavior on
+//  every overshoot — useful as an A/B escape hatch.
 
 import Foundation
 
@@ -79,7 +97,19 @@ nonisolated enum TimelineAlignedRenderer {
             if Task.isCancelled { break }
             onProgress?(i + 1, total)
 
-            let trimmed = segment.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Strip known STT non-speech markers ([music], [silence],
+            // [laughter], etc.) before sending to TTS — otherwise the
+            // synthesizer speaks them literally ("bracket music
+            // bracket"). The stripping is a fixed-whitelist pass so
+            // it won't touch legitimate bracketed content like pause
+            // markers; see TextNormalizer.stripWhisperArtifacts.
+            let cleaned = TextNormalizer.stripWhisperArtifacts(segment.text)
+            let trimmed = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+            // If stripping left nothing (the segment was purely an
+            // artifact like just "[music]"), skip — would emit dead
+            // air at the segment offset instead of a "bracket music
+            // bracket" reading.
+            if trimmed.isEmpty { continue }
 
             // 1. Synthesize this segment in isolation.
             var segSamples: [Float] = []
@@ -105,6 +135,42 @@ nonisolated enum TimelineAlignedRenderer {
                 }
             }()
             let slotSampleCount = max(0, Int(slotEndSec * Double(sampleRate)) - offsetSamples)
+
+            // 2.5. Phase 9 pace-fit gate. When matchOriginalPace is
+            //      on and the synth overshoots its slot, time-
+            //      compress (pitch-preserving) via WSOLA so the new
+            //      voice lands inside the original timing. See gate
+            //      thresholds in the file header comment.
+            if options.matchOriginalPace,
+               slotSampleCount > 0,
+               segSamples.count > slotSampleCount {
+                let overshoot = Double(segSamples.count) / Double(slotSampleCount)
+                let slotSec = Double(slotSampleCount) / Double(sampleRate)
+                let synthSec = Double(segSamples.count) / Double(sampleRate)
+                if overshoot > 1.05 && overshoot <= 1.60 {
+                    // Compress. Cap at 1.30 — above that, WSOLA's
+                    // window-aligning starts smearing transients.
+                    // For overshoot in (1.30, 1.60] we compress by
+                    // 1.30 and let the downstream clip-with-fade
+                    // handle the residual slop.
+                    let ratio = min(overshoot, 1.30)
+                    print(String(format: "[Renderer] seg %d/%d: slot=%.2fs synth=%.2fs overshoot=%.2fx → compress @ %.2fx",
+                                 i + 1, total, slotSec, synthSec, overshoot, ratio))
+                    segSamples = WSOLATimeCompressor.compress(segSamples, ratio: ratio)
+                } else if overshoot > 1.60 {
+                    // Synth is more than 60% too long. Falling back
+                    // to clip-with-fade — the source pace is just
+                    // incompatible with this voice on this content.
+                    // Logged so future debugging / tuning can see
+                    // which segments hit this.
+                    print(String(format: "[Renderer] seg %d/%d: slot=%.2fs synth=%.2fs overshoot=%.2fx exceeds 1.60x cap → clip-with-fade fallback",
+                                 i + 1, total, slotSec, synthSec, overshoot))
+                }
+                // overshoot ≤ 1.05: passthrough — the 80 ms cross-
+                // fade below absorbs sub-frame slop with no audible
+                // edge. No log noise for the common case.
+            }
+
             let copyCount = min(segSamples.count, slotSampleCount, totalSamples - offsetSamples)
             guard copyCount > 0 else { continue }
 

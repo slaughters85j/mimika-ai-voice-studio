@@ -47,6 +47,11 @@ struct pocket_tts_macosApp: App {
                     appState.showsVoiceChanger = true
                 }
                 .keyboardShortcut("v", modifiers: [.command, .option])
+
+                Button("Isolate Speakers…") {
+                    appState.showsSpeakerIsolator = true
+                }
+                .keyboardShortcut("i", modifiers: [.command, .option])
             }
             // Edit > Find submenu — Cmd+F opens the find bar inside the
             // currently-focused NSTextView (Single Voice + Multi-Talk

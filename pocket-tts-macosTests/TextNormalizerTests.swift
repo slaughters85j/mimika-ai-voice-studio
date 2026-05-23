@@ -285,6 +285,261 @@ final class TextNormalizerTests: XCTestCase {
         XCTAssertEqual(TextNormalizer.stripStageDirections(input), input)
     }
 
+    // MARK: - Whisper-artifact stripping
+    //
+    // WhisperKit emits non-speech markers like `[music]`, `[silence]`,
+    // `[BLANK_AUDIO]`, `[laughter]`, `[applause]` as bracketed text.
+    // These flow into the TTS pipeline and get spoken literally unless
+    // stripped pre-synthesis. The whitelist lives in
+    // TextNormalizer.whisperArtifactRegex; grow it from console logs
+    // when new tags surface.
+
+    func test_stripWhisperArtifacts_silenceLowercase() {
+        XCTAssertEqual(
+            TextNormalizer.stripWhisperArtifacts("Hello [silence] world."),
+            "Hello world."
+        )
+    }
+
+    func test_stripWhisperArtifacts_silenceUppercase() {
+        XCTAssertEqual(
+            TextNormalizer.stripWhisperArtifacts("Hello [SILENCE] world."),
+            "Hello world."
+        )
+    }
+
+    func test_stripWhisperArtifacts_blankAudioUnderscored() {
+        XCTAssertEqual(
+            TextNormalizer.stripWhisperArtifacts("[BLANK_AUDIO] now we begin."),
+            "now we begin."
+        )
+    }
+
+    func test_stripWhisperArtifacts_blankAudioSpaceVariant() {
+        XCTAssertEqual(
+            TextNormalizer.stripWhisperArtifacts("[blank audio] now we begin."),
+            "now we begin."
+        )
+    }
+
+    func test_stripWhisperArtifacts_blankAudioSpaceThenUnderscore() {
+        // Observed from a real Whisper output: a space appears
+        // between "BLANK" and "_AUDIO". The pattern uses [ _]* to
+        // tolerate any combo of separator chars.
+        XCTAssertEqual(
+            TextNormalizer.stripWhisperArtifacts("[BLANK _AUDIO] end."),
+            "end."
+        )
+    }
+
+    func test_stripWhisperArtifacts_blankAudioDoubleUnderscore() {
+        // After stripping the artifact, only "." remains — which the
+        // no-letters check correctly drops. Result is empty so
+        // TimelineAlignedRenderer skips this segment instead of
+        // emitting a TTS reading of a lone period.
+        XCTAssertEqual(
+            TextNormalizer.stripWhisperArtifacts("[BLANK__AUDIO]."),
+            ""
+        )
+    }
+
+    func test_stripWhisperArtifacts_silenceParensCapitalized() {
+        // Observed from a real Whisper output: parens form with a
+        // capitalized keyword.
+        XCTAssertEqual(
+            TextNormalizer.stripWhisperArtifacts("She paused (Silence) then spoke."),
+            "She paused then spoke."
+        )
+    }
+
+    func test_stripWhisperArtifacts_music() {
+        XCTAssertEqual(
+            TextNormalizer.stripWhisperArtifacts("The intro [music] then she spoke."),
+            "The intro then she spoke."
+        )
+    }
+
+    func test_stripWhisperArtifacts_laughterAndApplause() {
+        XCTAssertEqual(
+            TextNormalizer.stripWhisperArtifacts("That joke landed [laughter] and the crowd [applause] roared."),
+            "That joke landed and the crowd roared."
+        )
+    }
+
+    func test_stripWhisperArtifacts_parensVariant() {
+        // Some Whisper variants emit parens instead of brackets.
+        XCTAssertEqual(
+            TextNormalizer.stripWhisperArtifacts("She paused (music) then continued."),
+            "She paused then continued."
+        )
+    }
+
+    func test_stripWhisperArtifacts_preservesPauseMarkers() {
+        // [Xs] pause markers must survive — they're keyword-gated
+        // (not in the whitelist) and the regex only matches the
+        // listed artifact keywords inside brackets/parens.
+        let input = "Hello. [1.5s] World."
+        XCTAssertEqual(TextNormalizer.stripWhisperArtifacts(input), input)
+    }
+
+    func test_stripWhisperArtifacts_preservesUnknownBracketedContent() {
+        // Tags not in the whitelist (custom user content, real
+        // bracketed phrases) survive. Only the whitelisted artifact
+        // keywords get stripped.
+        let input = "She said [whispering]. Then [smiled]."
+        XCTAssertEqual(TextNormalizer.stripWhisperArtifacts(input), input)
+    }
+
+    func test_stripWhisperArtifacts_idempotent() {
+        let input = "Hello [music] world [silence] there."
+        let once = TextNormalizer.stripWhisperArtifacts(input)
+        let twice = TextNormalizer.stripWhisperArtifacts(once)
+        XCTAssertEqual(once, twice)
+    }
+
+    func test_stripWhisperArtifacts_noop_whenNothing() {
+        let input = "Plain transcribed speech with nothing to strip."
+        XCTAssertEqual(TextNormalizer.stripWhisperArtifacts(input), input)
+    }
+
+    func test_stripWhisperArtifacts_collapsesSpaceBeforePunctuation() {
+        XCTAssertEqual(
+            TextNormalizer.stripWhisperArtifacts("He paused [silence]."),
+            "He paused."
+        )
+    }
+
+    // MARK: - Whisper dialogue markers
+    //
+    // Whisper sometimes emits `>>` and `- ` as dialogue-turn markers.
+    // These leak into TTS as "greater than greater than" / "hyphen"
+    // unless stripped. Live in the same function as bracketed-artifact
+    // stripping since they're all WhisperKit transcription artifacts.
+
+    func test_stripWhisperArtifacts_leadingArrows() {
+        XCTAssertEqual(
+            TextNormalizer.stripWhisperArtifacts(">> Yeah, that's right."),
+            "Yeah, that's right."
+        )
+    }
+
+    func test_stripWhisperArtifacts_midSegmentArrows() {
+        XCTAssertEqual(
+            TextNormalizer.stripWhisperArtifacts("What we do. >> There's more."),
+            "What we do. There's more."
+        )
+    }
+
+    func test_stripWhisperArtifacts_multipleArrowsOneSegment() {
+        XCTAssertEqual(
+            TextNormalizer.stripWhisperArtifacts(">> Try me. >> Sounds like fun."),
+            "Try me. Sounds like fun."
+        )
+    }
+
+    func test_stripWhisperArtifacts_leadingDash() {
+        XCTAssertEqual(
+            TextNormalizer.stripWhisperArtifacts("- That's Hawkins."),
+            "That's Hawkins."
+        )
+    }
+
+    func test_stripWhisperArtifacts_leadingEmDash() {
+        XCTAssertEqual(
+            TextNormalizer.stripWhisperArtifacts("— That's right."),
+            "That's right."
+        )
+    }
+
+    func test_stripWhisperArtifacts_preservesInternalHyphens() {
+        // Critical: leading-dash strip must NOT touch hyphens
+        // mid-word (compound words) or mid-string. Internal `-`s
+        // pass through unchanged.
+        XCTAssertEqual(
+            TextNormalizer.stripWhisperArtifacts("She used self-help and co-worker support."),
+            "She used self-help and co-worker support."
+        )
+    }
+
+    func test_stripWhisperArtifacts_preservesNegativeNumbers() {
+        // Trailing-space requirement on the leading-dash pattern
+        // keeps it from matching negative numbers (`-5`, `-3.14`).
+        XCTAssertEqual(
+            TextNormalizer.stripWhisperArtifacts("-5 degrees outside."),
+            "-5 degrees outside."
+        )
+    }
+
+    func test_stripWhisperArtifacts_combinedDialogueAndArtifact() {
+        // Real-world transcript: bracketed artifact + arrow + leading
+        // dash all in one segment. All three strip cleanly.
+        XCTAssertEqual(
+            TextNormalizer.stripWhisperArtifacts(">> [music] - We're back."),
+            "We're back."
+        )
+    }
+
+    // MARK: - Orphan parens / no-letter noise segments
+
+    func test_stripWhisperArtifacts_loneOpenParenDroppedEntirely() {
+        XCTAssertEqual(TextNormalizer.stripWhisperArtifacts("("), "")
+    }
+
+    func test_stripWhisperArtifacts_loneCloseParenDroppedEntirely() {
+        XCTAssertEqual(TextNormalizer.stripWhisperArtifacts(")"), "")
+    }
+
+    func test_stripWhisperArtifacts_emptyParenPairDropped() {
+        XCTAssertEqual(TextNormalizer.stripWhisperArtifacts("( )"), "")
+    }
+
+    func test_stripWhisperArtifacts_multipleLoneParensDropped() {
+        XCTAssertEqual(TextNormalizer.stripWhisperArtifacts(") ( )"), "")
+    }
+
+    func test_stripWhisperArtifacts_doubleOpenParenDropped() {
+        XCTAssertEqual(TextNormalizer.stripWhisperArtifacts("( ("), "")
+    }
+
+    func test_stripWhisperArtifacts_trailingOpenParenAfterSentence() {
+        // The exact case from a real Whisper transcript log.
+        XCTAssertEqual(
+            TextNormalizer.stripWhisperArtifacts("try not to do it. ("),
+            "try not to do it."
+        )
+    }
+
+    func test_stripWhisperArtifacts_leadingCloseParen() {
+        XCTAssertEqual(
+            TextNormalizer.stripWhisperArtifacts(") and then she spoke."),
+            "and then she spoke."
+        )
+    }
+
+    func test_stripWhisperArtifacts_emptyParensInMiddle() {
+        // Whisper sometimes emits a parenthetical that turns out to
+        // be empty in the middle of real text.
+        XCTAssertEqual(
+            TextNormalizer.stripWhisperArtifacts("Hello ( ) world."),
+            "Hello world."
+        )
+    }
+
+    func test_stripWhisperArtifacts_balancedParensInMiddleSurvive() {
+        // Legitimate parenthetical mid-string should NOT be touched
+        // by the trailing/leading orphan-paren regex (those are
+        // anchored). Content with letters inside stays.
+        XCTAssertEqual(
+            TextNormalizer.stripWhisperArtifacts("Hello (world)."),
+            "Hello (world)."
+        )
+    }
+
+    func test_stripWhisperArtifacts_noLettersReturnsEmpty() {
+        // Even compound punctuation runs with no letters get dropped.
+        XCTAssertEqual(TextNormalizer.stripWhisperArtifacts("!?.,;:"), "")
+    }
+
     // MARK: - Symbols
 
     func test_symbols() {

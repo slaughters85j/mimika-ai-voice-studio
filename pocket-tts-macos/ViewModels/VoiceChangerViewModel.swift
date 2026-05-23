@@ -11,7 +11,7 @@
 //      idle                              ← initial / after Convert Another
 //       │  user drops audio + picks voice + clicks Change Voice
 //       ▼
-//      transcribing                      ← STT (WhisperKit or fallback)
+//      transcribing                      ← STT (Parakeet via FluidAudio)
 //       │
 //       ▼
 //      synthesizing                      ← TTSEngine streams [Xs] script
@@ -23,7 +23,7 @@
 //      error(message)                    ← inline error label
 //
 //  Stop button cancels both phases — `task.cancel()` propagates to
-//  WhisperKit's transcribe (cooperative) and the TTSEngine's
+//  FluidAudio transcription (cooperative) and the TTSEngine's
 //  CancellationFlag (checked at AR-loop boundaries).
 
 @preconcurrency import AVFoundation
@@ -64,6 +64,14 @@ final class VoiceChangerViewModel {
     var inputAudioURL: URL?
     var inputDurationSec: Double?
     var selectedVoiceID: String?
+    /// User toggle for the "Match original speaking pace" feature.
+    /// When true (default), per-segment synthesis that runs longer
+    /// than its source segment is gently sped up via WSOLA time
+    /// compression so the new voice still lands inside the original
+    /// timeline. When false, the renderer allows segments to overflow.
+    /// Synced from the Voice Changer sheet's `@AppStorage`-backed
+    /// preference at the moment Convert runs.
+    var matchOriginalPace: Bool = true
 
     // MARK: - Observable state
 
@@ -138,17 +146,16 @@ final class VoiceChangerViewModel {
         status = .transcribing
         let engine = self.engine
         let totalDurationSnapshot = self.inputDurationSec ?? 0
+        let matchOriginalPaceSnapshot = self.matchOriginalPace
 
-        // STT selection: WhisperKit if a model is active, else fallback.
-        // Resolved here on MainActor so the long-running Task body
-        // doesn't have to hop back for it.
-        let stt: STTProvider
-        if let activeVariant = WhisperModelManager.shared.active {
-            let folderURL = WhisperModelManager.shared.modelFolderURL(for: activeVariant)
-            stt = WhisperKitSTT(variant: activeVariant, modelFolderURL: folderURL)
-        } else {
-            stt = SpeechFrameworkSTT()
-        }
+        // STT backend: FluidAudio / Parakeet TDT v3. FluidAudio
+        // handles its own model download lazily on first transcribe
+        // (~450 MB the first time, cached thereafter under the app's
+        // sandbox Application Support container), so there's no
+        // per-variant "active" state to gate on. Resolved here on
+        // MainActor so the long-running Task body doesn't have to
+        // hop back for it.
+        let stt: STTProvider = FluidAudioSTT()
 
         inflightTask = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -182,12 +189,14 @@ final class VoiceChangerViewModel {
                 }
                 self.status = .synthesizing(currentSegment: 0, totalSegments: nonEmpty.count)
 
+                var options = SynthesisOptions()
+                options.matchOriginalPace = matchOriginalPaceSnapshot
                 let samples = await TimelineAlignedRenderer.render(
                     segments: segments,
                     totalDurationSec: totalDurationSnapshot,
                     voiceID: voiceID,
                     engine: engine,
-                    options: SynthesisOptions(),
+                    options: options,
                     onProgress: { [weak self] current, total in
                         Task { @MainActor in
                             self?.status = .synthesizing(currentSegment: current, totalSegments: total)

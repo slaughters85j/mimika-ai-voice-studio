@@ -7,9 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		D50B19572FC1302900097B8B /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = D50B19562FC1302900097B8B /* FluidAudio */; };
 		D52D51B52FBA6FD00037F6C4 /* MLXAudioCore in Frameworks */ = {isa = PBXBuildFile; productRef = D52D51B42FBA6FD00037F6C4 /* MLXAudioCore */; };
 		D52D51BF2FBA6FD00037F6C4 /* MLXAudioTTS in Frameworks */ = {isa = PBXBuildFile; productRef = D52D51BE2FBA6FD00037F6C4 /* MLXAudioTTS */; };
-		D59BDE252FBF93C100080D3F /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = D59BDE242FBF93C100080D3F /* WhisperKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -58,8 +58,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				D59BDE252FBF93C100080D3F /* WhisperKit in Frameworks */,
 				D52D51BF2FBA6FD00037F6C4 /* MLXAudioTTS in Frameworks */,
+				D50B19572FC1302900097B8B /* FluidAudio in Frameworks */,
 				D52D51B52FBA6FD00037F6C4 /* MLXAudioCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -123,7 +123,7 @@
 			packageProductDependencies = (
 				D52D51B42FBA6FD00037F6C4 /* MLXAudioCore */,
 				D52D51BE2FBA6FD00037F6C4 /* MLXAudioTTS */,
-				D59BDE242FBF93C100080D3F /* WhisperKit */,
+				D50B19562FC1302900097B8B /* FluidAudio */,
 			);
 			productName = "pocket-tts-macos";
 			productReference = D5ECD2182FB78D5A00C23A9D /* pocket-tts-macos.app */;
@@ -209,7 +209,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				D52D51AF2FBA6FD00037F6C4 /* XCRemoteSwiftPackageReference "mlx-audio-swift" */,
-				D59BDE232FBF93C100080D3F /* XCRemoteSwiftPackageReference "WhisperKit" */,
+				D50B19552FC1302900097B8B /* XCRemoteSwiftPackageReference "FluidAudio" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = D5ECD2192FB78D5A00C23A9D /* Products */;
@@ -443,7 +443,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = 1.2;
+				MARKETING_VERSION = 1.3;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.slaughters85j.pocket-tts-macos";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -493,7 +493,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = 1.2;
+				MARKETING_VERSION = 1.3;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.slaughters85j.pocket-tts-macos";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -628,6 +628,14 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		D50B19552FC1302900097B8B /* XCRemoteSwiftPackageReference "FluidAudio" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/FluidInference/FluidAudio.git";
+			requirement = {
+				kind = upToNextMinorVersion;
+				minimumVersion = 0.14.7;
+			};
+		};
 		D52D51AF2FBA6FD00037F6C4 /* XCRemoteSwiftPackageReference "mlx-audio-swift" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/slaughters85j/mlx-audio-swift.git";
@@ -636,17 +644,14 @@
 				kind = branch;
 			};
 		};
-		D59BDE232FBF93C100080D3F /* XCRemoteSwiftPackageReference "WhisperKit" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/argmaxinc/WhisperKit";
-			requirement = {
-				kind = exactVersion;
-				version = 1.0.0;
-			};
-		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		D50B19562FC1302900097B8B /* FluidAudio */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D50B19552FC1302900097B8B /* XCRemoteSwiftPackageReference "FluidAudio" */;
+			productName = FluidAudio;
+		};
 		D52D51B42FBA6FD00037F6C4 /* MLXAudioCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = D52D51AF2FBA6FD00037F6C4 /* XCRemoteSwiftPackageReference "mlx-audio-swift" */;
@@ -656,11 +661,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = D52D51AF2FBA6FD00037F6C4 /* XCRemoteSwiftPackageReference "mlx-audio-swift" */;
 			productName = MLXAudioTTS;
-		};
-		D59BDE242FBF93C100080D3F /* WhisperKit */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = D59BDE232FBF93C100080D3F /* XCRemoteSwiftPackageReference "WhisperKit" */;
-			productName = WhisperKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

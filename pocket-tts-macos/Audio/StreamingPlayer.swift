@@ -3,7 +3,13 @@
 //  pocket-tts-macos
 //
 
-import AVFoundation
+// `@preconcurrency` downgrades Swift 6 Sendable warnings from AVFAudio
+// types to nothing: Apple hasn't marked `AVAudioEngine` / `AVAudioPlayerNode`
+// Sendable yet, but we capture them in the `DispatchQueue.global(...).async`
+// stop-hop below (the priority-inversion guard) where they're only touched
+// once before the closure returns. Matches the same opt-out used in
+// Engine/VoiceChangerPipeline.swift for AVURLAsset.
+@preconcurrency import AVFoundation
 import Foundation
 import Synchronization
 

@@ -20,6 +20,12 @@ struct MultiTalkView: View {
 
     @Binding var chatSettings: ChatSettings
 
+    /// Set true to open the Speaker Isolator sheet (audio/video in →
+    /// diarize → per-speaker isolated tracks). Bound to
+    /// `AppState.showsSpeakerIsolator` so the same flag is toggled by
+    /// the File menu shortcut (⌥⌘I).
+    @Binding var showsSpeakerIsolator: Bool
+
     @State private var showPauseModal = false
     @State private var showGenerator = false
 
@@ -49,6 +55,30 @@ struct MultiTalkView: View {
                         onResume:     { viewModel.resume() },
                         accessibilityIDPrefix: "multi"
                     )
+
+                    // Speaker Isolator entry-point. Sits in the sidebar
+                    // below SynthesizeButton (same placement as Voice
+                    // Changer's button on Single Voice). The matching
+                    // File-menu shortcut (⌥⌘I) lives in
+                    // pocket_tts_macosApp.swift and toggles the same
+                    // AppState flag.
+                    Button(action: { showsSpeakerIsolator = true }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "person.2.wave.2")
+                                .font(.system(size: 13))
+                            Text("Isolate Speakers from Recording…")
+                                .font(Theme.fontSM)
+                        }
+                        .foregroundStyle(Theme.textPrimary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(Theme.bgTertiary)
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(viewModel.status.isWorking)
+                    .help("Open the Speaker Isolator: diarize a multi-speaker recording, preview each isolated speaker, and optionally re-voice + re-encode back into video (⌥⌘I)")
+                    .accessibilityIdentifier("multi.speakerIsolatorButton")
 
                     if chatSettings.activeBackend == .pocketTTS {
                         StatusIndicator(status: viewModel.status)
