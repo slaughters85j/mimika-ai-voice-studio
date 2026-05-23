@@ -8,5 +8,13 @@
 	<true/>
 	<key>com.apple.security.network.client</key>
 	<true/>
+	<!-- Required for Powerbox to grant read access to files the user
+	     picks via .fileImporter / drag-and-drop (Voice Changer,
+	     Speaker Isolator, Voice Manager import). Without this a
+	     sandboxed app gets NSCocoaErrorDomain 257 on the first read
+	     of any user-selected URL. Read-only is sufficient — save
+	     paths use .fileExporter or the app's own container. -->
+	<key>com.apple.security.files.user-selected.read-only</key>
+	<true/>
 </dict>
 </plist>

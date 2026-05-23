@@ -96,6 +96,12 @@ final class VoiceChangerViewModel {
         inputAudioURL = url
         inputDurationSec = nil
         Task { @MainActor in
+            // Powerbox grants access to user-selected URLs but the
+            // grant has to be claimed explicitly before reading from
+            // a non-MainActor context (or an arbitrary Task). Bracket
+            // every read of `url` in this VM with start/stop.
+            let didStart = url.startAccessingSecurityScopedResource()
+            defer { if didStart { url.stopAccessingSecurityScopedResource() } }
             do {
                 let asset = AVURLAsset(url: url)
                 let duration: CMTime
@@ -159,6 +165,12 @@ final class VoiceChangerViewModel {
 
         inflightTask = Task { @MainActor [weak self] in
             guard let self else { return }
+            // Hold the Powerbox grant for the full pipeline — STT,
+            // segment synthesis, and any AVFoundation reads inside
+            // TimelineAlignedRenderer all touch `inputURL` from
+            // background executors.
+            let didStart = inputURL.startAccessingSecurityScopedResource()
+            defer { if didStart { inputURL.stopAccessingSecurityScopedResource() } }
             do {
                 // 1. STT — `transcribeSegments` is an async actor method,
                 //    so it suspends MainActor (UI stays responsive) while
