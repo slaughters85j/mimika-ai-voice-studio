@@ -14,7 +14,13 @@ import Foundation
 
 import MLX
 import MLXAudioCodecs
-import MLXAudioTTS
+// @preconcurrency: SpeechGenerationModel / FishSpeechModel are non-Sendable
+// AnyObjects from mlx-audio-swift. Storage is `nonisolated(unsafe)` and all
+// access is serialised by the actor (see comment at the model property), but
+// Swift 6 still flags sends across `await` suspensions inside runSynthesis.
+// @preconcurrency tells the compiler to treat this module as pre-Swift-6 so
+// those sends aren't reported. Runtime behaviour is unchanged.
+@preconcurrency import MLXAudioTTS
 import MLXAudioCore
 
 // MARK: - FishEngine

@@ -9,7 +9,12 @@
 //  in Resources/voice_kv_states/ and can be loaded by VoiceLoader.
 
 @preconcurrency import AVFoundation
-import CoreML
+// @preconcurrency: MLModel (and the MLState handle threaded through `phase`)
+// are non-Sendable. Storage is `nonisolated(unsafe)` and all access is
+// serialised by the actor (see comment at the voicePhaseModel property), but
+// Swift 6 still flags the send of `phase` across the prediction `await`.
+// @preconcurrency tells the compiler to treat this module as pre-Swift-6.
+@preconcurrency import CoreML
 import Foundation
 import MLX
 
