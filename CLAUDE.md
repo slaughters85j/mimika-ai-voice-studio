@@ -150,15 +150,19 @@ pocket-tts-macos/
 │   │   ├── ScriptGenerator.swift
 │   │   └── SentenceDetector.swift
 │   ├── Resources/
-│   │   ├── mlpackages/
-│   │   │   ├── prompt_phase.mlpackage
-│   │   │   ├── calm_stateful.mlpackage      (fp32 compute)
-│   │   │   ├── mimi_stateful.mlpackage      (fp32 compute, 8192-slot KV cache)
-│   │   │   └── voice_prompt_phase.mlpackage (voice-import baker)
 │   │   ├── lavasr/                    (voice enhancement resources)
 │   │   ├── tokenizer.model
 │   │   ├── tokenizer_vocab.json
 │   │   └── voice_kv_states/*.safetensors    (stock-only; the 7 Kyutai voices)
+│   │                                         The four .mlpackage artifacts
+│   │                                         (prompt_phase, calm_stateful,
+│   │                                         mimi_stateful, voice_prompt_phase)
+│   │                                         are NOT bundled — they're
+│   │                                         runtime-downloaded by
+│   │                                         BundledMLModelManager from
+│   │                                         huggingface.co/slaughters85j/
+│   │                                         pocket-tts-coreml on first
+│   │                                         launch. See Phase 8.
 │   └── Assets.xcassets/
 ├── pocket-tts-macosTests/              (XCTest unit tests + fixtures + mocks)
 └── pocket-tts-macosUITests/
@@ -361,6 +365,84 @@ Views/DemucsModelManagerSheet.swift  ← Manage Separation Models sub-sheet
 
 ---
 
+## Phase 8 — Runtime mlpackage bootstrap
+
+Phase 8 moves the four Core ML `.mlpackage` artifacts the engine
+needs to synthesize (`prompt_phase`, `calm_stateful`, `mimi_stateful`,
+`voice_prompt_phase`, ~500 MB combined) OUT of the .app bundle and
+into a runtime-downloaded set under Application Support. On a
+fresh install the app shows `FirstLaunchSetupView`, which drives
+`BundledMLModelManager.downloadAndInstallAll()` to fetch the
+mlpackages from `huggingface.co/slaughters85j/pocket-tts-coreml`,
+SHA-verify, unzip, compile to `.mlmodelc`, and cache. After this
+one-time setup the app runs fully offline (no further network
+trips for synthesis).
+
+The App Store binary drops from ~500 MB to ~50 MB; the tradeoff
+is the user needs a network on first launch. After that, parity
+with the pre-Phase-8 offline-first behavior.
+
+**Locked implementation shape (do not regress):**
+
+- `BundledMLModel` enum carries HF URL + expected SHA256 per
+  case. SHA verification is non-optional; the catch-and-cleanup
+  path triggers on mismatch + the staging dir is purged.
+- `BundledMLModelManager.shared` is `@MainActor @Observable` but
+  exposes `nonisolated static` path lookups
+  (`compiledModelURL(for:)`, `isReady`) so `ModelPaths` can
+  resolve URLs from inside TTSEngine's actor isolation without
+  crossing the MainActor boundary.
+- `ModelPaths` follows a dual-source resolution:
+  downloaded-first, bundle-fallback. A build that still bundles
+  the mlpackages (legacy sync-assets.sh runs) keeps working
+  unchanged; the bundle copy "wins" only when the download set
+  is empty.
+- `AppState.bootstrapIfNeeded` is gated on
+  `BundledMLModelManager.isReady` BEFORE constructing
+  `TTSEngine`. Missing models surface as
+  `engineStatus = .needsModelDownload`, which `ContentView`
+  routes to `FirstLaunchSetupView`. The view re-calls
+  `bootstrapIfNeeded` on completion so the engine boots in the
+  next render cycle.
+- Compile step (`MLModel.compileModel(at:)`) is required for
+  every download — HF serves `.mlpackage.zip`, Core ML needs
+  `.mlmodelc`. The compile lives in
+  `BundledMLModelManager.runFullDownloadFlow` between the unzip
+  and the atomic install move; surfaced as
+  `DownloadState.compiling` so the UI shows a "Compiling…"
+  label.
+- `BundledMLModelManager` reuses `DemucsZipExtractor` (general-
+  purpose despite the name) and `BackoffPolicy` (1/4/15 s
+  production retries). Verify + unzip + compile each get their
+  own error case in `BundledMLModelManagerError` so a failure
+  banner can surface what specifically went wrong.
+
+**Implementation file map (live as of Phase 8):**
+
+```
+Engine/
+  BundledMLModel.swift                ← 4-case catalog (URL + SHA + display strings)
+  BundledMLModelManagerTypes.swift    ← DownloadState + ManagerError
+  BundledMLModelManager.swift         ← @MainActor @Observable singleton
+                                         download → SHA verify → unzip →
+                                         compile → atomic install
+  ModelPaths.swift                    ← dual-source resolution
+                                         (downloaded > bundle > throw)
+
+App/
+  AppState.swift                      ← .needsModelDownload status case
+                                         + bootstrap readiness gate
+
+Views/
+  FirstLaunchSetupView.swift          ← full-screen download UI
+                                         (header + per-model rows + footer)
+
+ContentView.swift                     ← routes .needsModelDownload to
+                                         FirstLaunchSetupView
+```
+
+---
+
 ## Phase tracking
 
 See `pocket-tts-macos/road-map.md` for the canonical phased plan with hour estimates.
@@ -379,4 +461,5 @@ Quick status:
 - [x] Phase 5: Orb (Metal shader port)
 - [ ] Phase 6: polish, signing, notarization, Sparkle, DMG
 - [x] Phase 7: Speaker Isolation Audio Preservation (HTDemucs source separation; optional, user-downloaded model)
+- [x] Phase 8: Runtime mlpackage bootstrap (BundledMLModelManager; first-launch download of the four Core ML mlpackages from HF, replacing the bundled-asset sync flow; drops App Store binary size from ~500 MB to ~50 MB)
 - [ ] Deferred v2: EnhancementStudio v2, AudioCompare, iOS variant

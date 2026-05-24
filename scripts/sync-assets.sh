@@ -1,16 +1,28 @@
 #!/usr/bin/env bash
-# Sync Core ML artifacts and voice KV states from the conversion project into
-# the macOS app's bundle resources. Manual invocation only — Phase 0c doesn't
-# wire this into an Xcode build phase to avoid silently re-bundling stale
-# conversion output.
+# Sync small bundled assets from the conversion project into the macOS app's
+# bundle resources. Manual invocation only — not wired into an Xcode build
+# phase to avoid silently re-bundling stale conversion output.
 #
 # Run from the project root:
 #   ./scripts/sync-assets.sh
 #
+# As of Phase 8, the four heavy `.mlpackage` artifacts (prompt_phase,
+# calm_stateful, mimi_stateful, voice_prompt_phase, ~500 MB combined) are
+# NO LONGER bundled. They're downloaded on first launch from Hugging Face
+# (slaughters85j/pocket-tts-coreml) by `BundledMLModelManager`, verified by
+# SHA256, and installed under Application Support. This script only handles
+# the small bundled bits now:
+#
+#   * 7 stock voice KV state files (~5 MB total) — too small to be worth
+#     downloading and frequently-referenced in the picker.
+#   * tokenizer.model + tokenizer_vocab.json (~1 MB) — needed before any
+#     synthesis call can run; not worth a separate download trip.
+#
 # Sources (read-only; do NOT modify upstream from this script):
-#   /Users/system-backup/dev_local/pocket-tts-core-ml-conversion/
-#     mlpackages/           prompt_phase + calm_stateful + mimi_stateful
-#     voice_kv_states/      34 per-voice safetensors files (padded MAX_SEQ=512)
+#   $CONVERSION_ROOT (env var; defaults to a sibling pocket-tts-core-ml-
+#                     conversion/ directory next to this repo):
+#     voice_kv_states/        7 stock-voice safetensors files
+#     tokenizer_vocab.json    optional (Phase 0c byproduct)
 #   ~/.cache/huggingface/hub/models--kyutai--pocket-tts-without-voice-cloning/
 #     snapshots/<hash>/tokenizer.model
 
@@ -20,17 +32,24 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 RESOURCES="$PROJECT_ROOT/pocket-tts-macos/Resources"
 
-CONVERSION_ROOT="/Users/system-backup/dev_local/pocket-tts-core-ml-conversion"
 HF_SNAPSHOT_BASE="$HOME/.cache/huggingface/hub/models--kyutai--pocket-tts-without-voice-cloning/snapshots"
 
-if [[ ! -d "$CONVERSION_ROOT/mlpackages" ]]; then
-    echo "error: conversion project mlpackages not found at $CONVERSION_ROOT/mlpackages" >&2
+candidate_roots=(
+    "${CONVERSION_ROOT:-}"
+    "$(cd "$PROJECT_ROOT/.." && pwd)/pocket-tts-core-ml-conversion"
+)
+CONVERSION_ROOT=""
+for candidate in "${candidate_roots[@]}"; do
+    if [[ -n "$candidate" && -d "$candidate/voice_kv_states" ]]; then
+        CONVERSION_ROOT="$candidate"
+        break
+    fi
+done
+if [[ -z "$CONVERSION_ROOT" ]]; then
+    echo "error: couldn't locate pocket-tts-core-ml-conversion (set CONVERSION_ROOT env var)" >&2
     exit 1
 fi
-if [[ ! -d "$CONVERSION_ROOT/voice_kv_states" ]]; then
-    echo "error: voice_kv_states not found at $CONVERSION_ROOT/voice_kv_states" >&2
-    exit 1
-fi
+echo "  using CONVERSION_ROOT = $CONVERSION_ROOT"
 
 # Resolve the HF snapshot hash dynamically (there's only one).
 SNAPSHOT_DIR=$(find "$HF_SNAPSHOT_BASE" -mindepth 1 -maxdepth 1 -type d | head -n 1)
@@ -39,21 +58,18 @@ if [[ -z "$SNAPSHOT_DIR" || ! -f "$SNAPSHOT_DIR/tokenizer.model" ]]; then
     exit 1
 fi
 
-mkdir -p "$RESOURCES/mlpackages" "$RESOURCES/voice_kv_states"
+mkdir -p "$RESOURCES/voice_kv_states"
 
-# 1. .mlpackage directories (only the three we ship — skip dev artifacts)
-for pkg in prompt_phase.mlpackage calm_stateful.mlpackage mimi_stateful.mlpackage; do
-    src="$CONVERSION_ROOT/mlpackages/$pkg"
-    if [[ ! -d "$src" ]]; then
-        echo "error: missing $src" >&2
-        exit 1
-    fi
-    rm -rf "$RESOURCES/mlpackages/$pkg"
-    cp -R "$src" "$RESOURCES/mlpackages/"
-    echo "  copied $pkg"
-done
+# NOTE: as of Phase 8 the four large .mlpackage artifacts (prompt_phase,
+# calm_stateful, mimi_stateful, voice_prompt_phase) are downloaded at
+# runtime by BundledMLModelManager from huggingface.co/slaughters85j/
+# pocket-tts-coreml. They are NOT copied here. If you populated
+# Resources/mlpackages/ from a previous run of this script, the bundle
+# fallback in ModelPaths means those copies still work — but for a
+# clean release you can `rm -rf pocket-tts-macos/Resources/mlpackages`
+# to shrink the .app to its new ~50 MB shipping size.
 
-# 2. Voice KV state files — STOCK ONLY (the seven Kyutai voices that
+# 1. Voice KV state files — STOCK ONLY (the seven Kyutai voices that
 #    ship with the public weights). Custom voices live in the user's
 #    sandbox container via the in-app Voice Manager
 #    (Application Support/pocket-tts-macos/saved-voices/), never in
@@ -73,7 +89,7 @@ done
 voice_count=$(ls "$RESOURCES/voice_kv_states"/*.safetensors | wc -l | tr -d ' ')
 echo "  copied $voice_count stock voice KV files"
 
-# 3. Tokenizer model + vocab JSON (the JSON is what the Swift tokenizer reads;
+# 2. Tokenizer model + vocab JSON (the JSON is what the Swift tokenizer reads;
 #    the .model is kept in the bundle for future native-SentencePiece work).
 cp "$SNAPSHOT_DIR/tokenizer.model" "$RESOURCES/tokenizer.model"
 echo "  copied tokenizer.model from snapshot $(basename "$SNAPSHOT_DIR")"
