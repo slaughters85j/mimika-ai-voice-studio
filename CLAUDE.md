@@ -229,6 +229,9 @@ This is **not** a Ubiquitous Analytics project. The UA brand-token rule does not
 - Don't make changes unrelated to the task at hand
 - Keep an eye on impact across `Engine/`, `Audio/`, and `Views/` whenever the public API of `TTSEngine` shifts
 
+
+### Work Effort Estimates
+All work effort and time estimates must be grounded in the premise that Claude Code is performing all of the implementation work, not a human developer. Express estimates in minutes or hours of Claude Code execution time, never in human developer-days or sprints. Do not translate task complexity into human calendar time. A task a human might scope as several days is typically minutes of actual execution here.
 ---
 
 ## Hard rules — do NOT
