@@ -67,12 +67,14 @@ Full conversion details in `pocket-tts-core-ml-conversion/NOTES.md`.
 
 ```
 pocket-tts-macos/
-├── AGENTS.md                          ← this file
+├── CLAUDE.md
+├── AGENTS.md
 ├── pocket-tts-macos.xcodeproj/
 ├── pocket-tts-macos/
+│   ├── pocket_tts_macosApp.swift     (@main entry point)
+│   ├── ContentView.swift             (NavigationSplitView; routes .needsModelDownload → FirstLaunchSetupView)
 │   ├── road-map.md
 │   ├── App/
-│   │   ├── PocketTTSMacOSApp.swift   (@main)
 │   │   ├── AppState.swift            (global app state + engine ownership + .needsModelDownload gate)
 │   │   └── SynthesisStatus.swift
 │   ├── Models/
@@ -87,8 +89,8 @@ pocket-tts-macos/
 │   │   │   ├── VoiceLoader.swift         (safetensors → MLMultiArray)
 │   │   │   ├── VoiceManager.swift        (saved-voices/ catalog + import + orphan recovery)
 │   │   │   ├── ModelPaths.swift          (dual-source resolution: downloaded > bundle > throw)
-│   ��   │   ├── BundledMLModel.swift     (4-case catalog: URL + SHA + display strings)
-│   │   │   ├── BundledMLModelManager.swift (@MainActor @Observable singleton; download → verify → compile → install)
+│   │   │   ├── BundledMLModel.swift      (4-case catalog: URL + SHA + display strings)
+│   │   │   ├── BundledMLModelManager.swift (@MainActor @Observable; download → verify → compile → install)
 │   │   │   ├── BundledMLModelManagerTypes.swift (DownloadState + ManagerError)
 │   │   │   ├── FishEngine.swift
 │   │   │   ├── MimiEncoder.swift
@@ -143,7 +145,7 @@ pocket-tts-macos/
 │   │   │   ├── LavaSREnhancerBWE.swift
 │   │   │   ├── LavaSRFastLRMerge.swift
 │   │   │   ├── LavaSRISTFTHead.swift
-│   │   │   └── LavaSRDenoiserModules.swift
+│   │   │   └── LavaSRDenoiser.swift
 │   │   └── Utilities/
 │   │       └── BackoffPolicy.swift       (retry schedule value type)
 │   ├── Audio/
@@ -158,6 +160,7 @@ pocket-tts-macos/
 │   │   ├── SingleVoiceViewModel.swift
 │   │   ├── MultiTalkViewModel.swift
 │   │   ├── ChatViewModel.swift
+│   │   ├── ChatViewModel+Dictation.swift
 │   │   ├── HistoryViewModel.swift
 │   │   ├── VoiceChangerViewModel.swift
 │   │   ├── SpeakerIsolatorViewModel.swift         (state + DI; pipeline orchestration in extensions)
@@ -166,15 +169,19 @@ pocket-tts-macos/
 │   │   ├── SpeakerIsolatorViewModel+Exports.swift (per-row / batch / combined WAV save)
 │   │   └── SpeakerIsolatorPipeline.swift          (actor; phase methods for each pipeline step)
 │   ├── Views/
-│   │   ├── ContentView.swift         (NavigationSplitView; routes .needsModelDownload → FirstLaunchSetupView)
 │   │   ├── FirstLaunchSetupView.swift (full-screen download UI: header + per-model rows + footer)
 │   │   ├── SingleVoiceView.swift
 │   │   ├── MultiTalkView.swift
 │   │   ├── HistoryView.swift
 │   │   ├── ChatView.swift
+│   │   ├── ChatSettingsView.swift
+│   │   ├── AppSettingsView.swift
 │   │   ├── VoiceChangerSheet.swift
+│   │   ├── VoiceManagerView.swift
 │   │   ├── SpeakerIsolatorSheet.swift
 │   │   ├── DemucsModelManagerSheet.swift          (Manage Separation Models sub-sheet)
+│   │   ├── PromptManagerSheet.swift
+│   │   ├── TabBar.swift
 │   │   └── SpeakerIsolator/
 │   │       ├── AudioPreservationSection.swift     (toggle + always-visible Manage link + missing-model CTA)
 │   │       ├── DiarizationSettingsPanel.swift
@@ -182,14 +189,26 @@ pocket-tts-macos/
 │   │       ├── SeparationStatusBanner.swift       (yellow soft-fallback banner)
 │   │       └── SpeakerRow.swift
 │   ├── Components/
-│   │   ├── VoiceSelector.swift
-│   │   ├── SpeakerCard.swift
-│   │   ├── OrbView.swift             (Metal orb)
-│   │   ├── StatusIndicator.swift
-│   │   ├── PauseModal.swift
+│   │   ├── ActivePromptPicker.swift
 │   │   ├── AudioPlayer.swift
+│   │   ├── BackendSelector.swift
+│   │   ├── ConnectionStatus.swift
+│   │   ├── HistoryCard.swift
+│   │   ├── MacTextEditor.swift
+│   │   ├── MessageBubble.swift
 │   │   ├── MiniAudioPlayer.swift
-│   │   └── SynthesizeButton.swift
+│   │   ├── ModalContainer.swift
+│   │   ├── OrbView.swift             (Metal orb)
+│   │   ├── PauseModal.swift
+│   │   ├── ScriptGeneratorModal.swift
+│   │   ├── SpeakerCard.swift
+│   │   ├── SpeakingPaceSection.swift
+│   │   ├── StatusIndicator.swift
+│   │   ├── SynthesizeButton.swift
+│   │   ├── TextInput.swift
+│   │   └── VoiceSelector.swift
+│   ├── Theme/
+│   │   └── Theme.swift
 │   ├── Networking/
 │   │   ├── LocalLLMClient.swift      (OpenAI-compatible local endpoint)
 │   │   ├── ScriptGenerator.swift
