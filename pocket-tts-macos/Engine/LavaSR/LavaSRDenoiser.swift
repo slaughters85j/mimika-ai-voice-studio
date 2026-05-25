@@ -120,13 +120,31 @@ actor LavaSRDenoiser {
             throw Error.modelNotFound(modelURL)
         }
 
-        // Compile to .mlmodelc — Core ML caches the compiled artifact
-        // next to the source, so the second launch is fast.
+        // Two artifact flavors come through here:
+        //
+        //   (a) Runtime production path — `BundledMLModelManager` already
+        //       compiled the .mlpackage to .mlmodelc during install
+        //       (Phase 8's `needsCoreMLCompile: true` arm). `modelURL`
+        //       points at the compiled .mlmodelc. Re-compiling here
+        //       throws "A valid manifest does not exist" because
+        //       MLModel.compileModel expects a SOURCE .mlpackage, not
+        //       an already-compiled .mlmodelc.
+        //
+        //   (b) Test / dev path — `LavaSRDenoiserParityTests` loads
+        //       the raw .mlpackage directly from the fixtures dir.
+        //       That one DOES need compileModel.
+        //
+        // Detect via path extension and skip the compile when the
+        // file is already an .mlmodelc.
         let compiledURL: URL
-        do {
-            compiledURL = try await MLModel.compileModel(at: modelURL)
-        } catch {
-            throw Error.compileFailed(modelURL, underlying: error)
+        if modelURL.pathExtension == "mlmodelc" {
+            compiledURL = modelURL
+        } else {
+            do {
+                compiledURL = try await MLModel.compileModel(at: modelURL)
+            } catch {
+                throw Error.compileFailed(modelURL, underlying: error)
+            }
         }
 
         let config = MLModelConfiguration()

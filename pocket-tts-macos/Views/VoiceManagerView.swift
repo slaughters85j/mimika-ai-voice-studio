@@ -28,6 +28,11 @@ struct VoiceManagerView: View {
     /// pipeline soft-falls-back to BWE+LR-merge only when the ULUNAS
     /// .mlpackage isn't installed, regardless of this flag.
     var onEnhanceVoice: ((String, Bool) -> Void)?
+    /// Reject-enhancement path calls this to cancel any in-flight
+    /// background Fish encode + Pocket-TTS KV bake that would
+    /// otherwise persist rejected-audio codes / KV. Pairs with
+    /// `inFlightVoiceImportTask` in `ContentView`.
+    var onCancelEncode: ((String) -> Void)?
 
     @State private var showImporter = false
     @State private var importStep: ImportStep = .dropZone
@@ -800,10 +805,13 @@ struct VoiceManagerView: View {
 
     private func runEnhancement() {
         guard let voiceID = savedVoiceID else { return }
-        // P1-N1: persist the slider's chosen RMS target on the voice so
-        // Single Voice + Multi-Talk pick it up when this voice plays
-        // back. Stored on the Voice catalog so it survives relaunch.
-        VoiceManager.shared.setRmsTargetDB(rmsTargetDB, for: voiceID)
+        // NOTE: RMS target is intentionally NOT persisted here. We used
+        // to call `setRmsTargetDB` at run time, but that wrote the
+        // candidate value to the voice catalog BEFORE the user had a
+        // chance to accept the enhancement. If they later rejected,
+        // the catalog kept the rejected RMS. Persistence now happens
+        // ONLY in `acceptEnhancement` — reject is a no-op on the RMS
+        // value (it stays whatever the voice had before this run).
         importStep = .enhancing
         encodingComplete = false
         onEnhanceVoice?(voiceID, enableDenoise)
@@ -823,13 +831,27 @@ struct VoiceManagerView: View {
                 importStep = .comparison
             }
 
-            // Mark encoding complete when both backends are done
+            // Mark encoding complete when both backends are done. Used
+            // by the comparison view's Accept buttons (gated on this).
             if voice?.cachedCodesPath != nil && voice?.pocketTTSKVPath != nil {
                 encodingComplete = true
+            }
+
+            // Stop polling only once the comparison view is showing AND
+            // encoding has completed. The previous code returned early
+            // as soon as `encodingComplete` flipped true — which is fine
+            // for the new-voice import flow (codes don't exist yet when
+            // we start), but fatal for the inline re-enhance path
+            // where the voice ALREADY has codes+KV from its earlier
+            // import. In that case the very first tick saw encoding-
+            // done and returned, never living long enough to see the
+            // enhancement complete or transition to .comparison.
+            if importStep == .comparison && encodingComplete {
                 return
             }
 
-            // Keep polling if still processing
+            // Keep polling while still in the enhancement / comparison
+            // pipeline.
             if importStep == .enhancing || importStep == .comparison {
                 pollForCompletion(voiceID: voiceID)
             }
@@ -845,12 +867,30 @@ struct VoiceManagerView: View {
     private func rejectEnhancement() {
         guard let voiceID = savedVoiceID else { return }
         stopPlayback()
+
+        // Yank any background Fish/Pocket-TTS encode that might be in
+        // mid-flight. Without this, those encoders may have already
+        // read `isEnhanced=true` + loaded the enhanced WAV's bytes
+        // into memory, and would go on to persist rejected-audio
+        // codes/KV even though the WAV file gets deleted below.
+        // Cancellation is best-effort — long-running MLX inference
+        // blocks don't yield — but the Task.isCancelled checks
+        // between steps stop us BEFORE writing to disk.
+        onCancelEncode?(voiceID)
+
         if isReEnhanceMode {
             // Re-enhance path: drop just the enhancement WAV + flip
             // `isEnhanced` back to false. The voice itself stays in
             // the catalog — user wanted to redo the enhancement, didn't
             // like it, gets to keep their original voice intact.
             VoiceManager.shared.clearEnhancement(for: voiceID)
+            // Re-encode from the (now-current) original WAV. This
+            // overwrites any partial codes/KV that the cancelled Task
+            // might have written before we could yank it. `onEncodeVoice`
+            // is ContentView's clean-encode pipeline; it itself cancels
+            // any still-in-flight import Task before launching, so the
+            // ordering is guaranteed.
+            onEncodeVoice?(voiceID)
         } else {
             // Import-flow reject: the user just imported this voice
             // AND auditioned the enhancement; rejecting scraps the
