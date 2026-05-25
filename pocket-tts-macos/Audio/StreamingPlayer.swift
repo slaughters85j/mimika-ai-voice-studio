@@ -152,21 +152,29 @@ actor StreamingPlayer {
 
         // Priority-inversion guard. `playerNode.stop()` / `engine.stop()`
         // synchronously wait on AVAudioEngine's internal threads
-        // (AVAEDispatchQueueTimer::CancelTimer in particular). The
-        // actor is frequently entered from a User-initiated context
-        // (stop button in SwiftUI) and Xcode's "Hang Risk" diagnostic
-        // compares the dispatched-to queue's NOMINAL QoS against the
-        // caller's. A nominal mismatch (e.g. caller User-initiated,
-        // queue Default) still trips the warning even though
-        // libdispatch promotes the worker thread's actual QoS at
-        // run time. Setting the queue's nominal QoS to .userInitiated
-        // makes the bookkeeping match the run-time reality and clears
-        // the diagnostic. The drain-side continuation is signaled
-        // below either way, so observable timing is unchanged for
-        // callers.
+        // (AVAEDispatchQueueTimer::CancelTimer in particular), which
+        // AVFoundation runs at `.default` QoS.
+        //
+        // History: we first dispatched at `.default` here and Xcode's
+        // "Hang Risk" diagnostic flagged the OUTER mismatch (actor
+        // entered from a `.userInitiated` SwiftUI stop tap → dispatched
+        // to `.default`). The fix at the time bumped to `.userInitiated`
+        // to match the caller side. That cleared the outer warning but
+        // created the INNER one: our now-`.userInitiated` dispatched
+        // thread blocks on AVAudioEngine's `.default` internal queue,
+        // tripping the same diagnostic one layer deeper.
+        //
+        // Real fix: match AVFoundation's internal QoS exactly. With both
+        // ends at `.default`, libdispatch sees no inversion regardless
+        // of caller QoS — the dispatched closure is fire-and-forget so
+        // the caller's higher-QoS thread isn't held WAITING on us.
+        // Functionally identical user-facing behavior; the brief queue-
+        // scheduling delay (~µs) is dominated by AVAudioEngine.stop()
+        // itself (~tens of ms). The drain-side continuation is signaled
+        // below either way, so observable timing is unchanged.
         let pn = playerNode
         let eng = engine
-        DispatchQueue.global(qos: .userInitiated).async {
+        DispatchQueue.global(qos: .default).async {
             if pn.isPlaying { pn.stop() }
             if eng.isRunning { eng.stop() }
         }
