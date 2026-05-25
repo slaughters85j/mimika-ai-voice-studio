@@ -191,15 +191,25 @@ struct ContentView: View {
                         print("[ContentView] import pipeline complete, memory released")
                     }
                 },
-                onEnhanceVoice: { voiceID in
+                onEnhanceVoice: { voiceID, enableDenoise in
                     Task {
                         // Step 1: Enhance
                         let enhancer = VoiceEnhancer.shared
-                        await enhancer.bootstrapIfNeeded()
+                        // Pass the ULUNAS denoiser .mlpackage URL if
+                        // installed; soft-fallback to BWE+LR-merge only
+                        // when nil. The pipeline gates `denoise:` on
+                        // both the URL being present AND the user's
+                        // toggle being on.
+                        let denoiserURL = ModelPaths.lavasrDenoiserMLPackage()
+                        await enhancer.bootstrapIfNeeded(denoiserMLPackageURL: denoiserURL)
                         guard let wavURL = VoiceManager.shared.wavURL(for: voiceID) else { return }
                         let outURL = VoiceManager.shared.enhancedWAVURL(for: voiceID)
                         do {
-                            try await enhancer.enhance(inputURL: wavURL, outputURL: outURL)
+                            try await enhancer.enhance(
+                                inputURL: wavURL,
+                                outputURL: outURL,
+                                denoise: enableDenoise
+                            )
                             VoiceManager.shared.setEnhanced(for: voiceID)
                         } catch {
                             print("[VoiceEnhancer] enhance failed: \(error)")

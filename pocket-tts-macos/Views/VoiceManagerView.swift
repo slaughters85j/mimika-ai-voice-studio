@@ -23,7 +23,11 @@ private enum ImportStep: Equatable {
 struct VoiceManagerView: View {
     @Binding var isPresented: Bool
     var onEncodeVoice: ((String) -> Void)?
-    var onEnhanceVoice: ((String) -> Void)?
+    /// `(voiceID, enableDenoise)` — wires the in-view enableDenoise
+    /// toggle through to `VoiceEnhancer.enhance(..., denoise:)`. The
+    /// pipeline soft-falls-back to BWE+LR-merge only when the ULUNAS
+    /// .mlpackage isn't installed, regardless of this flag.
+    var onEnhanceVoice: ((String, Bool) -> Void)?
 
     @State private var showImporter = false
     @State private var importStep: ImportStep = .dropZone
@@ -728,7 +732,7 @@ struct VoiceManagerView: View {
         VoiceManager.shared.setRmsTargetDB(rmsTargetDB, for: voiceID)
         importStep = .enhancing
         encodingComplete = false
-        onEnhanceVoice?(voiceID)
+        onEnhanceVoice?(voiceID, enableDenoise)
         // Poll: show comparison when enhanced WAV exists, then poll for full encoding
         pollForCompletion(voiceID: voiceID)
     }
