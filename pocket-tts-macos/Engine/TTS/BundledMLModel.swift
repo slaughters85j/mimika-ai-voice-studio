@@ -87,6 +87,15 @@ nonisolated enum BundledMLModel: String, CaseIterable, Identifiable, Codable, Se
     /// and `ModelPaths.mimiEncoderWeights()`.
     case voiceTools = "voice_tools"
 
+    /// LavaSR ULUNAS denoiser (Phase 10b). Core ML `.mlpackage`
+    /// produced by `scripts/convert_lavasr_denoiser_to_coreml.py`,
+    /// runs at fixed input shape [1, 128_000] (8 s @ 16 kHz mono),
+    /// outputs the masked complex spectrogram. ~1.5 MB zipped, ~3.6 MB
+    /// unpacked. Consumed by `LavaSRDenoiser` (the Swift actor that
+    /// runs Core ML prediction + the Swift-side iSTFT). Resolved via
+    /// `ModelPaths.lavasrDenoiserMLPackage()`.
+    case lavasrDenoiser = "lavasr_denoiser"
+
     // MARK: - Identifiable
 
     var id: String { rawValue }
@@ -100,7 +109,7 @@ nonisolated enum BundledMLModel: String, CaseIterable, Identifiable, Codable, Se
     /// contents straight into the installed dir.
     var needsCoreMLCompile: Bool {
         switch self {
-        case .promptPhase, .calmStateful, .mimiStateful, .voicePromptPhase:
+        case .promptPhase, .calmStateful, .mimiStateful, .voicePromptPhase, .lavasrDenoiser:
             return true
         case .stockAssets, .voiceTools:
             return false
@@ -113,7 +122,7 @@ nonisolated enum BundledMLModel: String, CaseIterable, Identifiable, Codable, Se
     /// `zipMissingExpectedInner` and the staging dir gets swept.
     var expectedInnerName: String {
         switch self {
-        case .promptPhase, .calmStateful, .mimiStateful, .voicePromptPhase:
+        case .promptPhase, .calmStateful, .mimiStateful, .voicePromptPhase, .lavasrDenoiser:
             return "\(rawValue).mlpackage"
         case .stockAssets:
             // The zip's root contains tokenizer.model directly (plus
@@ -140,6 +149,7 @@ nonisolated enum BundledMLModel: String, CaseIterable, Identifiable, Codable, Se
         case .voicePromptPhase: return "Voice Importer"
         case .stockAssets:      return "Stock Voices + Tokenizer"
         case .voiceTools:       return "Voice Enhancement + Import Tools"
+        case .lavasrDenoiser:   return "LavaSR Denoiser"
         }
     }
 
@@ -156,6 +166,7 @@ nonisolated enum BundledMLModel: String, CaseIterable, Identifiable, Codable, Se
         case .voicePromptPhase: return "~50 MB"
         case .stockAssets:      return "~20 MB"
         case .voiceTools:       return "~85 MB"
+        case .lavasrDenoiser:   return "~1.5 MB"
         }
     }
 
@@ -174,6 +185,8 @@ nonisolated enum BundledMLModel: String, CaseIterable, Identifiable, Codable, Se
             return "Seven stock voices and the tokenizer"
         case .voiceTools:
             return "Audio enhancement and voice cloning tools"
+        case .lavasrDenoiser:
+            return "Removes background noise from imported voice recordings"
         }
     }
 
@@ -211,6 +224,10 @@ nonisolated enum BundledMLModel: String, CaseIterable, Identifiable, Codable, Se
             return URL(string:
                 "https://huggingface.co/slaughters85j/pocket-tts-voice-tools/resolve/main/voice_tools.zip"
             )!
+        case .lavasrDenoiser:
+            return URL(string:
+                "https://huggingface.co/slaughters85j/pocket-tts-coreml/resolve/main/lavasr_denoiser.mlpackage.zip"
+            )!
         }
     }
 
@@ -235,6 +252,8 @@ nonisolated enum BundledMLModel: String, CaseIterable, Identifiable, Codable, Se
             return "62fe162d3312615586ec74d673c0a22aff27049de9d36261b06baa1296abfd03"
         case .voiceTools:
             return "742bcd0b748d38af9834370d4957d47b033e7c9493c86b376b3a616373e7c8a2"
+        case .lavasrDenoiser:
+            return "eeac83a8c31562c4798c219d752e1489b42c8920da664a50186538d741ed9115"
         }
     }
 }

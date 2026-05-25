@@ -93,6 +93,27 @@ nonisolated enum ModelPaths {
         try resolveMLPackage(.voicePromptPhase, bundleName: "voice_prompt_phase")
     }
 
+    /// Resolver for the LavaSR ULUNAS denoiser (Phase 10b). Returns
+    /// `nil` instead of throwing when the .mlpackage isn't installed —
+    /// the denoiser is OPTIONAL (soft-fallback in
+    /// `LavaSRPipeline.load(denoiserMLPackageURL:)`), and a missing
+    /// .mlpackage should not crash voice import; it should just route
+    /// through the BWE+LR-merge path unchanged. Same first-source
+    /// preference as the other mlpackages: runtime-downloaded under
+    /// Application Support, then bundle fallback.
+    static func lavasrDenoiserMLPackage() -> URL? {
+        if let downloaded = BundledMLModelManager.compiledModelURL(for: .lavasrDenoiser) {
+            return downloaded
+        }
+        if let bundled = Bundle.main.url(
+            forResource: "lavasr_denoiser",
+            withExtension: "mlpackage"
+        ) {
+            return bundled
+        }
+        return nil
+    }
+
     /// Shared lookup logic for the four runtime-downloadable mlpackages.
     /// Pulled out so adding a fifth model (if we ever do) is one line
     /// in the accessor + one case in `BundledMLModel`.

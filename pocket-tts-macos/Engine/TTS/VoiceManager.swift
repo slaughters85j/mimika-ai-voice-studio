@@ -176,6 +176,25 @@ final class VoiceManager {
         saveCatalog()
     }
 
+    /// Drop the enhancement for an existing voice — deletes the
+    /// `<id>_enhanced.wav` file from disk and flips `isEnhanced` back
+    /// to false. The original imported WAV + cached codes + KV state
+    /// are untouched, so the voice remains synthesisable; we just
+    /// lose the LavaSR-enhanced variant. Used by the inline
+    /// re-enhance reject path in `VoiceManagerView`, where the user
+    /// asked to redo an enhancement but didn't like the result —
+    /// reverting to the prior (or unenhanced) state without deleting
+    /// the whole voice.
+    func clearEnhancement(for voiceID: String) {
+        guard let idx = voices.firstIndex(where: { $0.id == voiceID }) else { return }
+        let enhancedPath = enhancedWAVURL(for: voiceID).path
+        if FileManager.default.fileExists(atPath: enhancedPath) {
+            try? FileManager.default.removeItem(atPath: enhancedPath)
+        }
+        voices[idx].isEnhanced = false
+        saveCatalog()
+    }
+
     func enhancedWAVURL(for voiceID: String) -> URL {
         voicesDir.appendingPathComponent("\(voiceID)_enhanced.wav")
     }

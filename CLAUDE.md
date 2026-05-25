@@ -10,7 +10,6 @@ Single-shot context for any Claude Code session working in this repo. Read first
 
 **pocket-tts-macos** is a native Swift / SwiftUI macOS app that replaces the existing Electron-based pocket-tts frontend with a fully on-device, Python-free TTS application. It runs the Kyutai pocket-tts model end-to-end via Core ML `.mlpackage` artifacts (CaLM + Mimi codec), with no Python server, no PyInstaller bundle, and no network dependency for synthesis.
 
-
 ---
 
 ## Architecture (Core ML pipeline)
@@ -67,41 +66,87 @@ Full conversion details in `pocket-tts-core-ml-conversion/NOTES.md`.
 
 ```
 pocket-tts-macos/
-├── AGENTS.md                          ← this file
+├── CLAUDE.md
+├── AGENTS.md
 ├── pocket-tts-macos.xcodeproj/
 ├── pocket-tts-macos/
+│   ├── pocket_tts_macosApp.swift     (@main entry point)
+│   ├── ContentView.swift             (NavigationSplitView; routes .needsModelDownload → FirstLaunchSetupView)
 │   ├── road-map.md
 │   ├── App/
-│   │   ├── PocketTTSMacOSApp.swift   (@main)
-│   │   ├── AppState.swift            (global app state + engine ownership)
+│   │   ├── AppState.swift            (global app state + engine ownership + .needsModelDownload gate)
 │   │   └── SynthesisStatus.swift
 │   ├── Models/
 │   │   ├── BundledVoice.swift        (stock voice catalog entry)
 │   │   └── ChatModels.swift
 │   ├── Engine/
-│   │   ├── TTSEngine.swift           (Core ML synthesis orchestrator)
-│   │   ├── TTSEngineProtocol.swift   (testable engine surface)
-│   │   ├── Tokenizer.swift           (SentencePiece wrapper)
-│   │   ├── VoiceLoader.swift         (safetensors → MLMultiArray)
-│   │   ├── VoiceManager.swift        (saved-voices/ catalog + import + orphan recovery)
-│   │   ├── FluidAudioSTT.swift         (Parakeet transcription backend)
-│   │   ├── SpeakerIsolator.swift     (segment-based speaker extraction)
-│   │   ├── SpeakerKitDiarizationProvider.swift
-│   │   ├── MultiSpeakerRevoicer.swift
-│   │   ├── AudioFileLoader.swift     (decode mono/stereo inputs)
-│   │   ├── AudioBuffer.swift
-│   │   ├── SourceSeparator.swift     (Phase 7 separation protocol)
-│   │   ├── DemucsSourceSeparator.swift
-│   │   ├── DemucsChunker.swift
-│   │   ├── DemucsModelManager.swift
-│   │   ├── DemucsModelInstaller.swift
-│   │   ├── DemucsZipExtractor.swift
-│   │   ├── DemucsModelVariant.swift
-│   │   ├── DemucsStemMap.swift
-│   │   ├── DemucsResampler.swift
-│   │   ├── SeparatedStems.swift
-│   │   ├── VideoMuxer.swift
-│   │   └── ModelPaths.swift          (bundle-resource resolution)
+│   │   ├── TTS/
+│   │   │   ├── TTSEngine.swift           (Core ML synthesis orchestrator)
+│   │   │   ├── TTSEngineProtocol.swift   (testable engine surface)
+│   │   │   ├── Tokenizer.swift           (SentencePiece wrapper)
+│   │   │   ├── SentencePieceTokenizer.swift
+│   │   │   ├── VoiceLoader.swift         (safetensors → MLMultiArray)
+│   │   │   ├── VoiceManager.swift        (saved-voices/ catalog + import + orphan recovery)
+│   │   │   ├── ModelPaths.swift          (dual-source resolution: downloaded > bundle > throw)
+│   │   │   ├── BundledMLModel.swift      (4-case catalog: URL + SHA + display strings)
+│   │   │   ├── BundledMLModelManager.swift (@MainActor @Observable; download → verify → compile → install)
+│   │   │   ├── BundledMLModelManagerTypes.swift (DownloadState + ManagerError)
+│   │   │   ├── FishEngine.swift
+│   │   │   ├── MimiEncoder.swift
+│   │   │   ├── PocketTTSVoiceEncoder.swift
+│   │   │   └── SynthesisCancellation.swift
+│   │   ├── Demucs/
+│   │   │   ├── DemucsSourceSeparator.swift  (actor — chunk-by-chunk inference + edge-aware OLA)
+│   │   │   ├── DemucsChunker.swift          (pure funcs: chunk offsets, triangular window, OLA)
+│   │   │   ├── DemucsResampler.swift        (AVAudioConverter helpers, mono + stereo)
+│   │   │   ├── DemucsStemMap.swift           (channel layout constants for [1,8,T] output)
+│   │   │   ├── DemucsModelManager.swift     (@MainActor @Observable; SHA, backoff, versioned install)
+│   │   │   ├── DemucsModelManagerTypes.swift (DownloadState + ManagerError typealiases)
+│   │   │   ├── DemucsModelInstaller.swift   (stateless SHA verify + extract + atomic move)
+│   │   │   ├── DemucsModelVariant.swift     (variant catalog, just `.htdemucs` for v1)
+│   │   │   ├── DemucsZipExtractor.swift     (in-process zip32 parser, Compression framework)
+│   │   │   ├── SourceSeparator.swift        (protocol: separate + model lifecycle)
+│   │   │   └── SeparatedStems.swift         (value type: mono 24 kHz vocals + music)
+│   │   ├── STT/
+│   │   │   ├── FluidAudioSTT.swift       (Parakeet transcription backend)
+│   │   │   ├── SpeechFrameworkSTT.swift
+│   │   │   ├── STTProvider.swift
+│   │   │   ├── DictationController.swift
+│   │   │   ├── TranscribedSegment.swift
+│   │   │   ├── DiarizedSegment.swift
+│   │   │   ├── DiarizationProvider.swift
+│   │   │   └── FluidAudioDiarizationProvider.swift
+│   │   ├── Audio/
+│   │   │   ├── AudioBuffer.swift
+│   │   │   ├── AudioFileLoader.swift     (decode mono/stereo inputs)
+│   │   │   ├── AudioPreconditioner.swift
+│   │   │   ├── AudioSoftClip.swift
+│   │   │   ├── WSOLATimeCompressor.swift
+│   │   │   ├── VoiceLevel.swift
+│   │   │   ├── VideoMuxer.swift
+│   │   │   └── TimelineAlignedRenderer.swift
+│   │   ├── TextProcessing/
+│   │   │   ├── TextNormalizer.swift
+│   │   │   ├── TextNormalizer+Data.swift
+│   │   │   ├── TextNormalizer+DomainTerms.swift
+│   │   │   ├── TextNormalizer+Units.swift
+│   │   │   ├── TextPreprocessor.swift
+│   │   │   ├── NumberToWords.swift
+│   │   │   ├── MultiTalkScriptParser.swift
+│   │   │   └── SilencePreservingScriptBuilder.swift
+│   │   ├── SpeakerIsolation/
+│   │   │   ├── SpeakerIsolator.swift     (segment-based speaker extraction)
+│   │   │   ├── MultiSpeakerRevoicer.swift
+│   │   │   ├── VoiceChangerPipeline.swift
+│   │   │   └── VoiceEnhancer.swift
+│   │   ├── LavaSR/
+│   │   │   ├── LavaSRPipeline.swift
+│   │   │   ├── LavaSREnhancerBWE.swift
+│   │   │   ├── LavaSRFastLRMerge.swift
+│   │   │   ├── LavaSRISTFTHead.swift
+│   │   │   └── LavaSRDenoiser.swift
+│   │   └── Utilities/
+│   │       └── BackoffPolicy.swift       (retry schedule value type)
 │   ├── Audio/
 │   │   ├── StreamingPlayer.swift     (AVAudioEngine source node)
 │   │   ├── WAVEncoder.swift
@@ -114,37 +159,55 @@ pocket-tts-macos/
 │   │   ├── SingleVoiceViewModel.swift
 │   │   ├── MultiTalkViewModel.swift
 │   │   ├── ChatViewModel.swift
+│   │   ├── ChatViewModel+Dictation.swift
 │   │   ├── HistoryViewModel.swift
 │   │   ├── VoiceChangerViewModel.swift
-│   │   ├── SpeakerIsolatorViewModel.swift
-│   │   ├── SpeakerIsolatorViewModel+Convert.swift
-│   │   ├── SpeakerIsolatorViewModel+ChangeVoices.swift
-│   │   ├── SpeakerIsolatorViewModel+Exports.swift
-│   │   └── SpeakerIsolatorPipeline.swift
+│   │   ├── SpeakerIsolatorViewModel.swift         (state + DI; pipeline orchestration in extensions)
+│   │   ├── SpeakerIsolatorViewModel+Convert.swift (convertAndIsolate: diarize-first + sep.)
+│   │   ├── SpeakerIsolatorViewModel+ChangeVoices.swift (revoice + save flow)
+│   │   ├── SpeakerIsolatorViewModel+Exports.swift (per-row / batch / combined WAV save)
+│   │   └── SpeakerIsolatorPipeline.swift          (actor; phase methods for each pipeline step)
 │   ├── Views/
-│   │   ├── ContentView.swift         (NavigationSplitView)
+│   │   ├── FirstLaunchSetupView.swift (full-screen download UI: header + per-model rows + footer)
 │   │   ├── SingleVoiceView.swift
 │   │   ├── MultiTalkView.swift
 │   │   ├── HistoryView.swift
 │   │   ├── ChatView.swift
+│   │   ├── ChatSettingsView.swift
+│   │   ├── AppSettingsView.swift
 │   │   ├── VoiceChangerSheet.swift
+│   │   ├── VoiceManagerView.swift
 │   │   ├── SpeakerIsolatorSheet.swift
-│   │   ├── DemucsModelManagerSheet.swift
+│   │   ├── DemucsModelManagerSheet.swift          (Manage Separation Models sub-sheet)
+│   │   ├── PromptManagerSheet.swift
+│   │   ├── TabBar.swift
 │   │   └── SpeakerIsolator/
-│   │       ├── AudioPreservationSection.swift
+│   │       ├── AudioPreservationSection.swift     (toggle + always-visible Manage link + missing-model CTA)
 │   │       ├── DiarizationSettingsPanel.swift
-│   │       ├── SeparationProgressLabel.swift
-│   │       ├── SeparationStatusBanner.swift
+│   │       ├── SeparationProgressLabel.swift      (formats .separatingSources for workingLabel)
+│   │       ├── SeparationStatusBanner.swift       (yellow soft-fallback banner)
 │   │       └── SpeakerRow.swift
 │   ├── Components/
-│   │   ├── VoiceSelector.swift
-│   │   ├── SpeakerCard.swift
-│   │   ├── OrbView.swift             (Metal orb)
-│   │   ├── StatusIndicator.swift
-│   │   ├── PauseModal.swift
+│   │   ├── ActivePromptPicker.swift
 │   │   ├── AudioPlayer.swift
+│   │   ├── BackendSelector.swift
+│   │   ├── ConnectionStatus.swift
+│   │   ├── HistoryCard.swift
+│   │   ├── MacTextEditor.swift
+│   │   ├── MessageBubble.swift
 │   │   ├── MiniAudioPlayer.swift
-│   │   └── SynthesizeButton.swift
+│   │   ├── ModalContainer.swift
+│   │   ├── OrbView.swift             (Metal orb)
+│   │   ├── PauseModal.swift
+│   │   ├── ScriptGeneratorModal.swift
+│   │   ├── SpeakerCard.swift
+│   │   ├── SpeakingPaceSection.swift
+│   │   ├── StatusIndicator.swift
+│   │   ├── SynthesizeButton.swift
+│   │   ├── TextInput.swift
+│   │   └── VoiceSelector.swift
+│   ├── Theme/
+│   │   └── Theme.swift
 │   ├── Networking/
 │   │   ├── LocalLLMClient.swift      (OpenAI-compatible local endpoint)
 │   │   ├── ScriptGenerator.swift
@@ -156,12 +219,12 @@ pocket-tts-macos/
 
 ---
 
-
 ## Voice storage — two distinct stores
 
 This trips up every fresh session. Keep them straight:
 
 **Bundled (stock) voices (read-only, runtime-downloaded since Phase 8):**
+
 - Location at runtime: `~/Library/Containers/<bundle-id>/Data/Library/Application Support/pocket-tts-macos/coreml-models/installed/stock_assets-v1/voice_kv_states/*.safetensors`
 - Source: published on `huggingface.co/slaughters85j/pocket-tts-stock-assets` as `stock_assets.zip` (~20 MB compressed, ~85 MB unpacked); downloaded + SHA-verified + installed by `BundledMLModelManager` alongside the four heavy mlpackages on first launch
 - Type: `BundledVoice` (in `Models/BundledVoice.swift`)
@@ -169,6 +232,7 @@ This trips up every fresh session. Keep them straight:
 - Contents: stock-only — the seven Kyutai voices (`alba`, `azelma`, `cosette`, `fantine`, `javert`, `jean`, `marius`) plus `tokenizer.model` and `tokenizer_vocab.json`. Stock-only enforcement is structural: nothing in `pocket-tts-macos/Resources/voice_kv_states/` is tracked, so custom voices physically cannot enter the source tree.
 
 **Saved voices (user-imported, live in the sandbox container):**
+
 - Location: `~/Library/Containers/<bundle-id>/Data/Library/Application Support/pocket-tts-macos/saved-voices/`
 - Type: `Voice` (in `Engine/VoiceManager.swift`)
 - Catalog: `voices.json` in the same directory (stores basenames only; paths resolve against the current container at load)
@@ -178,6 +242,7 @@ This trips up every fresh session. Keep them straight:
 The two stores are surfaced together in pickers but managed separately. **Voices imported via the app NEVER enter `Resources/`** — they're user data, not source. Future agents: don't try to copy custom voices into source; the architecture rejects this by design.
 
 `VoiceManager` runs three on-boot hygiene tasks:
+
 1. **Directory migration** from legacy `fish-voices/` → `saved-voices/` (in-place, idempotent).
 2. **Reconcile with disk** — clears stale catalog rows whose files vanished.
 3. **Orphan recovery** — surfaces adoptable file triplets (KV + WAV, with parseable KV header) that have no catalog row, in the Voice Manager UI.
@@ -197,7 +262,7 @@ The two stores are surfaced together in pickers but managed separately. **Voices
 
 ### Testing
 
-- **XCTest for both unit and UI tests.** Do *not* adopt Swift Testing (the new `@Test`/`#expect` macro framework) — even though Xcode 16 scaffolds it by default, we standardize on XCTest for consistency with the existing `macos-service/PocketTTSMenuBar` codebase and to keep one mental model across the project.
+- **XCTest for both unit and UI tests.** Do _not_ adopt Swift Testing (the new `@Test`/`#expect` macro framework) — even though Xcode 16 scaffolds it by default, we standardize on XCTest for consistency with the existing `macos-service/PocketTTSMenuBar` codebase and to keep one mental model across the project.
 - Unit tests live in `pocket-tts-macosTests/`, UI tests in `pocket-tts-macosUITests/`
 - If Xcode generated `pocket_tts_macosTests.swift` using Swift Testing (`import Testing`, `@Test` funcs), **rewrite it to XCTest** (`import XCTest`, `final class … : XCTestCase`, `func testFoo()`) on first touch
 - Engine-layer tests (`TTSEngine`, `Tokenizer`, `VoiceLoader`) belong in unit tests; visible-flow tests (text → audio plays) belong in UI tests
@@ -229,223 +294,56 @@ This is **not** a Ubiquitous Analytics project. The UA brand-token rule does not
 - Don't make changes unrelated to the task at hand
 - Keep an eye on impact across `Engine/`, `Audio/`, and `Views/` whenever the public API of `TTSEngine` shifts
 
----
+### Work Effort Estimates
 
-## Hard rules — do NOT
-
-- ❌ Modify the upstream `pocket-tts` repo ([github.com/slaughters85j/pocket-tts](https://github.com/slaughters85j/pocket-tts)) — read-only reference for the Electron / Python pipeline this app replaced.
-- ❌ Modify the `pocket-tts-core-ml-conversion` repo ([github.com/slaughters85j/pocket-tts-core-ml-conversion](https://github.com/slaughters85j/pocket-tts-core-ml-conversion)) except for generating new `.mlpackage`s and validators. The Phase 7 HTDemucs conversion has a separate sibling repo (`pocket-tts-demucs-coreml-conversion`); same rules apply there.
-- ❌ Re-download model weights — they're already in `~/.cache/huggingface/hub/`
-- ❌ Add a Python runtime / PyInstaller / `subprocess` to this app — the whole point is to escape Python
-- ❌ Bundle `calm_step.mlpackage` or `mimi_decoder.mlpackage` (dev artifacts only)
-- ❌ Hardcode bundle paths — use `Bundle.main.url(forResource:withExtension:)` via `ModelPaths.swift`
-- ❌ Add CoreData (we use SwiftData)
-- ❌ Touch `Item.swift` from the Xcode default template — delete it once `DataModels.swift` lands
-
----
-
-## Decisions locked
-
-| Question | Answer |
-|----------|--------|
-| Fresh project vs extend menu bar | **Fresh** (this repo). Menu bar (`macos-service/`) stays separate. |
-| Python backend fallback | **No.** Core ML only. |
-| Voice cloning in v1 | **Yes** (shipped in v1.0). Via the in-app Voice Manager → saved-voices/ container. |
-| ChatLLM backend | **Local LLM Endpoint** — generic OpenAI-compatible HTTP (LM Studio, Ollama, llama.cpp server, vLLM, LocalAI). Base URL persisted in SwiftData; default `http://localhost:1234/v1`. |
-| iOS in v1 | **No.** Possibly v2 after macOS stabilizes. |
-| Default voice | TBD — caller's choice. Plan to default to `cosette` until UI persists last-used. |
-| Audio export formats | **WAV + AAC + MP3** |
-
----
+## All work effort and time estimates must be grounded in the premise that Claude Code is performing all of the implementation work, not a human developer. Express estimates in minutes or hours of Claude Code execution time, never in human developer-days or sprints. Do not translate task complexity into human calendar time. A task a human might scope as several days is typically minutes of actual execution here.
 
 ## Phase 7 — Speaker Isolation Audio Preservation
 
-Phase 7 adds optional HTDemucs source separation to the Speaker
-Isolator so music / SFX / ambient audio can survive underneath
-revoiced speech. The user-visible surface is a single "Preserve
-background under revoiced speech" toggle in the Audio Preservation
-disclosure of the Speaker Isolator sheet, plus a Manage Separation
-Models sub-sheet for the explicit 287 MB model download.
+Phase 7 adds optional HTDemucs source separation to the Speaker Isolator so music / SFX / ambient audio can survive underneath revoiced speech. The user-visible surface is a single "Preserve
+background under revoiced speech" toggle in the Audio Preservation disclosure of the Speaker Isolator sheet, plus a Manage Separation Models sub-sheet for the explicit 287 MB model download.
 
 **Locked implementation shape (do not regress these):**
 
-- Main app stays Swift / Core ML only. No Python, no PyInstaller, no
-  `Process()` shell-out at runtime. The Phase 7 zip extractor is the
-  in-process `DemucsZipExtractor` (RFC 1951 raw deflate via Apple's
-  `Compression` framework); `/usr/bin/unzip` is test-only.
-- HTDemucs ships as a user-downloaded `.mlpackage`. Do NOT vendor the
-  ~400 MB weights into the app bundle or test target. The mlpackage
-  lives at HF under `slaughters85j/htdemucs-coreml` (MIT, FP32, SHA
+- Main app stays Swift / Core ML only. No Python, no PyInstaller, no `Process()` shell-out at runtime. The Phase 7 zip extractor is the in-process `DemucsZipExtractor` (RFC 1951 raw deflate via Apple's  `Compression` framework); `/usr/bin/unzip` is test-only.
+- HTDemucs ships as a user-downloaded `.mlpackage`. Do NOT vendor the ~400 MB weights into the app bundle or test target. The mlpackage lives at HF under `slaughters85j/htdemucs-coreml` (MIT, FP32, SHA
   verified on download).
-- `DemucsSourceSeparator` MUST load with `.cpuOnly`. GPU / ANE
-  dispatch trips the macOS GPU watchdog on HTDemucs's ISTFT graph.
-- Speaker Isolator flow is **diarize-first**: load 24 kHz mono, diarize,
-  publish initial speakers, THEN (if Audio Preservation is on AND the
-  model is installed) load 44.1 kHz stereo, run HTDemucs, re-isolate
-  from the vocals stem, append a Background `SpeakerTrack` whose
-  `isolatedSamples` is the music stem.
-- Missing separator model is a **soft fallback**. With preference on
-  but model not installed, run the v1 path + set
-  `viewModel.separationFellBackToV1` so the banner surfaces. Do NOT
-  auto-download the 287 MB model from `convertAndIsolate`; the user
-  installs explicitly via Manage Separation Models.
-- The Background row uses the same `SpeakerAssignment` surface as a
-  regular speaker (`.useOriginal` + `isolatedSamples` = music stem).
-  Do NOT add a `musicStem` parameter to `MultiSpeakerRevoicer.revoice`.
-- The post-sum clip in `MultiSpeakerRevoicer` is a PIECEWISE soft-clip:
-  identity below the 0.9 knee, tanh-shaped fold above. A global
-  `tanh(x * 0.9)` attenuates in-range samples by 10–20% and is a
+- `DemucsSourceSeparator` MUST load with `.cpuOnly`. GPU / ANE dispatch trips the macOS GPU watchdog on HTDemucs's ISTFT graph.
+- Speaker Isolator flow is **diarize-first**: load 24 kHz mono, diarize, publish initial speakers, THEN (if Audio Preservation is on AND the model is installed) load 44.1 kHz stereo, run HTDemucs re-isolate from the vocals stem, append a Background `SpeakerTrack` whose `isolatedSamples` is the music stem.
+- Missing separator model is a **soft fallback**. With preference on but model not installed, run the v1 path + set `viewModel.separationFellBackToV1` so the banner surfaces. Do NOT auto-download the 287 MB model from `convertAndIsolate`; the user installs explicitly via Manage Separation Models.
+- The Background row uses the same `SpeakerAssignment` surface as a regular speaker (`.useOriginal` + `isolatedSamples` = music stem). Do NOT add a `musicStem` parameter to `MultiSpeakerRevoicer.revoice`.
+- The post-sum clip in `MultiSpeakerRevoicer` is a PIECEWISE soft-clip: identity below the 0.9 knee, tanh-shaped fold above. A global `tanh(x * 0.9)` attenuates in-range samples by 10–20% and is a
   regression.
 
 **Review guardrails future agents should re-check:**
 
-- `DemucsSourceSeparator.isModelDownloaded()` must validate a non-empty
-  mlpackage dir, not just folder existence. Empty / stale-partial
-  placements should fall back, not fail at MLModel load time.
-- `DemucsModelManager.modelFolderURL(for:)` mirrors the non-empty
-  check; otherwise `download(_:)`'s short-circuit no-ops on empty
-  placeholder dirs. Regression-tested by
+- `DemucsSourceSeparator.isModelDownloaded()` must validate a non-empty mlpackage dir, not just folder existence. Empty / stale-partial placements should fall back, not fail at MLModel load time.
+- `DemucsModelManager.modelFolderURL(for:)` mirrors the non-empty check; otherwise `download(_:)`'s short-circuit no-ops on empty placeholder dirs. Regression-tested by
   `test_downloadDoesNotShortCircuitOnEmptyFolder`.
-- Separation progress in `Status.separatingSources(chunk:total:etaSec:)`
-  reflects REAL chunk progress + rolling ETA. The separator fires a
-  `@Sendable` callback per chunk; the VM hops back to MainActor to
+- Separation progress in `Status.separatingSources(chunk:total:etaSec:)` reflects REAL chunk progress + rolling ETA. The separator fires a `@Sendable` callback per chunk; the VM hops back to MainActor to
   update Status. A static "chunk 1 of 1" placeholder is a regression.
-- "Manage Separation Models…" must remain reachable AFTER the model is
-  installed (delete / reveal / manual-placement detection). The Audio
-  Preservation section's always-visible `manageModelsLink` covers
+- "Manage Separation Models…" must remain reachable AFTER the model is installed (delete / reveal / manual-placement detection). The Audio Preservation section's always-visible `manageModelsLink` covers
   this; do not hide it behind the missing-model CTA only.
-- Sheet rescans on appear so manually-placed mlpackages are picked up
-  without an app relaunch.
+- Sheet rescans on appear so manually-placed mlpackages are picked up without an app relaunch.
 
-**Implementation file map (live as of Phase 7):**
-
-```
-Engine/
-  SourceSeparator.swift              ← protocol (separate + model lifecycle)
-  SeparatedStems.swift               ← value type (mono 24 kHz vocals + music)
-  DemucsStemMap.swift                ← channel layout constants for the [1,8,T] output
-  DemucsSourceSeparator.swift        ← actor — chunk-by-chunk inference + edge-aware OLA
-  DemucsChunker.swift                ← pure funcs (chunk offsets, triangular window, OLA)
-  DemucsResampler.swift              ← AVAudioConverter helpers (mono + stereo)
-  DemucsModelManager.swift           ← @MainActor @Observable; SHA, backoff, versioned install
-  DemucsModelManagerTypes.swift      ← DownloadState + ManagerError typealiases
-  DemucsModelInstaller.swift         ← stateless SHA verify + extract + atomic move
-  DemucsZipExtractor.swift           ← in-process zip32 parser (Compression framework)
-  DemucsModelVariant.swift           ← variant catalog (just `.htdemucs` for v1)
-  BackoffPolicy.swift                ← retry schedule value type
-
-ViewModels/
-  SpeakerIsolatorPipeline.swift      ← actor; phase methods for each pipeline step
-  SpeakerIsolatorViewModel.swift     ← state + DI; pipeline orchestration in extensions
-  SpeakerIsolatorViewModel+Convert.swift       ← convertAndIsolate (diarize-first + sep.)
-  SpeakerIsolatorViewModel+ChangeVoices.swift  ← revoice + save flow
-  SpeakerIsolatorViewModel+Exports.swift       ← per-row / batch / combined WAV save
-
-Views/SpeakerIsolator/
-  DiarizationSettingsPanel.swift     ← extracted from the sheet
-  SpeakerRow.swift                   ← extracted from the sheet
-  AudioPreservationSection.swift     ← THE toggle + always-visible Manage link + missing-model CTA
-  SeparationStatusBanner.swift       ← yellow soft-fallback banner
-  SeparationProgressLabel.swift      ← formats .separatingSources for workingLabel
-Views/DemucsModelManagerSheet.swift  ← Manage Separation Models sub-sheet
-```
+Implementation file paths are now reflected in the Project Layout section above.
 
 ---
 
 ## Phase 8 — Runtime mlpackage bootstrap
 
-Phase 8 moves the four Core ML `.mlpackage` artifacts the engine
-needs to synthesize (`prompt_phase`, `calm_stateful`, `mimi_stateful`,
-`voice_prompt_phase`, ~500 MB combined) OUT of the .app bundle and
-into a runtime-downloaded set under Application Support. On a
-fresh install the app shows `FirstLaunchSetupView`, which drives
-`BundledMLModelManager.downloadAndInstallAll()` to fetch the
-mlpackages from `huggingface.co/slaughters85j/pocket-tts-coreml`,
-SHA-verify, unzip, compile to `.mlmodelc`, and cache. After this
-one-time setup the app runs fully offline (no further network
-trips for synthesis).
+Phase 8 moves the four Core ML `.mlpackage` artifacts the engine needs to synthesize (`prompt_phase`, `calm_stateful`, `mimi_stateful`, `voice_prompt_phase`, ~500 MB combined) OUT of the .app bundle and
+into a runtime-downloaded set under Application Support. On a fresh install the app shows `FirstLaunchSetupView`, which drives `BundledMLModelManager.downloadAndInstallAll()` to fetch the mlpackages from `huggingface.co/slaughters85j/pocket-tts-coreml`, SHA-verify, unzip, compile to `.mlmodelc`, and cache. After this one-time setup the app runs fully offline (no further network trips for synthesis).
 
-The App Store binary drops from ~500 MB to ~50 MB; the tradeoff
-is the user needs a network on first launch. After that, parity
-with the pre-Phase-8 offline-first behavior.
+The App Store binary drops from ~500 MB to ~50 MB; the tradeoff is the user needs a network on first launch. After that, parity with the pre-Phase-8 offline-first behavior.
 
 **Locked implementation shape (do not regress):**
 
-- `BundledMLModel` enum carries HF URL + expected SHA256 per
-  case. SHA verification is non-optional; the catch-and-cleanup
-  path triggers on mismatch + the staging dir is purged.
-- `BundledMLModelManager.shared` is `@MainActor @Observable` but
-  exposes `nonisolated static` path lookups
-  (`compiledModelURL(for:)`, `isReady`) so `ModelPaths` can
-  resolve URLs from inside TTSEngine's actor isolation without
-  crossing the MainActor boundary.
-- `ModelPaths` follows a dual-source resolution:
-  downloaded-first, bundle-fallback. A future build that chose
-  to re-bundle the mlpackages would keep working unchanged; the
-  bundle copy "wins" only when the download set is empty.
-- `AppState.bootstrapIfNeeded` is gated on
-  `BundledMLModelManager.isReady` BEFORE constructing
-  `TTSEngine`. Missing models surface as
-  `engineStatus = .needsModelDownload`, which `ContentView`
-  routes to `FirstLaunchSetupView`. The view re-calls
-  `bootstrapIfNeeded` on completion so the engine boots in the
-  next render cycle.
-- Compile step (`MLModel.compileModel(at:)`) is required for
-  every download — HF serves `.mlpackage.zip`, Core ML needs
-  `.mlmodelc`. The compile lives in
-  `BundledMLModelManager.runFullDownloadFlow` between the unzip
-  and the atomic install move; surfaced as
-  `DownloadState.compiling` so the UI shows a "Compiling…"
-  label.
-- `BundledMLModelManager` reuses `DemucsZipExtractor` (general-
-  purpose despite the name) and `BackoffPolicy` (1/4/15 s
-  production retries). Verify + unzip + compile each get their
-  own error case in `BundledMLModelManagerError` so a failure
-  banner can surface what specifically went wrong.
+- `BundledMLModel` enum carries HF URL + expected SHA256 per case. SHA verification is non-optional; the catch-and-cleanup path triggers on mismatch + the staging dir is purged.
+- `BundledMLModelManager.shared` is `@MainActor @Observable` but exposes `nonisolated static` path lookups (`compiledModelURL(for:)`, `isReady`) so `ModelPaths` can resolve URLs from inside TTSEngine's actor isolation without crossing the MainActor boundary.
+- `ModelPaths` follows a dual-source resolution: downloaded-first, bundle-fallback. A future build that chose to re-bundle the mlpackages would keep working unchanged; the bundle copy "wins" only when the download set is empty.
+- `AppState.bootstrapIfNeeded` is gated on `BundledMLModelManager.isReady` BEFORE constructing `TTSEngine`. Missing models surface as `engineStatus = .needsModelDownload`, which `ContentView` routes to `FirstLaunchSetupView`. The view re-calls `bootstrapIfNeeded` on completion so the engine boots in the next render cycle.
+- Compile step (`MLModel.compileModel(at:)`) is required for every download — HF serves `.mlpackage.zip`, Core ML needs `.mlmodelc`. The compile lives in `BundledMLModelManager.runFullDownloadFlow` between the unzip and the atomic install move; surfaced as `DownloadState.compiling` so the UI shows a "Compiling…" label.
+- `BundledMLModelManager` reuses `DemucsZipExtractor` (general-purpose despite the name) and `BackoffPolicy` (1/4/15 s production retries). Verify + unzip + compile each get their own error case in `BundledMLModelManagerError` so a failure banner can surface what specifically went wrong.
 
-**Implementation file map (live as of Phase 8):**
-
-```
-Engine/
-  BundledMLModel.swift                ← 4-case catalog (URL + SHA + display strings)
-  BundledMLModelManagerTypes.swift    ← DownloadState + ManagerError
-  BundledMLModelManager.swift         ← @MainActor @Observable singleton
-                                         download → SHA verify → unzip →
-                                         compile → atomic install
-  ModelPaths.swift                    ← dual-source resolution
-                                         (downloaded > bundle > throw)
-
-App/
-  AppState.swift                      ← .needsModelDownload status case
-                                         + bootstrap readiness gate
-
-Views/
-  FirstLaunchSetupView.swift          ← full-screen download UI
-                                         (header + per-model rows + footer)
-
-ContentView.swift                     ← routes .needsModelDownload to
-                                         FirstLaunchSetupView
-```
-
----
-
-## Phase tracking
-
-See `pocket-tts-macos/road-map.md` for the canonical phased plan with hour estimates.
-
-Quick status:
-
-- [x] Phase −1: project bootstrap (Xcode project, git, GitHub remote, road-map, CLAUDE.md)
-- [x] Phase 0a — voice KV state precompute: 7 voices exported to the conversion repo's `voice_kv_states/*.safetensors` (T_voice 125–161 per voice; not vendored into this repo)
-- [x] Phase 0b — `prompt_phase.mlpackage` converted, 140 MB, validated against PyTorch at 1.84% worst K rel-err (passing 5% threshold). Notable: ANE compile rejects multi-position SDPA; runs CPU+GPU
-- [x] Phase 0c — Swift engine: Tokenizer, VoiceLoader, TTSEngine + Xcode project scaffolding
-- [x] Phase 0d — end-to-end Swift unit test (text → wav, no Python)
-- [x] Phase 1: streaming audio (StreamingPlayer, WAVEncoder, AAC/MP3 encoder)
-- [x] Phase 2: MVP SwiftUI shell (single-voice mode → v0.1 shippable)
-- [x] Phase 3: MultiTalk + History (SwiftData)
-- [x] Phase 4: LM Studio chat
-- [x] Phase 5: Orb (Metal shader port)
-- [ ] Phase 6: polish, signing, notarization, Sparkle, DMG
-- [x] Phase 7: Speaker Isolation Audio Preservation (HTDemucs source separation; optional, user-downloaded model)
-- [x] Phase 8: Runtime mlpackage bootstrap (BundledMLModelManager; first-launch download of the four Core ML mlpackages from HF, replacing the bundled-asset sync flow; drops App Store binary size from ~500 MB to ~50 MB)
-- [ ] Deferred v2: EnhancementStudio v2, AudioCompare, iOS variant
+Implementation file paths are now reflected in the Project Layout section above.
