@@ -74,6 +74,14 @@ struct ContentView: View {
             // off UserDefaults into SwiftData. Idempotent — `loadOrSeed*`
             // is a no-op once rows exist.
             migrateChatSettingsIntoSwiftDataIfNeeded()
+            // Window re-creation guard: `appState` (and thus the engine +
+            // `.ready` status) survives a window close, but this view's
+            // `@State` view models do not. On a reopened window the status
+            // is already `.ready`, so `.onChange(of:engineStatus)` never
+            // fires and the VMs would stay nil — leaving `readyView` stuck
+            // on its `loadingView` fallback. Spin them up here too; the
+            // method is idempotent so this is safe on cold launch.
+            if case .ready = appState.engineStatus { spinUpViewModels() }
         }
         .onChange(of: appState.engineStatus) { _, newStatus in
             if case .ready = newStatus { spinUpViewModels() }

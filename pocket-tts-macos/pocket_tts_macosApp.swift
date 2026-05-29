@@ -13,8 +13,21 @@ import SwiftUI
 // AppState holds the shared TTSEngine + StreamingPlayer pair so the three
 // tabs reuse one instance instead of paying the engine load cost three times.
 
+// MARK: - App delegate
+// Single-window utility: closing the last window should fully terminate
+// the process, not leave it running window-less in the dock (the macOS
+// default for `WindowGroup`). Opting in here means the red close button
+// behaves the same as ⌘Q for this app.
+
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        true
+    }
+}
+
 @main
 struct pocket_tts_macosApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var appState = AppState()
 
     var body: some Scene {
