@@ -195,4 +195,4 @@ written by John Saunders.
 For questions about this acknowledgments document, please open an
 issue at:
 
-https://github.com/slaughters85j/pocket-tts-macos/issues
+https://github.com/slaughters85j/mimika-ai-voice-studio/issues

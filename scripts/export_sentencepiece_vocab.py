@@ -36,8 +36,8 @@ if DEFAULT_VENV not in sys.path:
 
 from sentencepiece import sentencepiece_model_pb2 as model_pb2  # noqa: E402
 
-SP_MODEL = Path('/Users/system-backup/dev_local/pocket-tts-macos/pocket-tts-macos/Resources/tokenizer.model')
-OUT_JSON = Path('/Users/system-backup/dev_local/pocket-tts-macos/pocket-tts-macos/Resources/tokenizer_vocab.json')
+SP_MODEL = Path('/Users/system-backup/dev_local/mimika-ai-voice-studio/mimika-ai-voice-studio/Resources/tokenizer.model')
+OUT_JSON = Path('/Users/system-backup/dev_local/mimika-ai-voice-studio/mimika-ai-voice-studio/Resources/tokenizer_vocab.json')
 
 MODEL_TYPE_NAMES = {0: 'UNIGRAM', 1: 'BPE', 2: 'WORD', 3: 'CHAR'}
 

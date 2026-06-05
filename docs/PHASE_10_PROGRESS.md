@@ -22,11 +22,11 @@ Files:
 ```
 M  scripts/validate_lavasr_enhancement.py   (LR params 4000/256 → 8000/1024;
                                               matches LavaEnhance.load_audio)
-M  pocket-tts-macos/Engine/LavaSR/LavaSREnhancerBWE.swift     (SR 44100 → 48000)
-A  pocket-tts-macos/Engine/LavaSR/LavaSRFastLRMerge.swift     (NEW)
-M  pocket-tts-macos/Engine/LavaSR/LavaSRPipeline.swift        (LR-merge wiring)
-A  pocket-tts-macosTests/Helpers/NpyReader.swift              (NEW; .npy + .safetensors helper)
-A  pocket-tts-macosTests/LavaSRFastLRMergeTests.swift         (NEW)
+M  mimika-ai-voice-studio/Engine/LavaSR/LavaSREnhancerBWE.swift     (SR 44100 → 48000)
+A  mimika-ai-voice-studio/Engine/LavaSR/LavaSRFastLRMerge.swift     (NEW)
+M  mimika-ai-voice-studio/Engine/LavaSR/LavaSRPipeline.swift        (LR-merge wiring)
+A  mimika-ai-voice-studioTests/Helpers/NpyReader.swift              (NEW; .npy + .safetensors helper)
+A  mimika-ai-voice-studioTests/LavaSRFastLRMergeTests.swift         (NEW)
 ```
 
 ## Uncommitted — Bucket "C3-partial": 3 of 5 ULUNAS sub-modules
@@ -54,8 +54,8 @@ NOT done in this bucket (requires bidirectional GRU port — see Risks):
 Files in C3-partial:
 ```
 A  scripts/export_lavasr_denoiser_weights.py
-A  pocket-tts-macos/Engine/LavaSR/LavaSRDenoiserModules.swift
-A  pocket-tts-macosTests/LavaSRDenoiserModuleTests.swift
+A  mimika-ai-voice-studio/Engine/LavaSR/LavaSRDenoiserModules.swift
+A  mimika-ai-voice-studioTests/LavaSRDenoiserModuleTests.swift
 ```
 
 ## Pending
@@ -75,11 +75,11 @@ A  pocket-tts-macosTests/LavaSRDenoiserModuleTests.swift
 ## Sanity-check: full Phase 10 test sweep
 
 ```
-xcodebuild -scheme pocket-tts-macos -destination 'platform=macOS' \
-  -only-testing:pocket-tts-macosTests/VoicePipelineTests \
-  -only-testing:pocket-tts-macosTests/VoiceEnhancerSoftClipTests \
-  -only-testing:pocket-tts-macosTests/LavaSRFastLRMergeTests \
-  -only-testing:pocket-tts-macosTests/LavaSRDenoiserModuleTests \
+xcodebuild -scheme mimika-ai-voice-studio -destination 'platform=macOS' \
+  -only-testing:mimika-ai-voice-studioTests/VoicePipelineTests \
+  -only-testing:mimika-ai-voice-studioTests/VoiceEnhancerSoftClipTests \
+  -only-testing:mimika-ai-voice-studioTests/LavaSRFastLRMergeTests \
+  -only-testing:mimika-ai-voice-studioTests/LavaSRDenoiserModuleTests \
   test
 ```
 

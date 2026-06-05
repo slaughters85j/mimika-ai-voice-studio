@@ -4,7 +4,7 @@ LavaSR end-to-end Python reference + per-stage dumps.
 
 Drives the full `LavaEnhance2` pipeline (denoise + BWE + Linkwitz-Riley
 merge) for every fixture under
-`pocket-tts-macosTests/Fixtures/lavasr_phase10/`, saving the per-stage
+`mimika-ai-voice-studioTests/Fixtures/lavasr_phase10/`, saving the per-stage
 intermediates as `.npy` files so the Swift port can assert numerical
 parity stage-by-stage.
 
@@ -40,7 +40,7 @@ Per-stage outputs land in the same `lavasr_phase10/` fixtures dir so
 Swift tests can pick them up via the same path.
 
 Usage:
-    cd /Users/system-backup/dev_local/pocket-tts-macos
+    cd /Users/system-backup/dev_local/mimika-ai-voice-studio
 
     # Electron's lavasr-venv has LavaSR + vocos + torch installed:
     /Users/system-backup/Library/Application\\ Support/pocket-tts-electron/lavasr-venv/bin/python \\
@@ -70,7 +70,7 @@ import torchaudio.functional as TAF
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-FIXTURES_DIR = REPO_ROOT / "pocket-tts-macosTests" / "Fixtures" / "lavasr_phase10"
+FIXTURES_DIR = REPO_ROOT / "mimika-ai-voice-studioTests" / "Fixtures" / "lavasr_phase10"
 
 
 # ──────────────────────────────────────────────────────────────────────

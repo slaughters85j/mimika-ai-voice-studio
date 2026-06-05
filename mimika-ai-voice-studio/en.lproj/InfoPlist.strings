@@ -1,0 +1,7 @@
+/* Localized bundle name — shown in Finder, the Dock, and Launchpad.
+   Lets the app display "Mimika" without changing PRODUCT_NAME or renaming
+   the Xcode target (which would ripple into TEST_HOST, the product
+   reference, schemes, and git). Paired with LSHasLocalizedDisplayName = YES
+   in the generated Info.plist. */
+"CFBundleDisplayName" = "Mimika";
+"CFBundleName" = "Mimika";

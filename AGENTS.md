@@ -8,7 +8,7 @@ Single-shot context for any Codex session working in this repo. Read first.
 
 ## Project Overview
 
-**pocket-tts-macos** is a native Swift / SwiftUI macOS app that replaces the existing Electron-based pocket-tts frontend with a fully on-device, Python-free TTS application. It runs the Kyutai pocket-tts model end-to-end via Core ML `.mlpackage` artifacts (CaLM + Mimi codec), with no Python server, no PyInstaller bundle, and no network dependency for synthesis.
+**mimika-ai-voice-studio** is a native Swift / SwiftUI macOS app that replaces the existing Electron-based pocket-tts frontend with a fully on-device, Python-free TTS application. It runs the Kyutai pocket-tts model end-to-end via Core ML `.mlpackage` artifacts (CaLM + Mimi codec), with no Python server, no PyInstaller bundle, and no network dependency for synthesis.
 
 
 ---
@@ -68,11 +68,11 @@ workspace at runtime.
 ## Project Layout
 
 ```
-pocket-tts-macos/
+mimika-ai-voice-studio/
 ├── CLAUDE.md
 ├── AGENTS.md                          ← this file
-├── pocket-tts-macos.xcodeproj/
-├── pocket-tts-macos/
+├── mimika-ai-voice-studio.xcodeproj/
+├── mimika-ai-voice-studio/
 │   ├── pocket_tts_macosApp.swift     (@main entry point)
 │   ├── ContentView.swift             (NavigationSplitView; routes .needsModelDownload → FirstLaunchSetupView)
 │   ├── road-map.md
@@ -216,8 +216,8 @@ pocket-tts-macos/
 │   │   ├── ScriptGenerator.swift
 │   │   └── SentenceDetector.swift
 │   └── Assets.xcassets/
-├── pocket-tts-macosTests/              (XCTest unit tests + fixtures + mocks)
-└── pocket-tts-macosUITests/
+├── mimika-ai-voice-studioTests/              (XCTest unit tests + fixtures + mocks)
+└── mimika-ai-voice-studioUITests/
 ```
 
 ---
@@ -228,14 +228,14 @@ pocket-tts-macos/
 This trips up every fresh session. Keep them straight:
 
 **Bundled (stock) voices (read-only, runtime-downloaded since Phase 8):**
-- Location at runtime: `~/Library/Containers/<bundle-id>/Data/Library/Application Support/pocket-tts-macos/coreml-models/installed/stock_assets-v1/voice_kv_states/*.safetensors`
+- Location at runtime: `~/Library/Containers/<bundle-id>/Data/Library/Application Support/mimika-ai-voice-studio/coreml-models/installed/stock_assets-v1/voice_kv_states/*.safetensors`
 - Source: published on `huggingface.co/slaughters85j/pocket-tts-stock-assets` as `stock_assets.zip`; downloaded + SHA-verified + installed by `BundledMLModelManager` alongside the four heavy mlpackages on first launch
 - Type: `BundledVoice` (in `Models/BundledVoice.swift`)
 - Catalog: built dynamically by `VoiceLoader.loadAll()` at engine init, via `ModelPaths.allVoiceKVStateFiles()` (manager-installed first, `Bundle.main` fallback)
 - Contents: stock-only — the seven Kyutai voices (`alba`, `azelma`, `cosette`, `fantine`, `javert`, `jean`, `marius`). Nothing under `Resources/voice_kv_states/` is tracked in the repo, so custom voices physically cannot enter source.
 
 **Saved voices (user-imported, live in the sandbox container):**
-- Location: `~/Library/Containers/<bundle-id>/Data/Library/Application Support/pocket-tts-macos/saved-voices/`
+- Location: `~/Library/Containers/<bundle-id>/Data/Library/Application Support/mimika-ai-voice-studio/saved-voices/`
 - Type: `Voice` (in `Engine/VoiceManager.swift`)
 - Catalog: `voices.json` in the same directory (stores basenames only; paths resolve against the current container at load)
 - Files: `<UUID>.wav` + `<UUID>_codes.npy` + `<UUID>_kv.safetensors` + optional `<UUID>_enhanced.wav`
@@ -299,7 +299,7 @@ music / SFX / ambient audio can survive underneath revoiced speech.
 ### Testing
 
 - **XCTest for both unit and UI tests.** Do *not* adopt Swift Testing (the new `@Test`/`#expect` macro framework) — even though Xcode 16 scaffolds it by default, we standardize on XCTest for consistency with the existing `macos-service/PocketTTSMenuBar` codebase and to keep one mental model across the project.
-- Unit tests live in `pocket-tts-macosTests/`, UI tests in `pocket-tts-macosUITests/`
+- Unit tests live in `mimika-ai-voice-studioTests/`, UI tests in `mimika-ai-voice-studioUITests/`
 - If Xcode generated `pocket_tts_macosTests.swift` using Swift Testing (`import Testing`, `@Test` funcs), **rewrite it to XCTest** (`import XCTest`, `final class … : XCTestCase`, `func testFoo()`) on first touch
 - Engine-layer tests (`TTSEngine`, `Tokenizer`, `VoiceLoader`) belong in unit tests; visible-flow tests (text → audio plays) belong in UI tests
 
@@ -325,7 +325,7 @@ This is **not** a Ubiquitous Analytics project. The UA brand-token rule does not
 ### Coding workflow
 
 - **Refactor over add.** Reuse existing types in this repo before writing new code from scratch
-- No mocking in dev/prod code. Mocks live in `pocket-tts-macosTests/` only
+- No mocking in dev/prod code. Mocks live in `mimika-ai-voice-studioTests/` only
 - Don't introduce a new pattern or library to "fix" something — first exhaust the existing pattern, then propose replacement
 - Don't make changes unrelated to the task at hand
 - Keep an eye on impact across `Engine/`, `Audio/`, and `Views/` whenever the public API of `TTSEngine` shifts

@@ -8,7 +8,7 @@ against these reference tensors.
 Also produces the final conditioning tensor for direct comparison.
 
 Usage:
-    cd /Users/system-backup/dev_local/pocket-tts-macos
+    cd /Users/system-backup/dev_local/mimika-ai-voice-studio
     source /Users/system-backup/dev_local/pocket-tts-core-ml-conversion/.venv/bin/activate
     python scripts/validate_mimi_encoder.py [--wav path/to/voice.wav]
 """

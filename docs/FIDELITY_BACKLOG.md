@@ -1,6 +1,6 @@
 # Pocket TTS macOS — Fidelity Backlog
 
-**Source comparison.** `/Users/system-backup/dev_local/pocket-tts` (Python+Electron reference) vs `/Users/system-backup/dev_local/pocket-tts-macos` (native macOS rewrite).
+**Source comparison.** `/Users/system-backup/dev_local/pocket-tts` (Python+Electron reference) vs `/Users/system-backup/dev_local/mimika-ai-voice-studio` (native macOS rewrite).
 
 **Scope.** Pocket-TTS backend pipeline only. Fish backend, voice manager, and UI are out of scope for this pass.
 
@@ -243,7 +243,7 @@ These are program-specific to your QinetiQ work. Python equivalent is loaded fro
 
 ### P4-3. Test coverage
 
-Python `tests/test_text_normalizer.py` exists. Swift `pocket-tts-macosTests/` has tests but no `TextNormalizerTests.swift` visible in the list I scanned. Should be a parity test that runs the *same fixtures* on both implementations and diffs.
+Python `tests/test_text_normalizer.py` exists. Swift `mimika-ai-voice-studioTests/` has tests but no `TextNormalizerTests.swift` visible in the list I scanned. Should be a parity test that runs the *same fixtures* on both implementations and diffs.
 
 ---
 

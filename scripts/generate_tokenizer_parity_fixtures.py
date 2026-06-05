@@ -22,8 +22,8 @@ sys.path.insert(0, '/Users/system-backup/dev_local/pocket-tts/.venv/lib/python3.
 
 import sentencepiece as spm
 
-SP_MODEL = '/Users/system-backup/dev_local/pocket-tts-macos/pocket-tts-macos/Resources/tokenizer.model'
-OUT = Path('/Users/system-backup/dev_local/pocket-tts-macos/pocket-tts-macosTests/Fixtures/tokenizer_parity.json')
+SP_MODEL = '/Users/system-backup/dev_local/mimika-ai-voice-studio/mimika-ai-voice-studio/Resources/tokenizer.model'
+OUT = Path('/Users/system-backup/dev_local/mimika-ai-voice-studio/mimika-ai-voice-studioTests/Fixtures/tokenizer_parity.json')
 
 # Test corpus. Covers:
 #   - The specific words user reported broken (friends, perfect)

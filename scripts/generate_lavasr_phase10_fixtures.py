@@ -5,7 +5,7 @@ Generate Phase 10 LavaSR test fixtures.
 Produces three 8-second voice WAV files at 16 kHz mono used by the
 LavaSR parity tests:
 
-    pocket-tts-macosTests/Fixtures/lavasr_phase10/
+    mimika-ai-voice-studioTests/Fixtures/lavasr_phase10/
         lavasr_fixture_studio_clean_8s.wav    — clean macOS-`say` synthesis
         lavasr_fixture_phone_noisy_8s.wav     — studio + AWGN (-15 dB SNR)
                                               + telephone-band attenuation
@@ -18,7 +18,7 @@ fixed RNG seed. Re-running this script overwrites the fixtures with
 identical bytes.
 
 Usage:
-    cd /Users/system-backup/dev_local/pocket-tts-macos
+    cd /Users/system-backup/dev_local/mimika-ai-voice-studio
     /Users/system-backup/Library/Application\\ Support/pocket-tts-electron/lavasr-venv/bin/python \\
         scripts/generate_lavasr_phase10_fixtures.py
 
@@ -38,7 +38,7 @@ import soundfile as sf
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-FIXTURES_DIR = REPO_ROOT / "pocket-tts-macosTests" / "Fixtures" / "lavasr_phase10"
+FIXTURES_DIR = REPO_ROOT / "mimika-ai-voice-studioTests" / "Fixtures" / "lavasr_phase10"
 
 # Voice / text are both deterministic — bumping either rotates fixtures.
 SAY_VOICE = "Samantha"
