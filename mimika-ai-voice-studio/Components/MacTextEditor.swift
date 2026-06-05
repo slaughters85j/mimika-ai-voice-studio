@@ -45,6 +45,11 @@ struct MacTextEditor: NSViewRepresentable {
     /// applies the color attribute to every matching tag after each
     /// text change. nil / empty → no colorization, plain text only.
     var tagColors: [String: NSColor]? = nil
+    /// Optional accessibility identifier applied directly to the underlying
+    /// NSTextView so UI tests can address the editor as `app.textViews[id]`.
+    /// A SwiftUI `.accessibilityIdentifier` on the representable lands on a
+    /// wrapper element, not the NSTextView, so it isn't reachable that way.
+    var accessibilityID: String? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator(text: $text, bridge: bridge)
@@ -62,6 +67,9 @@ struct MacTextEditor: NSViewRepresentable {
         tv.drawsBackground = false
         scroll.drawsBackground = false
         tv.textContainerInset = NSSize(width: 4, height: 6)
+
+        // Expose the editor to UI tests as an addressable text view.
+        if let accessibilityID { tv.setAccessibilityIdentifier(accessibilityID) }
 
         // Find / Find-and-Replace bar (Cmd+F → the slide-in bar at the
         // top of the editor with Find / Replace toggle, Done, count).

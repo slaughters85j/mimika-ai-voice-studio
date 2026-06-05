@@ -7,14 +7,19 @@
 
 import XCTest
 
+@MainActor
 final class AppShellUITests: XCTestCase {
 
-    private var app: XCUIApplication!
+    nonisolated(unsafe) private var app: XCUIApplication!
 
-    override func setUpWithError() throws {
+    nonisolated override func setUpWithError() throws {
         continueAfterFailure = false
-        app = XCUIApplication()
-        app.launch()
+        let launchedApp = MainActor.assumeIsolated { () -> XCUIApplication in
+            let a = XCUIApplication()
+            a.launch()
+            return a
+        }
+        app = launchedApp
     }
 
     private func waitForReady(timeout: TimeInterval = 30) {

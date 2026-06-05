@@ -112,10 +112,15 @@ struct TextInput: View {
                         .padding(.vertical, Theme.space3 + 4)
                         .allowsHitTesting(false)
                 }
-                MacTextEditor(text: $text, isEditable: !disabled, bridge: editorBridge, tagColors: tagColors)
+                MacTextEditor(
+                    text: $text,
+                    isEditable: !disabled,
+                    bridge: editorBridge,
+                    tagColors: tagColors,
+                    accessibilityID: accessibilityID
+                )
                     .padding(.horizontal, Theme.space4 - 4)
                     .padding(.vertical, Theme.space3 - 6)
-                    .accessibilityIdentifier(accessibilityID)
             }
             // Flex to fill the column rather than demanding a fixed tall
             // height: the inner NSScrollView already scrolls, so the editor

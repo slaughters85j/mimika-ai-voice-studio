@@ -9,14 +9,19 @@
 
 import XCTest
 
+@MainActor
 final class ChatUITests: XCTestCase {
 
-    private var app: XCUIApplication!
+    nonisolated(unsafe) private var app: XCUIApplication!
 
-    override func setUpWithError() throws {
+    nonisolated override func setUpWithError() throws {
         continueAfterFailure = false
-        app = XCUIApplication()
-        app.launch()
+        let launchedApp = MainActor.assumeIsolated { () -> XCUIApplication in
+            let a = XCUIApplication()
+            a.launch()
+            return a
+        }
+        app = launchedApp
     }
 
     private func waitForReady() {
@@ -54,14 +59,13 @@ final class ChatUITests: XCTestCase {
         XCTAssertTrue(gear.waitForExistence(timeout: 3))
         gear.click()
 
-        let urlField = app.descendants(matching: .any)
-            .matching(identifier: "settings.baseURL")
-            .firstMatch
-        XCTAssertTrue(urlField.waitForExistence(timeout: 3))
+        // The Chat tab's gear opens ChatSettingsView (TTS voice + system
+        // prompt) — not the app-wide settings. Its Done button carries a
+        // stable identifier, so its presence proves the sheet rendered.
+        let done = app.buttons["chatSettings.doneButton"]
+        XCTAssertTrue(done.waitForExistence(timeout: 3), "Chat Settings sheet did not open")
 
-        // Dismiss with the Done button so this test is idempotent.
-        let done = app.buttons["settings.doneButton"]
-        XCTAssertTrue(done.exists)
+        // Dismiss so the test is idempotent.
         done.click()
     }
 }

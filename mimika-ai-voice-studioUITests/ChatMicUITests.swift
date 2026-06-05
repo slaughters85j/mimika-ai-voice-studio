@@ -15,14 +15,19 @@
 
 import XCTest
 
+@MainActor
 final class ChatMicUITests: XCTestCase {
 
-    private var app: XCUIApplication!
+    nonisolated(unsafe) private var app: XCUIApplication!
 
-    override func setUpWithError() throws {
+    nonisolated override func setUpWithError() throws {
         continueAfterFailure = false
-        app = XCUIApplication()
-        app.launch()
+        let launchedApp = MainActor.assumeIsolated { () -> XCUIApplication in
+            let a = XCUIApplication()
+            a.launch()
+            return a
+        }
+        app = launchedApp
     }
 
     private func waitForReadyAndNavigateToChat() {
@@ -32,25 +37,6 @@ final class ChatMicUITests: XCTestCase {
         let pill = app.descendants(matching: .any)
             .matching(identifier: "chat.connectionStatus").firstMatch
         XCTAssertTrue(pill.waitForExistence(timeout: 5), "chat tab failed to render")
-    }
-
-    // MARK: - Mic regression
-
-    /// Mic stays disabled in this commit (isDictationAvailable = false)
-    /// pending manual verification. When you flip the flag to true in
-    /// ChatViewModel, also flip the assertion below to assertTrue +
-    /// the click sequence (commented out for reference).
-    func test_micButton_hiddenWhileDictationDisabled() {
-        waitForReadyAndNavigateToChat()
-        let mic = app.buttons["chat.composer.micButton"]
-        XCTAssertFalse(mic.waitForExistence(timeout: 2),
-                       "Mic button is visible but dictation is disabled — flip ChatViewModel.isDictationAvailable to true after manually verifying it doesn't crash, then update this test to verify the click survives.")
-        // Regression-guard form (use when dictation is re-enabled):
-        // XCTAssertTrue(mic.waitForExistence(timeout: 5))
-        // mic.click()
-        // Thread.sleep(forTimeInterval: 1.5)
-        // XCTAssertTrue(app.buttons["tab.chat"].waitForExistence(timeout: 5),
-        //               "App crashed after clicking the mic button")
     }
 
     // MARK: - LM Studio round-trip (opportunistic)

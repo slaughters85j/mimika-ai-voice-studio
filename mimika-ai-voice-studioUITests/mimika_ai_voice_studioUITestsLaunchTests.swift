@@ -7,6 +7,7 @@
 
 import XCTest
 
+@MainActor
 final class mimika_ai_voice_studioUITestsLaunchTests: XCTestCase {
 
     override class var runsForEachTargetApplicationUIConfiguration: Bool {
