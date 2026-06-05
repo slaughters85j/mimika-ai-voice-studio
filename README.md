@@ -1,4 +1,4 @@
-# Mimika
+# Mimika – AI Voice Studio
 
 > Formerly **Pocket TTS macOS** — now shipping on the Mac App Store as **Mimika – AI Voice Studio**.
 
