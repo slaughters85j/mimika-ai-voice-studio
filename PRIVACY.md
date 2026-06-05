@@ -117,4 +117,4 @@ release notes on GitHub.
 
 For questions about this policy, please open an issue at:
 
-https://github.com/slaughters85j/pocket-tts-macos/issues
+https://github.com/slaughters85j/mimika-ai-voice-studio/issues

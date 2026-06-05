@@ -52,7 +52,7 @@ need fp32 fallback.
 ### Files to Create
 
 ```
-pocket-tts-macos/Engine/VoiceEnhancer.swift    (~200 lines)
+mimika-ai-voice-studio/Engine/VoiceEnhancer.swift    (~200 lines)
   - Actor wrapping the MLX LavaSR model
   - `enhance(inputURL: URL, outputURL: URL, denoise: Bool) async throws`
   - RMS normalization built-in

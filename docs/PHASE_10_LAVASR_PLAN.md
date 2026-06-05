@@ -120,7 +120,7 @@ the rest of the plan is blocked.
   - `lrmerge_output_48k.npy`
   - `final_normalized.npy`
 - Commit the 3 fixture WAVs and the 5 reference `.npy` files per fixture
-  under `pocket-tts-macosTests/Fixtures/lavasr_phase10/`.
+  under `mimika-ai-voice-studioTests/Fixtures/lavasr_phase10/`.
 - **Verify:** `python scripts/validate_lavasr_enhancement.py --full`
   exits 0 and produces 15 `.npy` files. Their byte-lengths and dtypes
   match documented expectations.
@@ -329,7 +329,7 @@ Add `VoiceEnhancerSoftClipTests`:
 - Upload to `slaughters85j/pocket-tts-voice-tools` next to the existing
   `lavasr_enhancer_v2.safetensors`. Bump the repo's manifest SHA (the
   one consumed by `BundledMLModel.voiceTools.expectedSHA256`).
-- Update `pocket-tts-macos/Engine/BundledMLModel.swift`:
+- Update `mimika-ai-voice-studio/Engine/BundledMLModel.swift`:
   ```swift
   case voiceTools:
       // SHA updated for v2 bundle including lavasr_denoiser.safetensors
@@ -356,16 +356,16 @@ Add `VoiceEnhancerSoftClipTests`:
 
 ### New tests
 
-- `pocket-tts-macosTests/LavaSRDenoiserModuleTests.swift`
-- `pocket-tts-macosTests/LavaSRDenoiserBlockTests.swift`
-- `pocket-tts-macosTests/LavaSRDenoiserParityTests.swift`
-- `pocket-tts-macosTests/LavaSRFastLRMergeTests.swift`
-- `pocket-tts-macosTests/LavaSRPipelineEndToEndParityTests.swift`
-- `pocket-tts-macosTests/VoiceEnhancerSoftClipTests.swift`
-- `pocket-tts-macosTests/Fixtures/lavasr_phase10/lavasr_fixture_studio_clean_8s.wav`
-- `pocket-tts-macosTests/Fixtures/lavasr_phase10/lavasr_fixture_phone_noisy_8s.wav`
-- `pocket-tts-macosTests/Fixtures/lavasr_phase10/lavasr_fixture_webcam_8s.wav`
-- `pocket-tts-macosTests/Fixtures/lavasr_phase10/*.npy` (15 per-stage references)
+- `mimika-ai-voice-studioTests/LavaSRDenoiserModuleTests.swift`
+- `mimika-ai-voice-studioTests/LavaSRDenoiserBlockTests.swift`
+- `mimika-ai-voice-studioTests/LavaSRDenoiserParityTests.swift`
+- `mimika-ai-voice-studioTests/LavaSRFastLRMergeTests.swift`
+- `mimika-ai-voice-studioTests/LavaSRPipelineEndToEndParityTests.swift`
+- `mimika-ai-voice-studioTests/VoiceEnhancerSoftClipTests.swift`
+- `mimika-ai-voice-studioTests/Fixtures/lavasr_phase10/lavasr_fixture_studio_clean_8s.wav`
+- `mimika-ai-voice-studioTests/Fixtures/lavasr_phase10/lavasr_fixture_phone_noisy_8s.wav`
+- `mimika-ai-voice-studioTests/Fixtures/lavasr_phase10/lavasr_fixture_webcam_8s.wav`
+- `mimika-ai-voice-studioTests/Fixtures/lavasr_phase10/*.npy` (15 per-stage references)
 
 ### Modified in main repo
 
@@ -402,15 +402,15 @@ Add `VoiceEnhancerSoftClipTests`:
 ### Per-commit gate
 
 ```
-xcodebuild -scheme pocket-tts-macos -destination 'platform=macOS' build
-xcodebuild -scheme pocket-tts-macos -destination 'platform=macOS' \
-  -only-testing:pocket-tts-macosTests/VoicePipelineTests \
-  -only-testing:pocket-tts-macosTests/LavaSRFastLRMergeTests \
-  -only-testing:pocket-tts-macosTests/LavaSRDenoiserModuleTests \
-  -only-testing:pocket-tts-macosTests/LavaSRDenoiserBlockTests \
-  -only-testing:pocket-tts-macosTests/LavaSRDenoiserParityTests \
-  -only-testing:pocket-tts-macosTests/LavaSRPipelineEndToEndParityTests \
-  -only-testing:pocket-tts-macosTests/VoiceEnhancerSoftClipTests \
+xcodebuild -scheme mimika-ai-voice-studio -destination 'platform=macOS' build
+xcodebuild -scheme mimika-ai-voice-studio -destination 'platform=macOS' \
+  -only-testing:mimika-ai-voice-studioTests/VoicePipelineTests \
+  -only-testing:mimika-ai-voice-studioTests/LavaSRFastLRMergeTests \
+  -only-testing:mimika-ai-voice-studioTests/LavaSRDenoiserModuleTests \
+  -only-testing:mimika-ai-voice-studioTests/LavaSRDenoiserBlockTests \
+  -only-testing:mimika-ai-voice-studioTests/LavaSRDenoiserParityTests \
+  -only-testing:mimika-ai-voice-studioTests/LavaSRPipelineEndToEndParityTests \
+  -only-testing:mimika-ai-voice-studioTests/VoiceEnhancerSoftClipTests \
   test
 ```
 
@@ -424,7 +424,7 @@ python scripts/export_lavasr_denoiser_weights.py
 
 ### Manual end-to-end after Commit 9
 
-1. Fresh install (delete `~/Library/Application Support/pocket-tts-macos/`),
+1. Fresh install (delete `~/Library/Application Support/mimika-ai-voice-studio/`),
    first launch → `FirstLaunchSetupView` downloads the voice-tools bundle
    (now ~283 MB instead of ~280 MB). Verify completion.
 2. Import a noisy phone recording → toggle "Enhance with LavaSR" ON,

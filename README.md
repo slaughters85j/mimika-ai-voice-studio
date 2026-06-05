@@ -62,7 +62,7 @@ Benchmarked on M1 Ultra with the same 57-character input text, varying reference
 - **15 seconds is the quality sweet spot** for reference audio — enough voice signal for high-fidelity cloning without diluting it. Shorter clips (3-6s) produce noticeably lower quality; 20s offers no improvement over 15s.
 - **Pocket-TTS generates the same text in 2.11s** (2.9x real-time, 27 chars/s) — ~15x faster than Fish.
 
-The benchmark test is in `pocket-tts-macosTests/FishRefLengthBenchmark.swift`.
+The benchmark test is in `mimika-ai-voice-studioTests/FishRefLengthBenchmark.swift`.
 
 ## Voice Management
 
@@ -73,7 +73,7 @@ The Voice Manager (waveform icon in the app header) is the canonical place to im
 WAV → [LavaSR enhancement (optional)] → [Fish DAC encode] + [MimiEncoder → voice_prompt_phase → KV safetensors]
 ```
 
-**Storage:** Saved voices live in the app's sandbox container — `~/Library/Containers/<bundle-id>/Data/Library/Application Support/pocket-tts-macos/saved-voices/`. Each voice is a triplet (`<UUID>.wav`, `<UUID>_codes.npy`, `<UUID>_kv.safetensors`) plus an optional `<UUID>_enhanced.wav`, with a `voices.json` catalog at the same directory. The catalog stores basenames only — paths are resolved against the current container at load time so the catalog survives sandbox migrations, bundle-ID changes, and backup restores. The seven Kyutai stock voices ship in `Resources/voice_kv_states/` in the app bundle; custom voices never enter source.
+**Storage:** Saved voices live in the app's sandbox container — `~/Library/Containers/<bundle-id>/Data/Library/Application Support/mimika-ai-voice-studio/saved-voices/`. Each voice is a triplet (`<UUID>.wav`, `<UUID>_codes.npy`, `<UUID>_kv.safetensors`) plus an optional `<UUID>_enhanced.wav`, with a `voices.json` catalog at the same directory. The catalog stores basenames only — paths are resolved against the current container at load time so the catalog survives sandbox migrations, bundle-ID changes, and backup restores. The seven Kyutai stock voices ship in `Resources/voice_kv_states/` in the app bundle; custom voices never enter source.
 
 - **LavaSR Enhancement** — MLX-native port of the Vocos BWE (bandwidth extension) model. Uses a custom ISTFT head matching the Python Vocos pipeline exactly: periodic Hann window, window-squared overlap-add normalization, and "same" padding. Off by default for new voices until the ULUNAS denoiser port + artifact tuning land; can introduce perceptible artifacts on clean source audio. Best suited for noisy or low-quality recordings.
 - **RMS Normalization** — All imported voices are automatically RMS-normalized to -16 dB at import time, ensuring consistent volume for encoding regardless of whether enhancement is applied.
@@ -122,24 +122,24 @@ Clone, build, run — no extra setup. The repo ships zero model weights; everyth
   * `pocket-tts-stock-assets` — `tokenizer.model`, `tokenizer_vocab.json`, and the seven Kyutai voice KV state safetensors (~20 MB zipped, CC-BY 4.0).
   * `pocket-tts-voice-tools` — `lavasr_enhancer_v2.safetensors` (LavaSR enhancement) + `mimi_encoder_weights.safetensors` (voice import) (~86 MB zipped, MIT / CC-BY 4.0).
 
-The `Resources/` folder is intentionally absent from the source tree — there is nothing to bundle. The first-launch sheet downloads everything, SHA-verifies each artifact, and installs under `~/Library/Containers/.../Application Support/pocket-tts-macos/coreml-models/`.
+The `Resources/` folder is intentionally absent from the source tree — there is nothing to bundle. The first-launch sheet downloads everything, SHA-verifies each artifact, and installs under `~/Library/Containers/.../Application Support/mimika-ai-voice-studio/coreml-models/`.
 
 ```bash
 # Build (Debug)
-xcodebuild -project pocket-tts-macos.xcodeproj \
-    -scheme pocket-tts-macos \
+xcodebuild -project mimika-ai-voice-studio.xcodeproj \
+    -scheme mimika-ai-voice-studio \
     -destination 'platform=macOS' \
     -configuration Debug build
 
 # Run tests
-xcodebuild -project pocket-tts-macos.xcodeproj \
-    -scheme pocket-tts-macos \
+xcodebuild -project mimika-ai-voice-studio.xcodeproj \
+    -scheme mimika-ai-voice-studio \
     -destination 'platform=macOS' test
 ```
 
 ### Release archives
 
-Stock-only enforcement is now structural: nothing in `pocket-tts-macos/Resources/voice_kv_states/` is tracked, and custom voices live exclusively in the user's app container at `~/Library/Containers/<bundle-id>/Data/Library/Application Support/pocket-tts-macos/saved-voices/`. The archive workflow is:
+Stock-only enforcement is now structural: nothing in `mimika-ai-voice-studio/Resources/voice_kv_states/` is tracked, and custom voices live exclusively in the user's app container at `~/Library/Containers/<bundle-id>/Data/Library/Application Support/mimika-ai-voice-studio/saved-voices/`. The archive workflow is:
 
 ```bash
 xcodebuild archive ...

@@ -13,13 +13,13 @@ trace, then convert directly via coremltools (no ONNX intermediate —
 coremltools 9.0 deprecated that path).
 
 Usage:
-    cd /Users/system-backup/dev_local/pocket-tts-macos
+    cd /Users/system-backup/dev_local/mimika-ai-voice-studio
     /Users/system-backup/Library/Application\\ Support/pocket-tts-electron/lavasr-venv/bin/python \\
         scripts/convert_lavasr_denoiser_to_coreml.py
 
 Outputs:
-    pocket-tts-macosTests/Fixtures/lavasr_phase10/lavasr_denoiser.mlpackage
-    pocket-tts-macosTests/Fixtures/lavasr_phase10/lavasr_denoiser_golden_*.npy
+    mimika-ai-voice-studioTests/Fixtures/lavasr_phase10/lavasr_denoiser.mlpackage
+    mimika-ai-voice-studioTests/Fixtures/lavasr_phase10/lavasr_denoiser_golden_*.npy
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ import torch
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-FIXTURES_DIR = REPO_ROOT / "pocket-tts-macosTests" / "Fixtures" / "lavasr_phase10"
+FIXTURES_DIR = REPO_ROOT / "mimika-ai-voice-studioTests" / "Fixtures" / "lavasr_phase10"
 
 # Fixed I/O shape for the Core ML model.
 INPUT_LENGTH_SAMPLES = 128_000  # 8 s @ 16 kHz

@@ -4,7 +4,7 @@ Export LavaSR v2 enhancer weights to safetensors for mlx-swift.
 Run from the pocket-tts venv (which has LavaSR installed).
 
 Usage:
-    cd /Users/system-backup/dev_local/pocket-tts-macos
+    cd /Users/system-backup/dev_local/mimika-ai-voice-studio
     source /Users/system-backup/dev_local/pocket-tts/.venv/bin/activate
     python scripts/export_lavasr_weights.py
 """
@@ -17,7 +17,7 @@ import safetensors.torch
 from huggingface_hub import hf_hub_download
 
 def main():
-    out_dir = Path("pocket-tts-macos/Resources/lavasr")
+    out_dir = Path("mimika-ai-voice-studio/Resources/lavasr")
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # Download enhancer v2 weights from HuggingFace
