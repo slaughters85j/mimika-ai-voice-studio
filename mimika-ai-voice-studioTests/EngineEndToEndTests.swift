@@ -48,11 +48,17 @@ final class EngineEndToEndTests: XCTestCase {
         print("================================================================")
     }
 
-    /// Catalog should expose all 34 bundled voices.
+    /// Catalog should expose the stock (baked-in) voices. The old `≥30`
+    /// expectation reflected a prior architecture; the current one bakes in
+    /// only the stock Kyutai voices (BundledVoice.stockIDs) — custom voices
+    /// are user-imported, not part of the catalog under test.
     func test_voiceCatalog_hasAllBundledVoices() async throws {
         let engine = try await TTSEngine()
         let ids = engine.availableVoiceIDs()
-        XCTAssertGreaterThanOrEqual(ids.count, 30, "expected ≥30 voices in catalog; got \(ids.count): \(ids)")
+        XCTAssertGreaterThanOrEqual(
+            ids.count, BundledVoice.stockIDs.count,
+            "expected at least the \(BundledVoice.stockIDs.count) stock voices; got \(ids.count): \(ids)"
+        )
         XCTAssertTrue(ids.contains(testVoiceID), "catalog missing default voice '\(testVoiceID)': \(ids)")
         // Stock voices must all be present
         for stock in BundledVoice.stockIDs {
