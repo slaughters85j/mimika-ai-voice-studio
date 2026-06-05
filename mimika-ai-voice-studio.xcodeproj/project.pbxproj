@@ -42,7 +42,6 @@
 		D53CE66A2FD2FADC0071832E /* DemucsModelVariant.swift in Sources */ = {isa = PBXBuildFile; fileRef = D53CE59C2FD2FADC0071832E /* DemucsModelVariant.swift */; };
 		D53CE66B2FD2FADC0071832E /* OrbShader.metal in Sources */ = {isa = PBXBuildFile; fileRef = D53CE5D32FD2FADC0071832E /* OrbShader.metal */; };
 		D53CE66C2FD2FADC0071832E /* MessageBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = D53CE5822FD2FADC0071832E /* MessageBubble.swift */; };
-		D53CE66D2FD2FADC0071832E /* FishRefLengthBenchmark.swift in Sources */ = {isa = PBXBuildFile; fileRef = D53CE62B2FD2FADC0071832E /* FishRefLengthBenchmark.swift */; };
 		D53CE66E2FD2FADC0071832E /* DemucsSourceSeparatorParityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D53CE6272FD2FADC0071832E /* DemucsSourceSeparatorParityTests.swift */; };
 		D53CE66F2FD2FADC0071832E /* mimika_ai_voice_studioUITestsLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D53CE64A2FD2FADC0071832E /* mimika_ai_voice_studioUITestsLaunchTests.swift */; };
 		D53CE6702FD2FADC0071832E /* VoiceSelector.swift in Sources */ = {isa = PBXBuildFile; fileRef = D53CE58D2FD2FADC0071832E /* VoiceSelector.swift */; };
@@ -375,7 +374,6 @@
 		D53CE6282FD2FADC0071832E /* DemucsZipExtractorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemucsZipExtractorTests.swift; sourceTree = "<group>"; };
 		D53CE6292FD2FADC0071832E /* DictationControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationControllerTests.swift; sourceTree = "<group>"; };
 		D53CE62A2FD2FADC0071832E /* EngineEndToEndTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EngineEndToEndTests.swift; sourceTree = "<group>"; };
-		D53CE62B2FD2FADC0071832E /* FishRefLengthBenchmark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FishRefLengthBenchmark.swift; sourceTree = "<group>"; };
 		D53CE62C2FD2FADC0071832E /* HistoryStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryStoreTests.swift; sourceTree = "<group>"; };
 		D53CE62D2FD2FADC0071832E /* LavaSRDenoiserParityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LavaSRDenoiserParityTests.swift; sourceTree = "<group>"; };
 		D53CE62E2FD2FADC0071832E /* LavaSRFastLRMergeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LavaSRFastLRMergeTests.swift; sourceTree = "<group>"; };
@@ -799,7 +797,6 @@
 				D53CE6282FD2FADC0071832E /* DemucsZipExtractorTests.swift */,
 				D53CE6292FD2FADC0071832E /* DictationControllerTests.swift */,
 				D53CE62A2FD2FADC0071832E /* EngineEndToEndTests.swift */,
-				D53CE62B2FD2FADC0071832E /* FishRefLengthBenchmark.swift */,
 				D53CE62C2FD2FADC0071832E /* HistoryStoreTests.swift */,
 				D53CE62D2FD2FADC0071832E /* LavaSRDenoiserParityTests.swift */,
 				D53CE62E2FD2FADC0071832E /* LavaSRFastLRMergeTests.swift */,
@@ -1163,7 +1160,6 @@
 				D53CE6602FD2FADC0071832E /* AudioPreconditionerTests.swift in Sources */,
 				D53CE6672FD2FADC0071832E /* SpeakerIsolatorViewModelDisabledModeRegressionTests.swift in Sources */,
 				D53CE6692FD2FADC0071832E /* AudioFileLoaderStereoTests.swift in Sources */,
-				D53CE66D2FD2FADC0071832E /* FishRefLengthBenchmark.swift in Sources */,
 				D53CE66E2FD2FADC0071832E /* DemucsSourceSeparatorParityTests.swift in Sources */,
 				D53CE6782FD2FADC0071832E /* EngineEndToEndTests.swift in Sources */,
 				D53CE67E2FD2FADC0071832E /* MultiTalkScriptParserTests.swift in Sources */,
