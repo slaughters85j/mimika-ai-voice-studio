@@ -208,7 +208,7 @@ nonisolated enum CompressedAudioWriter {
         }
         input.markAsFinished()
 
-        await writer.finishWriting()
+        await finishWritingGuarded(writer)
         if writer.status == .failed {
             throw WriterError.writerFailed(writer.error)
         }
@@ -261,9 +261,40 @@ nonisolated enum CompressedAudioWriter {
         }
         input.markAsFinished()
 
-        await writer.finishWriting()
+        await finishWritingGuarded(writer)
         if writer.status == .failed {
             throw WriterError.writerFailed(writer.error)
+        }
+    }
+
+    // MARK: - finishWriting (guarded)
+
+    /// Drive `AVAssetWriter.finishWriting` through an explicitly guarded
+    /// continuation. The compiler's async bridge of `finishWriting()` is
+    /// backed by an UNSAFE continuation, and `finishWriting`'s NSOperation/
+    /// KVO completion has been observed to fire the resume twice (or against
+    /// a torn-down task) — which corrupts memory and crashes in
+    /// `swift_continuation_resumeImpl` (EXC_BAD_ACCESS). A one-shot latch
+    /// makes a duplicate/late completion a no-op instead of a crash.
+    private static func finishWritingGuarded(_ writer: AVAssetWriter) async {
+        let once = ResumeOnce()
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            writer.finishWriting {
+                if once.claim() { cont.resume() }
+            }
+        }
+    }
+
+    /// One-shot, thread-safe latch so the continuation resumes at most once.
+    private nonisolated final class ResumeOnce: @unchecked Sendable {
+        private let lock = NSLock()
+        private var done = false
+        func claim() -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            if done { return false }
+            done = true
+            return true
         }
     }
 
