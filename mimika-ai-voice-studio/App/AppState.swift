@@ -228,7 +228,18 @@ final class AppState {
         // Gate 2: build the engine.
         do {
             let engine = try await TTSEngine()
-            let player = try StreamingPlayer()
+            // Build the AVAudioEngine-backed player OFF the main thread.
+            // StreamingPlayer.init() runs engine.attach/connect/prepare, which
+            // synchronously realizes the output chain against the audio HAL —
+            // a `.default`-QoS subsystem. On the @MainActor bootstrap that cost
+            // ~260 ms of main-thread time at launch AND tripped a priority
+            // inversion (a user-initiated thread waiting on `.default`). A
+            // `.utility` detached task keeps the setup off the main thread and
+            // at/below the HAL's QoS, so it neither hitches launch nor inverts.
+            // (AVAudioEngine graph setup is thread-safe.)
+            let player = try await Task.detached(priority: .utility) {
+                try StreamingPlayer()
+            }.value
             self.engine = engine
             self.player = player
             self.fishEngine = FishEngine()

@@ -67,16 +67,27 @@ actor StreamingPlayer {
     private var drainCompletedEarly = false
     private(set) var isStopped = false
 
-    /// All blocking AVAudioEngine lifecycle calls (start / stop / pause /
-    /// setDeviceID) run on this serial queue at a fixed `.default` QoS —
-    /// matching AVFoundation's own internal timer queue — so they never
-    /// execute on, or block, a higher-QoS thread. Ordered operations are
-    /// awaited via continuation, which SUSPENDS the actor rather than blocking
-    /// it; that suspension is what actually defeats the priority inversion the
-    /// Thread Performance Checker flags around `AVAudioPlayerNode.stop()`.
+    /// Serial queue for blocking AVAudioEngine lifecycle calls (start / stop /
+    /// pause / setDeviceID). The queue carries NO fixed QoS, so each work item
+    /// runs at the QoS of whatever submits it:
+    ///
+    ///   * AWAITED hops (`startEngineAndPlayer`, `rebindOutputDevice`) submit a
+    ///     plain `async` block, which inherits the calling actor's QoS. Caller
+    ///     and work item then share a QoS, so a high-QoS task never sits blocked
+    ///     on lower-QoS work — which is the priority inversion the Thread
+    ///     Performance Checker flags. (An earlier version pinned these at
+    ///     `.default` with `.enforceQoS`. That flag FORBIDS the priority boost,
+    ///     so it *guaranteed* the inversion whenever a `user-initiated` caller
+    ///     awaited the hop — confirmed by a QoS trace: caller 25, block 21.
+    ///     Suspending the actor via continuation does NOT break the QoS
+    ///     wait-for edge; the runtime still sees 25 waiting on 21.)
+    ///
+    ///   * The FIRE-AND-FORGET teardown (`stopEngineAndPlayer`) still pins
+    ///     itself at `.default` with `.enforceQoS`: nobody awaits it, so there's
+    ///     no inversion, and pinning keeps `AVAudioEngine.stop()`'s internal
+    ///     `CancelTimer` off a high-QoS thread.
     private let controlQueue = DispatchQueue(
-        label: "com.slaughtersj.mimika-ai-voice-studio.streamingplayer.control",
-        qos: .default
+        label: "com.slaughtersj.mimika-ai-voice-studio.streamingplayer.control"
     )
 
     // MARK: - Output-route following
@@ -258,8 +269,10 @@ actor StreamingPlayer {
     private func startEngineAndPlayer() async throws {
         let eng = engine
         let pn = playerNode
+        // Plain `async` (no qos / no .enforceQoS): the block inherits the
+        // awaiting actor's QoS, so the awaiter never blocks on lower-QoS work.
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            controlQueue.async(qos: .default, flags: .enforceQoS) {
+            controlQueue.async {
                 do {
                     if !eng.isRunning { try eng.start() }
                     if !pn.isPlaying { pn.play() }
@@ -297,8 +310,12 @@ actor StreamingPlayer {
     ) async -> AudioDeviceID? {
         let eng = engine
         let pn = playerNode
+        // Plain `async` (no qos / no .enforceQoS): inherits the awaiting actor's
+        // QoS so the awaiter never blocks on lower-QoS work. (On first playback
+        // `wasRunning` is false, so no `eng.stop()` runs here; mid-session
+        // re-binds are driven from the route-change Task, not a high-QoS caller.)
         return await withCheckedContinuation { (cont: CheckedContinuation<AudioDeviceID?, Never>) in
-            controlQueue.async(qos: .default, flags: .enforceQoS) {
+            controlQueue.async {
                 if wasRunning { eng.stop() }
                 var bound: AudioDeviceID?
                 do {

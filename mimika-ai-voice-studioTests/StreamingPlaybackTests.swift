@@ -11,7 +11,14 @@ import AVFoundation
 import XCTest
 @testable import mimika_ai_voice_studio
 
-final class StreamingPlaybackTests: XCTestCase {
+// `nonisolated` keeps this test off the main actor, so its synchronous
+// `StreamingPlayer()` construction (engine attach/connect/prepare) doesn't run
+// on the main thread. NOTE: XCTest still invokes `async` test methods at
+// `user-initiated` QoS regardless of isolation, so this attribute does NOT
+// lower the test's QoS. The priority inversion that used to fire here was fixed
+// at the source — StreamingPlayer's awaited control-queue hops no longer pin
+// themselves below the caller with `.enforceQoS` — not by changing test isolation.
+nonisolated final class StreamingPlaybackTests: XCTestCase {
 
     // MARK: - Shared canonical phrase
     private let testPhrase = "Hello world, this is a Core ML conversion test."
