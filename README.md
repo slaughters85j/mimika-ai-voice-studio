@@ -1,4 +1,10 @@
-# Pocket TTS macOS
+# Mimika
+
+> Formerly **Pocket TTS macOS** — now shipping on the Mac App Store as **Mimika – AI Voice Studio**.
+
+<a href="https://apps.apple.com/us/app/mimika-ai-voice-studio/id6770328363?mt=12">
+  <img src="https://toolbox.marketingtools.apple.com/api/v2/badges/download-on-the-mac-app-store/black/en-us" alt="Download Mimika on the Mac App Store" height="48">
+</a>
 
 A fully native macOS app that replaces the [Electron-based Pocket TTS](https://github.com/slaughters85j/pocket-tts) frontend with a Python-free, on-device text-to-speech application. Runs two TTS backends — Kyutai's Pocket-TTS (~100M params, Core ML) and Fish Audio S2 Pro (~5B params, MLX) — with unified voice management, LavaSR voice enhancement, and LM Studio chat integration.
 
