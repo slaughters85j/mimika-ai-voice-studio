@@ -40,6 +40,7 @@ nonisolated enum Theme {
     static let badgeMultiFG  = Color(red: 0.75, green: 0.55, blue: 1.0)      // ~tailwind purple-400
 
     static let successFG = Color(red: 0.3, green: 0.85, blue: 0.4)            // tailwind green-500-ish
+    static let successFGDark = Color(red: 0.22, green: 0.62, blue: 0.34)      // darker green for outlined / transparent-fill treatments
     static let errorFG   = Color(red: 0.95, green: 0.35, blue: 0.35)
     static let warningFG = Color(red: 0.95, green: 0.75, blue: 0.30)          // amber-400-ish
 

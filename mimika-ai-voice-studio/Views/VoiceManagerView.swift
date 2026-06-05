@@ -14,6 +14,7 @@ import UniformTypeIdentifiers
 
 private enum ImportStep: Equatable {
     case dropZone
+    case record
     case savePreset
     case enhancementSettings
     case enhancing
@@ -91,6 +92,20 @@ struct VoiceManagerView: View {
                     }
                     Divider().background(Theme.borderColor)
                     doneButton
+                case .record:
+                    VoiceRecorderView(
+                        onUse: { url, name in
+                            pendingFileURL = url
+                            voiceName = name
+                            voiceDescription = ""
+                            importError = nil
+                            importStep = .savePreset
+                        },
+                        onCancel: { importStep = .dropZone }
+                    )
+                    // Fill the modal's full height so the record step doesn't
+                    // shrink the sheet relative to the drop-zone step.
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 case .savePreset:
                     savePresetView
                 case .enhancementSettings:
@@ -138,6 +153,7 @@ struct VoiceManagerView: View {
     private var modalTitle: String {
         switch importStep {
         case .dropZone: return "Voice Manager"
+        case .record: return "Record Voice"
         case .savePreset: return "Save Voice Preset"
         case .enhancementSettings, .enhancing, .comparison: return "Enhancement Studio"
         }
@@ -206,6 +222,20 @@ struct VoiceManagerView: View {
             }
             .buttonStyle(.plain)
             .onDrop(of: [.audio, .fileURL], isTargeted: $isDropTargeted) { handleDrop($0) }
+
+            Button(action: { importStep = .record }) {
+                HStack(spacing: Theme.space2) {
+                    Image(systemName: "mic.fill").font(.system(size: 13))
+                    Text("Record Voice").font(Theme.fontSM)
+                }
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, Theme.space3)
+                .background(Theme.badgeSingleFG)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("voiceManager.recordButton")
         }
     }
 

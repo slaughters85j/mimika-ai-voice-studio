@@ -7,6 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		297244A0784F43AD5DDC752C /* VoiceRecorderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B6B92722E9401E7184418D8 /* VoiceRecorderView.swift */; };
+		9033479D61A32A041F03B2A4 /* MicrophoneRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 980F894943A89B60283FDCB8 /* MicrophoneRecorder.swift */; };
+		9A28843F630780EC11A80853 /* RecordingQualityAnalyzer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B324F0FD7499845E6EDA68A4 /* RecordingQualityAnalyzer.swift */; };
+		D1CE0591FA2E58F9E18ACD95 /* VoiceRecorderViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14BDDD7B827E5800F6747CE2 /* VoiceRecorderViewModel.swift */; };
 		D50B19572FC1302900097B8B /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = D50B19562FC1302900097B8B /* FluidAudio */; };
 		D52D51B52FBA6FD00037F6C4 /* MLXAudioCore in Frameworks */ = {isa = PBXBuildFile; productRef = D52D51B42FBA6FD00037F6C4 /* MLXAudioCore */; };
 		D52D51BF2FBA6FD00037F6C4 /* MLXAudioTTS in Frameworks */ = {isa = PBXBuildFile; productRef = D52D51BE2FBA6FD00037F6C4 /* MLXAudioTTS */; };
@@ -217,6 +221,10 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		14BDDD7B827E5800F6747CE2 /* VoiceRecorderViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceRecorderViewModel.swift; sourceTree = "<group>"; };
+		4B6B92722E9401E7184418D8 /* VoiceRecorderView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceRecorderView.swift; sourceTree = "<group>"; };
+		980F894943A89B60283FDCB8 /* MicrophoneRecorder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MicrophoneRecorder.swift; sourceTree = "<group>"; };
+		B324F0FD7499845E6EDA68A4 /* RecordingQualityAnalyzer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RecordingQualityAnalyzer.swift; sourceTree = "<group>"; };
 		D53CE5742FD2FADC0071832E /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
 		D53CE5752FD2FADC0071832E /* SynthesisStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynthesisStatus.swift; sourceTree = "<group>"; };
 		D53CE5772FD2FADC0071832E /* AACEncoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AACEncoder.swift; sourceTree = "<group>"; };
@@ -343,7 +351,7 @@
 		D53CE6032FD2FADC0071832E /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		D53CE6042FD2FADC0071832E /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		D53CE6062FD2FADC0071832E /* mimika-ai-voice-studio.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "mimika-ai-voice-studio.entitlements"; sourceTree = "<group>"; };
-		D53CE6072FD2FADC0071832E /* mimika_ai_voice_studioApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "mimika_ai_voice_studioApp.swift"; sourceTree = "<group>"; };
+		D53CE6072FD2FADC0071832E /* mimika_ai_voice_studioApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = mimika_ai_voice_studioApp.swift; sourceTree = "<group>"; };
 		D53CE6092FD2FADC0071832E /* lavasr_denoiser.mlpackage */ = {isa = PBXFileReference; lastKnownFileType = folder.mlpackage; path = lavasr_denoiser.mlpackage; sourceTree = "<group>"; };
 		D53CE60A2FD2FADC0071832E /* lavasr_denoiser_golden_random_audio.npy */ = {isa = PBXFileReference; lastKnownFileType = file; path = lavasr_denoiser_golden_random_audio.npy; sourceTree = "<group>"; };
 		D53CE60B2FD2FADC0071832E /* lavasr_denoiser_golden_random_input.npy */ = {isa = PBXFileReference; lastKnownFileType = file; path = lavasr_denoiser_golden_random_input.npy; sourceTree = "<group>"; };
@@ -494,6 +502,8 @@
 				D53CE5942FD2FADC0071832E /* VideoMuxer.swift */,
 				D53CE5952FD2FADC0071832E /* VoiceLevel.swift */,
 				D53CE5962FD2FADC0071832E /* WSOLATimeCompressor.swift */,
+				980F894943A89B60283FDCB8 /* MicrophoneRecorder.swift */,
+				B324F0FD7499845E6EDA68A4 /* RecordingQualityAnalyzer.swift */,
 			);
 			path = Audio;
 			sourceTree = "<group>";
@@ -672,6 +682,7 @@
 				D53CE5EA2FD2FADC0071832E /* SpeakerIsolatorViewModel+Convert.swift */,
 				D53CE5EB2FD2FADC0071832E /* SpeakerIsolatorViewModel+Exports.swift */,
 				D53CE5EC2FD2FADC0071832E /* VoiceChangerViewModel.swift */,
+				14BDDD7B827E5800F6747CE2 /* VoiceRecorderViewModel.swift */,
 			);
 			path = ViewModels;
 			sourceTree = "<group>";
@@ -705,6 +716,7 @@
 				D53CE5FE2FD2FADC0071832E /* TabBar.swift */,
 				D53CE5FF2FD2FADC0071832E /* VoiceChangerSheet.swift */,
 				D53CE6002FD2FADC0071832E /* VoiceManagerView.swift */,
+				4B6B92722E9401E7184418D8 /* VoiceRecorderView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -898,8 +910,6 @@
 				D5ECD2292FB78D5B00C23A9D /* PBXTargetDependency */,
 			);
 			name = "mimika-ai-voice-studioTests";
-			packageProductDependencies = (
-			);
 			productName = "mimika-ai-voice-studioTests";
 			productReference = D5ECD2272FB78D5B00C23A9D /* mimika-ai-voice-studioTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
@@ -918,8 +928,6 @@
 				D5ECD2332FB78D5B00C23A9D /* PBXTargetDependency */,
 			);
 			name = "mimika-ai-voice-studioUITests";
-			packageProductDependencies = (
-			);
 			productName = "mimika-ai-voice-studioUITests";
 			productReference = D5ECD2312FB78D5B00C23A9D /* mimika-ai-voice-studioUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
@@ -1144,6 +1152,10 @@
 				D53CE6F32FD2FADC0071832E /* VoiceManagerView.swift in Sources */,
 				D53CE6F62FD2FADC0071832E /* SpeakerIsolatorViewModel.swift in Sources */,
 				D53CE6822FD2FADC0071832E /* lavasr_denoiser.mlpackage in Sources */,
+				9033479D61A32A041F03B2A4 /* MicrophoneRecorder.swift in Sources */,
+				9A28843F630780EC11A80853 /* RecordingQualityAnalyzer.swift in Sources */,
+				D1CE0591FA2E58F9E18ACD95 /* VoiceRecorderViewModel.swift in Sources */,
+				297244A0784F43AD5DDC752C /* VoiceRecorderView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1391,7 +1403,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = 1.5.2;
+				MARKETING_VERSION = 1.5.3;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.slaughters85j.pocket-tts-macos";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -1442,7 +1454,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = 1.5.2;
+				MARKETING_VERSION = 1.5.3;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.slaughters85j.pocket-tts-macos";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;

@@ -330,8 +330,9 @@ struct ContentView: View {
     // MARK: - Header (drag region + title)
 
     private var header: some View {
-        HStack {
-            Spacer()
+        ZStack {
+            // Centered title — sits in the full header width so the trailing
+            // controls (the wider Voice Manager badge) don't shove it off-center.
             VStack(spacing: 2) {
                 Text("Mimika")
                     .font(Theme.font2XL)
@@ -340,12 +341,20 @@ struct ContentView: View {
                     .font(Theme.fontSM)
                     .foregroundStyle(Theme.textSecondary)
             }
-            Spacer()
+
+            // Trailing controls, floated to the right over the centered title.
             HStack(spacing: Theme.space3) {
                 Button(action: { appState.showsVoiceManager = true }) {
-                    Image(systemName: "waveform.circle")
-                        .font(.system(size: 18))
-                        .foregroundStyle(Theme.textSecondary)
+                    HStack(spacing: 5) {
+                        Image(systemName: "waveform.circle.fill")
+                            .font(.system(size: 12))
+                        Text("Voice Manager")
+                            .font(.system(size: 11, weight: .semibold))
+                    }
+                    .foregroundStyle(Theme.successFGDark)
+                    .padding(.horizontal, Theme.space3)
+                    .padding(.vertical, 5)
+                    .background(Capsule().stroke(Theme.successFGDark, lineWidth: 1))
                 }
                 .buttonStyle(.plain)
                 .help("Voice Manager")
@@ -363,6 +372,7 @@ struct ContentView: View {
                 .help("App Settings")
                 .accessibilityIdentifier("header.appSettingsButton")
             }
+            .frame(maxWidth: .infinity, alignment: .trailing)
             .padding(.trailing, Theme.space4)
         }
         .frame(maxWidth: .infinity)
