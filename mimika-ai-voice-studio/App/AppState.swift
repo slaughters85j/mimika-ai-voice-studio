@@ -136,6 +136,14 @@ final class AppState {
     private static let multiTalkTagDisplayModeKey = "com.slaughtersj.pocket-tts-macos.multiTalkTagDisplayMode"
     private static let multiTalkUseSpeakerColorsKey = "com.slaughtersj.pocket-tts-macos.multiTalkUseSpeakerColors"
 
+    // MARK: Chat sub-mode (Solo / Ensemble)
+    /// Whether the Chat tab shows the 1:1 Solo conversation or the multi-agent
+    /// Ensemble sub-mode. Persisted so the user's choice survives launches.
+    var chatSubMode: ChatSubMode = .solo {
+        didSet { UserDefaults.standard.set(chatSubMode.rawValue, forKey: Self.chatSubModeKey) }
+    }
+    private static let chatSubModeKey = "com.slaughtersj.pocket-tts-macos.chatSubMode"
+
     /// SwiftData context for the app-wide models (LocalLLMEndpoint,
     /// SystemPrompt, history). Set by `ContentView.onAppear` once the
     /// `@Environment(\.modelContext)` is in scope. View models that
@@ -195,6 +203,9 @@ final class AppState {
         let savedTagMode = UserDefaults.standard.string(forKey: Self.multiTalkTagDisplayModeKey)
         self.multiTalkTagDisplayMode = SpeakerTagMode(rawValue: savedTagMode ?? "") ?? .speakerLabel
         self.multiTalkUseSpeakerColors = UserDefaults.standard.bool(forKey: Self.multiTalkUseSpeakerColorsKey)
+
+        let savedSubMode = UserDefaults.standard.string(forKey: Self.chatSubModeKey)
+        self.chatSubMode = ChatSubMode(rawValue: savedSubMode ?? "") ?? .solo
     }
 
     /// Build the Pocket-TTS engine + player once at app launch.

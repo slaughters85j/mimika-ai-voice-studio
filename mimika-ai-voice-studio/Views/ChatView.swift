@@ -7,6 +7,8 @@ import SwiftUI
 
 struct ChatView: View {
     @Bindable var viewModel: ChatViewModel
+    @Bindable var ensembleViewModel: EnsembleViewModel
+    @Binding var subMode: ChatSubMode
     let player: StreamingPlayer
     let onOpenSettings: () -> Void
     var onOpenInMultiTalk: ((PendingReuse) -> Void)?
@@ -15,14 +17,18 @@ struct ChatView: View {
         VStack(spacing: 0) {
             topBar
             Divider().background(Theme.borderColor)
-            if viewModel.viewMode == .orb {
-                OrbView(amplitudeSource: player.currentAmplitude)
-                    .background(Color.black)
+            if subMode == .solo {
+                if viewModel.viewMode == .orb {
+                    OrbView(amplitudeSource: player.currentAmplitude)
+                        .background(Color.black)
+                } else {
+                    transcript
+                }
+                Divider().background(Theme.borderColor)
+                composer
             } else {
-                transcript
+                EnsembleSurfaceView(viewModel: ensembleViewModel, player: player)
             }
-            Divider().background(Theme.borderColor)
-            composer
         }
         .onAppear { viewModel.startHealthChecks() }
     }
@@ -30,43 +36,58 @@ struct ChatView: View {
     // MARK: - Top bar
 
     private var topBar: some View {
-        HStack {
-            ConnectionStatusPill(state: viewModel.connectionState)
+        HStack(spacing: Theme.space3) {
+            Picker("", selection: $subMode) {
+                Text("Solo").tag(ChatSubMode.solo)
+                Text("Ensemble").tag(ChatSubMode.ensemble)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+            .accessibilityIdentifier("chat.subModeToggle")
+
+            if subMode == .solo {
+                ConnectionStatusPill(state: viewModel.connectionState)
+            }
+
             Spacer()
-            Button(action: { viewModel.saveTranscript() }) {
-                Image(systemName: "square.and.arrow.down")
-                    .font(.system(size: 13))
-                    .foregroundStyle(Theme.textSecondary)
-            }
-            .buttonStyle(.plain)
-            .disabled(!viewModel.canSaveTranscript)
-            .help("Save transcript")
 
-            Button(action: { onOpenInMultiTalk?(viewModel.multiTalkPayload()) }) {
-                Image(systemName: "person.2.wave.2")
-                    .font(.system(size: 13))
-                    .foregroundStyle(Theme.textSecondary)
-            }
-            .buttonStyle(.plain)
-            .disabled(!viewModel.canSaveTranscript)
-            .help("Open in Multi-Talk")
+            if subMode == .solo {
+                Button(action: { viewModel.saveTranscript() }) {
+                    Image(systemName: "square.and.arrow.down")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Theme.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .disabled(!viewModel.canSaveTranscript)
+                .help("Save transcript")
 
-            Button(action: { viewModel.toggleViewMode() }) {
-                Image(systemName: viewModel.viewMode == .orb ? "list.bullet" : "circle.fill")
-                    .font(.system(size: 13))
-                    .foregroundStyle(Theme.textSecondary)
-            }
-            .buttonStyle(.plain)
-            .help(viewModel.viewMode == .orb ? "Show transcript" : "Show orb")
-            .accessibilityIdentifier("chat.viewModeToggle")
+                Button(action: { onOpenInMultiTalk?(viewModel.multiTalkPayload()) }) {
+                    Image(systemName: "person.2.wave.2")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Theme.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .disabled(!viewModel.canSaveTranscript)
+                .help("Open in Multi-Talk")
 
-            Button(action: { Task { await viewModel.checkConnection() } }) {
-                Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 13))
-                    .foregroundStyle(Theme.textSecondary)
+                Button(action: { viewModel.toggleViewMode() }) {
+                    Image(systemName: viewModel.viewMode == .orb ? "list.bullet" : "circle.fill")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Theme.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .help(viewModel.viewMode == .orb ? "Show transcript" : "Show orb")
+                .accessibilityIdentifier("chat.viewModeToggle")
+
+                Button(action: { Task { await viewModel.checkConnection() } }) {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Theme.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .help("Refresh connection")
             }
-            .buttonStyle(.plain)
-            .help("Refresh connection")
 
             Button(action: onOpenSettings) {
                 Image(systemName: "gearshape")

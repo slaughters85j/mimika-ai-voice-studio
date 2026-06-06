@@ -26,7 +26,7 @@ import SwiftData
 // `turnModeRaw`. `.weightedRandom` is the default (free, with mention
 // override); `.director` costs one LLM call per turn (opt-in).
 
-enum TurnMode: String, Codable, CaseIterable, Sendable {
+nonisolated enum TurnMode: String, Codable, CaseIterable, Sendable {
     case roundRobin
     case weightedRandom
     case director

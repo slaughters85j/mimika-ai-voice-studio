@@ -7,7 +7,12 @@
 //  EnsembleDataModels.swift: the @Models are storage; these are the in-memory,
 //  Sendable shapes the loop, conductor, and POV renderer pass around. A
 //  saved `EnsemblePersona` is mapped to a runtime `Persona` when a cast is
-//  loaded (see Phase 1's EnsembleViewModel).
+//  loaded.
+//
+//  All of these are `nonisolated` (matching BundledVoice / PCMFrame house
+//  style) so the nonisolated Conductor and the SpokenTurnRunner's @Sendable
+//  task closures can construct and read them without crossing the module's
+//  default MainActor isolation.
 
 import Foundation
 
@@ -16,7 +21,7 @@ import Foundation
 // the system prompt that defines the character, the per-agent LLM temperature,
 // and a turn-selection weight (talkativeness dial).
 
-struct Persona: Identifiable, Equatable, Sendable {
+nonisolated struct Persona: Identifiable, Equatable, Sendable {
     let id: UUID
     var name: String
     var voiceID: String
@@ -45,7 +50,7 @@ struct Persona: Identifiable, Equatable, Sendable {
 // The human participant, modeled as a peer (not the hub) so the loop renders
 // their turns the same way it renders any other named speaker.
 
-struct UserPeer: Equatable, Sendable {
+nonisolated struct UserPeer: Equatable, Sendable {
     var name: String = "You"
 }
 
@@ -53,7 +58,7 @@ struct UserPeer: Equatable, Sendable {
 // One entry in the canonical, app-side transcript — the source of truth for
 // both POV rendering and audio export. `speakerID == nil` means the user.
 
-struct EnsembleTurn: Identifiable, Equatable, Sendable {
+nonisolated struct EnsembleTurn: Identifiable, Equatable, Sendable {
     let id: UUID
     var speakerID: UUID?
     var speakerName: String
@@ -84,9 +89,9 @@ struct EnsembleTurn: Identifiable, Equatable, Sendable {
 // MARK: - Loop state
 
 /// The public face of the turn-loop state machine
-/// (idle → pick → generate → speak → append → loop), plus the user-turn and
-/// step-gate states.
-enum RunState: Equatable, Sendable {
+/// (idle -> pick -> generate -> speak -> append -> loop), plus the user-turn
+/// and step-gate states.
+nonisolated enum RunState: Equatable, Sendable {
     case idle
     case picking
     case generating(speaker: UUID)
@@ -97,14 +102,23 @@ enum RunState: Equatable, Sendable {
 }
 
 /// Whether the loop advances autonomously or one turn at a time.
-enum AdvanceMode: Sendable {
+nonisolated enum AdvanceMode: Sendable {
     case auto
     case step
 }
 
 /// How the scramble dial behaves: re-draw the order every turn (chaos) or
 /// shuffle once at run start (stable-but-scrambled rotation).
-enum RNGMode: Sendable {
+nonisolated enum RNGMode: Sendable {
     case rerollPerTurn
     case shuffleOnce
+}
+
+// MARK: - ChatSubMode
+// The Chat tab's Solo (1:1) vs Ensemble (multi-agent) toggle. Persisted on
+// AppState; defaults to .solo so existing behavior is unchanged on launch.
+
+nonisolated enum ChatSubMode: String, CaseIterable, Sendable {
+    case solo
+    case ensemble
 }
