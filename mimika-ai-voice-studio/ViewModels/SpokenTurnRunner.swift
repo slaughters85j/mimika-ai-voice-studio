@@ -36,6 +36,11 @@ final class SpokenTurnRunner {
         var speak: Bool
         /// When true (and `speak`), retain each turn's PCM for export.
         var collectSamples: Bool
+        /// Stop sequences (e.g. other speakers' "Name:") so the model can't
+        /// script other characters in one turn.
+        var stop: [String]? = nil
+        /// Hard ceiling on a turn's length (OpenAI `max_tokens`).
+        var maxTokens: Int? = nil
     }
 
     struct Result: Sendable {
@@ -96,7 +101,9 @@ final class SpokenTurnRunner {
                 messages: request.messages,
                 model: request.model,
                 systemPrompt: request.systemPrompt,
-                temperature: request.temperature
+                temperature: request.temperature,
+                stop: request.stop,
+                maxTokens: request.maxTokens
             )
             do {
                 for try await delta in stream {

@@ -10,6 +10,8 @@ struct ChatView: View {
     @Bindable var ensembleViewModel: EnsembleViewModel
     @Binding var subMode: ChatSubMode
     let player: StreamingPlayer
+    let voices: [BundledVoice]
+    let appState: AppState
     let onOpenSettings: () -> Void
     var onOpenInMultiTalk: ((PendingReuse) -> Void)?
 
@@ -27,7 +29,7 @@ struct ChatView: View {
                 Divider().background(Theme.borderColor)
                 composer
             } else {
-                EnsembleSurfaceView(viewModel: ensembleViewModel, player: player)
+                EnsembleSurfaceView(viewModel: ensembleViewModel, player: player, voices: voices, appState: appState)
             }
         }
         .onAppear { viewModel.startHealthChecks() }

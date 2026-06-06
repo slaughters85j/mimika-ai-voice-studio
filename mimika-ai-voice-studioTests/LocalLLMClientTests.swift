@@ -126,18 +126,29 @@ final class LLMStubURLProtocol: URLProtocol {
     private struct Canned: Sendable { let data: Data; let statusCode: Int }
 
     nonisolated(unsafe) private static var canned: Canned?
+    nonisolated(unsafe) private static var queue: [Canned] = []
     nonisolated(unsafe) private static var lastBody: Data?
+    nonisolated(unsafe) private(set) static var requestCount = 0
     private static let lock = NSLock()
 
     static func reset() {
         lock.lock(); defer { lock.unlock() }
         canned = nil
+        queue.removeAll()
         lastBody = nil
+        requestCount = 0
     }
 
     static func setResponse(_ data: Data, statusCode: Int = 200) {
         lock.lock(); defer { lock.unlock() }
         canned = Canned(data: data, statusCode: statusCode)
+    }
+
+    /// Enqueue a one-shot response (FIFO), consumed before `canned`. Use for
+    /// sequences like "first call fails, retry succeeds."
+    static func enqueue(_ data: Data, statusCode: Int = 200) {
+        lock.lock(); defer { lock.unlock() }
+        queue.append(Canned(data: data, statusCode: statusCode))
     }
 
     static func capturedBody() -> Data? {
@@ -150,6 +161,7 @@ final class LLMStubURLProtocol: URLProtocol {
 
     override func startLoading() {
         captureBody()
+        Self.bumpRequestCount()
 
         let response = Self.read()
         guard let response else {
@@ -171,7 +183,13 @@ final class LLMStubURLProtocol: URLProtocol {
 
     private static func read() -> Canned? {
         lock.lock(); defer { lock.unlock() }
+        if !queue.isEmpty { return queue.removeFirst() }
         return canned
+    }
+
+    private static func bumpRequestCount() {
+        lock.lock(); defer { lock.unlock() }
+        requestCount += 1
     }
 
     private func captureBody() {

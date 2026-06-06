@@ -100,4 +100,51 @@ final class EnsembleLoopTests: XCTestCase {
             XCTFail("runState should be .error after an HTTP failure, was \(vm.runState)")
         }
     }
+
+    func test_runOneTurn_framesRequestWithSceneAndMood() async throws {
+        LLMStubURLProtocol.setResponse(sse("On topic."))
+        let vm = try makeVM(pinnedModel: "m", connectedModel: "m")
+        vm.scene = "Picard's ready room"
+        vm.mood = "radiation away-mission danger, with light satire"
+
+        _ = await vm.runOneTurn(lastSpeaker: nil)
+
+        let body = try requestBody()
+        let messages = try XCTUnwrap(body["messages"] as? [[String: Any]])
+        let system = messages.first { ($0["role"] as? String) == "system" }
+        let content = (system?["content"] as? String) ?? ""
+        XCTAssertTrue(content.contains("Picard's ready room"), "scene must reach the speaker's system prompt")
+        XCTAssertTrue(content.contains("radiation"), "mood/topic must reach the speaker's system prompt")
+    }
+
+    func test_interTurnDelay_scalesAndClamps() {
+        XCTAssertEqual(EnsembleViewModel.interTurnDelay(for: ""), .seconds(1.8))
+        XCTAssertEqual(EnsembleViewModel.interTurnDelay(for: String(repeating: "word ", count: 25)), .seconds(10))
+        XCTAssertEqual(EnsembleViewModel.interTurnDelay(for: String(repeating: "word ", count: 200)), .seconds(12))
+    }
+
+    func test_runOneTurn_sendsStopSequencesForOtherSpeakers() async throws {
+        LLMStubURLProtocol.setResponse(sse("hi"))
+        let vm = try makeVM(pinnedModel: "m", connectedModel: "m")
+        vm.cast = [
+            Persona(name: "Ada", voiceID: "x", systemPrompt: ""),
+            Persona(name: "Bertrand", voiceID: "y", systemPrompt: ""),
+        ]
+        _ = await vm.runOneTurn(lastSpeaker: nil)
+
+        let body = try requestBody()
+        let stop = (body["stop"] as? [String]) ?? []
+        XCTAssertTrue(stop.contains("You:"), "the user should be a stop sequence")
+        XCTAssertTrue(stop.contains("Ada:") || stop.contains("Bertrand:"),
+                      "the non-speaking cast member should be a stop sequence")
+        XCTAssertEqual(body["max_tokens"] as? Int, 250, "speaker turns should be length-capped")
+    }
+
+    func test_cleanedTurnText_stripsSelfPrefixAndOtherSpeakerLeakage() async throws {
+        let vm = try makeVM(pinnedModel: "m", connectedModel: "m")
+        let ada = Persona(name: "Ada", voiceID: "x", systemPrompt: "")
+        vm.cast = [ada, Persona(name: "Bertrand", voiceID: "y", systemPrompt: "")]
+        let raw = "Ada: Reporting in. Bertrand: I disagree. You: stop it."
+        XCTAssertEqual(vm.cleanedTurnText(raw, speaker: ada), "Reporting in.")
+    }
 }

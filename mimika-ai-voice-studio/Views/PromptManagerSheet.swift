@@ -253,9 +253,7 @@ struct PromptManagerSheet: View {
         case .singleVoice: return ChatSettings.defaultSingleVoicePrompt
         case .multiTalk:   return ChatSettings.defaultMultiTalkPrompt
         case .chat:        return ""
-        // Phase 2 (persona-writer) replaces this with the real expansion
-        // prompt constant; empty for now so the seeded row exists.
-        case .ensemble:    return ""
+        case .ensemble:    return PersonaWriterPrompts.expansionSystemDefault
         }
     }
 }

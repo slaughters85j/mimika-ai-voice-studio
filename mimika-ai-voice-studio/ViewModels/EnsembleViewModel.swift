@@ -28,6 +28,8 @@ final class EnsembleViewModel {
     var turns: [EnsembleTurn] = []
     var cast: [Persona] = []
     var userPeer = UserPeer()
+    var scene: String = ""
+    var mood: String = ""
 
     // MARK: - Run control
     var currentSpeakerID: UUID?
@@ -37,6 +39,9 @@ final class EnsembleViewModel {
     var rngMode: RNGMode = .shuffleOnce
     var paceDelay: Duration = .milliseconds(600)
     var maxTurns: Int = 60
+    /// Hard per-turn length ceiling (OpenAI `max_tokens`). Keeps replies short
+    /// on top of the "one or two sentences" instruction + stop sequences.
+    var maxResponseTokens: Int = 250
 
     // MARK: - Composer
     var draft: String = ""
@@ -164,6 +169,50 @@ final class EnsembleViewModel {
         ),
     ]
 
+    /// Replace the cast with a persona-writer result: resets the conversation,
+    /// loads the runtime personas the loop uses, and persists the cast to
+    /// SwiftData. Called from the setup flow once voices are confirmed.
+    func applyGeneratedCast(scene: String, mood: String, userName: String, confirmed: [ConfirmedPersona]) {
+        guard !confirmed.isEmpty else { return }
+        stop()
+        self.scene = scene
+        self.mood = mood
+        let trimmedName = userName.trimmingCharacters(in: .whitespacesAndNewlines)
+        userPeer.name = trimmedName.isEmpty ? "You" : trimmedName
+        turns = []
+        rollingSummary = ""
+        shuffledOrder = []
+        orderCursor = 0
+        producedThisRun = 0
+        cast = confirmed.map { entry in
+            Persona(
+                name: entry.full.name,
+                voiceID: entry.voiceID,
+                systemPrompt: entry.full.personaPrompt,
+                temperature: entry.full.temperature
+            )
+        }
+        persistCast(scene: scene, mood: mood, confirmed: confirmed)
+    }
+
+    private func persistCast(scene: String, mood: String, confirmed: [ConfirmedPersona]) {
+        guard let ctx = appState.modelContext else { return }
+        let name = scene.isEmpty ? "Ensemble" : scene
+        let castModel = EnsembleStore.create(ctx, name: name, scene: scene, mood: mood)
+        for (i, entry) in confirmed.enumerated() {
+            EnsembleStore.addPersona(
+                ctx, to: castModel,
+                name: entry.full.name,
+                voiceID: entry.voiceID,
+                suggestedVoice: entry.full.voice,
+                personaPrompt: entry.full.personaPrompt,
+                temperature: entry.full.temperature,
+                readsOnOthers: entry.full.readsOnOthers,
+                sortOrder: i
+            )
+        }
+    }
+
     // MARK: - Run control
 
     func start() {
@@ -234,7 +283,9 @@ final class EnsembleViewModel {
                 runState = .awaitingStep
                 return
             }
-            try? await Task.sleep(for: paceDelay)
+            // Reading-paced gap so a human can keep up in text-only mode.
+            // (Phase 3's voiced playback paces the loop by speech duration.)
+            try? await Task.sleep(for: Self.interTurnDelay(for: turns.last?.content ?? ""))
         }
         // Don't clobber a surfaced error — a failed turn stops the loop and
         // keeps `.error` visible instead of resetting to `.idle`.
@@ -272,12 +323,14 @@ final class EnsembleViewModel {
         let request = SpokenTurnRunner.Request(
             messages: messagesForPersona(persona),
             model: resolvedModel,
-            systemPrompt: persona.systemPrompt,
+            systemPrompt: framedSystemPrompt(persona),
             temperature: persona.temperature,
             voiceID: persona.voiceID,
             options: currentSynthesisOptions(),
             speak: false,            // Phase 1: text only
-            collectSamples: false
+            collectSamples: false,
+            stop: stopSequences(for: persona),
+            maxTokens: maxResponseTokens
         )
 
         let turnID = UUID()
@@ -302,10 +355,13 @@ final class EnsembleViewModel {
             }
         )
 
-        // Drop an empty turn so a garbage / no-output / errored reply doesn't
-        // leave a blank bubble (it still counted toward maxTurns).
-        if result.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        // Clean multi-speaker leakage + a self-prefix, then store the result.
+        // Drop the turn if it ends up empty (garbage / no-output / errored).
+        let cleaned = cleanedTurnText(result.text, speaker: persona)
+        if cleaned.isEmpty {
             turns.removeAll { $0.id == turnID }
+        } else if let i = turns.firstIndex(where: { $0.id == turnID }) {
+            turns[i].content = cleaned
         }
         currentSpeakerID = nil
     }
@@ -330,6 +386,61 @@ final class EnsembleViewModel {
         var options = SynthesisOptions()
         options.chunkTokenBudget = appState.pocketTTSChunkBudget
         return options
+    }
+
+    /// Frame each speaker turn with the scene + mood so the cast stays on the
+    /// chosen topic and in character. Without this, the personas' prompts
+    /// define WHO they are but nothing anchors WHAT they're discussing — an
+    /// autonomous text loop then drifts off-theme (and small models slide into
+    /// meta "I am an AI" navel-gazing).
+    private func framedSystemPrompt(_ persona: Persona) -> String {
+        // Always-on: identity + "only your own single line" (stops the model
+        // from scripting the whole table) + no meta. Scene/mood added when set.
+        var context = "You are \(persona.name). Respond ONLY as \(persona.name), with a single short line of spoken dialogue. Do NOT write lines for any other character, and do NOT prefix your reply with a name. Remain fully in character; never refer to yourself as an AI, a model, or an assistant."
+        if !scene.isEmpty { context += " The scene: \(scene)." }
+        if !mood.isEmpty { context += " The mood and topic: \(mood). Stay on this topic." }
+        return persona.systemPrompt + "\n\n" + context
+    }
+
+    /// "Name:" stop sequences for every OTHER participant (+ the user) so the
+    /// server halts generation when the model tries to switch speakers. Capped
+    /// at 4 (OpenAI's limit). The speaker's own name is intentionally excluded
+    /// so a leading self-prefix is handled by `cleanedTurnText` instead.
+    private func stopSequences(for speaker: Persona) -> [String] {
+        var names = cast.filter { $0.id != speaker.id }.map { $0.name }
+        names.append(userPeer.name)
+        let stops = names
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .map { "\($0):" }
+        return Array(stops.prefix(4))
+    }
+
+    /// Strip a leading "<own name>:" self-prefix and truncate at the first other
+    /// participant's "Name:" line that leaked through despite the stop sequences.
+    func cleanedTurnText(_ raw: String, speaker: Persona) -> String {
+        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let ownPrefix = "\(speaker.name):"
+        if text.lowercased().hasPrefix(ownPrefix.lowercased()) {
+            text = String(text.dropFirst(ownPrefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let others = cast.filter { $0.id != speaker.id }.map { $0.name } + [userPeer.name]
+        var cut = text.endIndex
+        for name in others where !name.trimmingCharacters(in: .whitespaces).isEmpty {
+            if let range = text.range(of: "\(name):", options: [.caseInsensitive]) {
+                cut = min(cut, range.lowerBound)
+            }
+        }
+        return String(text[text.startIndex..<cut]).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Reading-paced gap between turns when there's no audio (~2.5 words/sec,
+    /// clamped to a readable range) so a human can follow along in text-only
+    /// mode. Static + pure for unit testing.
+    static func interTurnDelay(for text: String) -> Duration {
+        let words = text.split { $0 == " " || $0 == "\n" || $0 == "\t" }.count
+        let seconds = min(12.0, max(1.8, Double(words) / 2.5))
+        return .seconds(seconds)
     }
 
     private func shortError(_ error: Error) -> String {

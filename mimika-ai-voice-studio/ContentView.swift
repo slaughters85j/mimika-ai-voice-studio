@@ -444,6 +444,8 @@ struct ContentView: View {
                     ensembleViewModel: ensembleVM,
                     subMode: $appState.chatSubMode,
                     player: appState.player!,
+                    voices: voices,
+                    appState: appState,
                     onOpenSettings: { appState.showsChatSettings = true },
                     onOpenInMultiTalk: { payload in appState.queueReuse(payload) }
                 )
@@ -486,6 +488,7 @@ struct ContentView: View {
                 .chat:        chatBody,
                 .singleVoice: singleBody,
                 .multiTalk:   multiBody,
+                .ensemble:    PersonaWriterPrompts.expansionSystemDefault,
             ]
         )
     }

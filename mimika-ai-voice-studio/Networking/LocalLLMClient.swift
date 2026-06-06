@@ -88,7 +88,9 @@ actor LocalLLMClient {
         messages: [ChatMessage],
         model: String,
         systemPrompt: String = "",
-        temperature: Double? = nil
+        temperature: Double? = nil,
+        stop: [String]? = nil,
+        maxTokens: Int? = nil
     ) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream<String, Error> { continuation in
             let task = Task {
@@ -98,6 +100,8 @@ actor LocalLLMClient {
                         model: model,
                         systemPrompt: systemPrompt,
                         temperature: temperature,
+                        stop: stop,
+                        maxTokens: maxTokens,
                         continuation: continuation
                     )
                     continuation.finish()
@@ -116,6 +120,8 @@ actor LocalLLMClient {
         model: String,
         systemPrompt: String,
         temperature: Double?,
+        stop: [String]?,
+        maxTokens: Int?,
         continuation: AsyncThrowingStream<String, Error>.Continuation
     ) async throws {
         let url = baseURL.appendingPathComponent("v1/chat/completions")
@@ -132,7 +138,7 @@ actor LocalLLMClient {
             APIMessage(role: $0.role.rawValue, content: $0.content)
         })
 
-        let body = ChatRequest(model: model, messages: apiMessages, stream: true, temperature: temperature)
+        let body = ChatRequest(model: model, messages: apiMessages, stream: true, temperature: temperature, stop: stop, max_tokens: maxTokens)
         req.httpBody = try JSONEncoder().encode(body)
 
         let (bytes, response) = try await session.bytes(for: req)
@@ -238,6 +244,8 @@ private nonisolated struct ChatRequest: Codable {
     let stream: Bool
     var temperature: Double? = nil
     var response_format: ResponseFormatDTO? = nil
+    var stop: [String]? = nil
+    var max_tokens: Int? = nil
 }
 
 private nonisolated struct ResponseFormatDTO: Codable {

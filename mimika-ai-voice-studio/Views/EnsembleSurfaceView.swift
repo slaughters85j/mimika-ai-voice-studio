@@ -13,6 +13,10 @@ import SwiftUI
 struct EnsembleSurfaceView: View {
     @Bindable var viewModel: EnsembleViewModel
     let player: StreamingPlayer
+    let voices: [BundledVoice]
+    let appState: AppState
+
+    @State private var showsSetup = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -24,17 +28,29 @@ struct EnsembleSurfaceView: View {
             composer
         }
         .onAppear { viewModel.startHealthChecks() }
+        .sheet(isPresented: $showsSetup) {
+            EnsembleSetupView(viewModel: viewModel, voices: voices, appState: appState,
+                              onDone: { showsSetup = false })
+        }
     }
 
     // MARK: - Header
 
     private var header: some View {
-        HStack {
+        HStack(spacing: Theme.space3) {
             ConnectionStatusPill(state: viewModel.connectionState)
             Spacer()
             Text(statusText)
                 .font(Theme.fontXS)
                 .foregroundStyle(Theme.textSecondary)
+            Button(action: { showsSetup = true }) {
+                Label("New Cast", systemImage: "person.3.sequence.fill")
+                    .font(Theme.fontXS)
+                    .foregroundStyle(Theme.accent)
+            }
+            .buttonStyle(.plain)
+            .help("Generate a new cast with the persona-writer")
+            .accessibilityIdentifier("ensemble.newCast")
         }
         .padding(.horizontal, Theme.space6)
         .padding(.vertical, Theme.space2)
