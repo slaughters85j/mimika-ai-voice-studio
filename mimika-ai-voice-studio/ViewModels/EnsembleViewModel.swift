@@ -66,6 +66,9 @@ final class EnsembleViewModel {
     /// The model id chosen in setup — requested verbatim so LM Studio doesn't
     /// unload/reload a different model mid-turn. Falls back to chat settings.
     var selectedModel: String = ""
+    /// Models the endpoint reports (refreshed on the health check) — drives the
+    /// settings model picker so the speaker/director/summary model is editable.
+    var availableModels: [String] = []
 
     // MARK: - Dictation / barge-in (mirrors ChatViewModel)
     var dictation: DictationStatus = .idle
@@ -185,6 +188,7 @@ final class EnsembleViewModel {
     func checkConnection() async {
         do {
             let models = try await makeClient().listModels()
+            availableModels = models
             if let model = models.first {
                 let prefer = appState.chatSettings.model.isEmpty ? model : appState.chatSettings.model
                 connectionState = .connected(model: prefer)

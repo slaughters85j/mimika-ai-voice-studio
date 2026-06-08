@@ -3,74 +3,106 @@
 //  mimika-ai-voice-studio
 //
 //  Phase 6 — export + history. Render the finished episode as a {Name}-tagged
-//  Multi-Talk script (real names), then either open it in the Multi-Talk tab
-//  (reuses that tab's render/export — no new audio code) or save it to History.
+//  Multi-Talk script, then either open it in the Multi-Talk tab (reuses that
+//  tab's render/export — no new audio code) or save it to History. Export tags
+//  are disambiguated per speaker so duplicate/blank names don't collapse into
+//  one voice, and an episode that's empty after stage-direction stripping can't
+//  be saved.
 //
 
 import Foundation
 
 extension EnsembleViewModel {
 
-    /// True when there's a non-empty transcript to export or save.
+    /// True when at least one turn survives stage-direction stripping — i.e. the
+    /// rendered Multi-Talk transcript won't be empty.
     var canExport: Bool {
-        turns.contains { !$0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let strip = appState.chatSettings.activeBackend == .pocketTTS
+        return turns.contains {
+            !TextNormalizer.stripStageDirections($0.content, stripBracketedTags: strip)
+                .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
     }
 
-    /// `{Name} line` per turn (real names), stage directions stripped per the
-    /// active backend. Directly consumable by MultiTalkScriptParser.
+    /// `{Tag} line` per turn, stage directions stripped per the active backend.
     func formatTranscriptMultiTalk() -> String {
         Self.formatMultiTalkScript(
             turns: turns,
+            label: exportLabels().label,
             stripBrackets: appState.chatSettings.activeBackend == .pocketTTS
         )
     }
 
-    /// Pure renderer (static for testing).
-    static func formatMultiTalkScript(turns: [EnsembleTurn], stripBrackets: Bool) -> String {
+    /// Pure renderer (static for testing). `label` maps each turn's speakerID to
+    /// its unique tag.
+    static func formatMultiTalkScript(turns: [EnsembleTurn], label: (UUID?) -> String, stripBrackets: Bool) -> String {
         var lines: [String] = []
         for turn in turns {
             let cleaned = TextNormalizer.stripStageDirections(turn.content, stripBracketedTags: stripBrackets)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !cleaned.isEmpty else { continue }
-            let name = turn.speakerName.trimmingCharacters(in: .whitespacesAndNewlines)
-            lines.append("{\(name.isEmpty ? "Speaker" : name)} \(cleaned)")
+            lines.append("{\(label(turn.speakerID))} \(cleaned)")
         }
         return lines.joined(separator: "\n")
     }
 
-    /// Speaker → voice for the export: each cast member's voice, plus a stock
-    /// fallback for the user so their interjections still render.
-    func exportSpeakers() -> [SpeakerRef] {
+    /// Unique export tag per DISTINCT speaker (each cast member + the user),
+    /// disambiguating duplicate/blank names so two "Alex"s — or a user sharing a
+    /// cast name — each map to their own Multi-Talk voice. Returns the
+    /// speakerID→tag mapper plus the matching speaker list (same order/tags).
+    func exportLabels() -> (label: (UUID?) -> String, speakers: [SpeakerRef]) {
+        var used = Set<String>()
+        func unique(_ base: String) -> String {
+            let trimmed = base.trimmingCharacters(in: .whitespacesAndNewlines)
+            let root = trimmed.isEmpty ? "Speaker" : trimmed
+            var name = root
+            var n = 1
+            while used.contains(name) { n += 1; name = "\(root) \(n)" }
+            used.insert(name)
+            return name
+        }
+        var idToLabel: [UUID: String] = [:]
         var refs: [SpeakerRef] = []
-        var seen = Set<String>()
         for persona in cast {
-            let name = persona.name.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !name.isEmpty, seen.insert(name).inserted else { continue }
-            refs.append(SpeakerRef(name: name, voiceID: persona.voiceID))
+            let tag = unique(persona.name)
+            idToLabel[persona.id] = tag
+            refs.append(SpeakerRef(name: tag, voiceID: persona.voiceID))
         }
-        let userName = userPeer.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !userName.isEmpty,
-           turns.contains(where: { $0.speakerID == nil }),
-           seen.insert(userName).inserted {
-            refs.append(SpeakerRef(name: userName, voiceID: cast.first?.voiceID ?? "cosette"))
+        var userLabel = "You"
+        if turns.contains(where: { $0.speakerID == nil }) {
+            userLabel = unique(userPeer.name)
+            refs.append(SpeakerRef(name: userLabel, voiceID: cast.first?.voiceID ?? "cosette"))
         }
-        return refs
+        let label: (UUID?) -> String = { id in
+            if let id, let tag = idToLabel[id] { return tag }
+            return userLabel
+        }
+        return (label, refs)
     }
 
     /// Open this episode in the Multi-Talk tab (reuses its render/export path).
     func openInMultiTalk() {
-        guard canExport else { return }
-        appState.queueReuse(.multi(script: formatTranscriptMultiTalk(), speakers: exportSpeakers()))
+        let labels = exportLabels()
+        let script = Self.formatMultiTalkScript(
+            turns: turns, label: labels.label,
+            stripBrackets: appState.chatSettings.activeBackend == .pocketTTS
+        )
+        guard !script.isEmpty else { return }
+        appState.queueReuse(.multi(script: script, speakers: labels.speakers))
     }
 
     /// Save the episode so it appears in History (+ the Ensemble session store).
     func saveEpisodeToHistory() {
-        guard let ctx = appState.modelContext, canExport else { return }
-        let script = formatTranscriptMultiTalk()
-        let speakers = exportSpeakers()
-        HistoryStore.appendMulti(script: script, speakers: speakers, context: ctx)
+        guard let ctx = appState.modelContext else { return }
+        let labels = exportLabels()
+        let script = Self.formatMultiTalkScript(
+            turns: turns, label: labels.label,
+            stripBrackets: appState.chatSettings.activeBackend == .pocketTTS
+        )
+        guard !script.isEmpty else { return }
+        HistoryStore.appendMulti(script: script, speakers: labels.speakers, context: ctx)
         EnsembleStore.appendSession(ctx, scene: scene, mood: mood,
-                                    transcriptMultiTalk: script, speakers: speakers)
+                                    transcriptMultiTalk: script, speakers: labels.speakers)
         showNotice("Saved to History")
     }
 }

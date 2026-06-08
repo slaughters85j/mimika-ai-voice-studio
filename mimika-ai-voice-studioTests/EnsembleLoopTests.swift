@@ -197,18 +197,43 @@ final class EnsembleLoopTests: XCTestCase {
 
     // MARK: - Export (Phase 6)
 
-    func test_formatMultiTalkScript_tagsByNameSkipsEmpty() {
-        let id = UUID()
+    func test_formatMultiTalkScript_tagsByLabelSkipsEmpty() {
+        let a = UUID(); let b = UUID()
         let turns = [
-            EnsembleTurn(speakerID: id, speakerName: "Fox Mulder", content: "The truth is out there."),
+            EnsembleTurn(speakerID: a, speakerName: "Fox", content: "The truth is out there."),
             EnsembleTurn(speakerID: nil, speakerName: "You", content: "   "),       // empty → skipped
-            EnsembleTurn(speakerID: id, speakerName: "Dana Scully", content: "Show me evidence."),
+            EnsembleTurn(speakerID: b, speakerName: "Dana", content: "Show me evidence."),
         ]
-        let script = EnsembleViewModel.formatMultiTalkScript(turns: turns, stripBrackets: true)
+        let label: (UUID?) -> String = { id in
+            if id == a { return "Fox Mulder" }
+            if id == b { return "Dana Scully" }
+            return "You"
+        }
+        let script = EnsembleViewModel.formatMultiTalkScript(turns: turns, label: label, stripBrackets: true)
         XCTAssertTrue(script.contains("{Fox Mulder} The truth is out there."))
         XCTAssertTrue(script.contains("{Dana Scully} Show me evidence."))
         XCTAssertFalse(script.contains("{You}"), "the empty user turn is skipped")
         XCTAssertEqual(script.split(separator: "\n").count, 2)
+    }
+
+    func test_exportLabels_disambiguatesDuplicateNames() throws {
+        let vm = try makeVM(pinnedModel: "m", connectedModel: "m")
+        let a = Persona(name: "Alex", voiceID: "v1", systemPrompt: "")
+        let b = Persona(name: "Alex", voiceID: "v2", systemPrompt: "")
+        vm.cast = [a, b]
+        vm.userPeer.name = "Alex"
+        vm.turns = [
+            EnsembleTurn(speakerID: a.id, speakerName: "Alex", content: "One."),
+            EnsembleTurn(speakerID: b.id, speakerName: "Alex", content: "Two."),
+            EnsembleTurn(speakerID: nil, speakerName: "Alex", content: "Three."),
+        ]
+        let labels = vm.exportLabels()
+        XCTAssertEqual(labels.speakers.count, 3, "three distinct speakers")
+        XCTAssertEqual(Set(labels.speakers.map(\.name)).count, 3, "tags are unique per speaker")
+        let script = vm.formatTranscriptMultiTalk()
+        XCTAssertTrue(script.contains("{Alex} One."))
+        XCTAssertTrue(script.contains("{Alex 2} Two."))
+        XCTAssertTrue(script.contains("{Alex 3} Three."))
     }
 
     private func requestBody() throws -> [String: Any] {
