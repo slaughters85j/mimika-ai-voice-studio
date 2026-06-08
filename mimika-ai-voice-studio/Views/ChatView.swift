@@ -99,18 +99,22 @@ struct ChatView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Refresh connection")
+
+                // Settings now uses the same sliders icon as Ensemble's cast
+                // editor — each mode's "configure the voices" control matches.
+                Button(action: onOpenSettings) {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Theme.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .help("Settings")
+                .accessibilityIdentifier("settings.openButton")
             } else {
                 ensembleControls
             }
-
-            Button(action: onOpenSettings) {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 14))
-                    .foregroundStyle(Theme.textSecondary)
-            }
-            .buttonStyle(.plain)
-            .help("Settings")
-            .accessibilityIdentifier("settings.openButton")
+            // No global gear in Ensemble — the cast editor (sliders) is its
+            // settings; app settings stay reachable via ⌘,.
         }
         .padding(.horizontal, Theme.space6)
         .padding(.vertical, Theme.space3)
