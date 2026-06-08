@@ -132,8 +132,16 @@ struct ChatView: View {
             .font(Theme.fontXS).foregroundStyle(Theme.textSecondary)
 
         if ensembleViewModel.canExport {
-            Button(action: { ensembleViewModel.saveEpisodeToHistory() }) {
+            // Same icon/action as Solo's top bar: export the transcript as .md.
+            Button(action: { ensembleViewModel.saveTranscript() }) {
                 Image(systemName: "square.and.arrow.down")
+                    .font(.system(size: 13)).foregroundStyle(Theme.textSecondary)
+            }
+            .buttonStyle(.plain).help("Export transcript (.md)")
+            .accessibilityIdentifier("ensemble.saveTranscript")
+
+            Button(action: { ensembleViewModel.saveEpisodeToHistory() }) {
+                Image(systemName: "tray.and.arrow.down")
                     .font(.system(size: 13)).foregroundStyle(Theme.textSecondary)
             }
             .buttonStyle(.plain).help("Save episode to History")

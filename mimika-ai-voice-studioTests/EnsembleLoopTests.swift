@@ -236,6 +236,23 @@ final class EnsembleLoopTests: XCTestCase {
         XCTAssertTrue(script.contains("{Alex 3} Three."))
     }
 
+    func test_formatTranscriptMarkdown_realNames_preservesContentAndHeader() throws {
+        let vm = try makeVM(pinnedModel: "m", connectedModel: "m")
+        let mara = Persona(name: "Mara", voiceID: "v1", systemPrompt: "")
+        vm.cast = [mara]
+        vm.scene = "a rooftop bar"
+        vm.mood = "easygoing"
+        vm.turns = [
+            EnsembleTurn(speakerID: mara.id, speakerName: "Mara", content: "Hey (waves)."),
+            EnsembleTurn(speakerID: nil, speakerName: "You", content: "Hi there."),
+        ]
+        let md = vm.formatTranscriptMarkdown()
+        XCTAssertTrue(md.contains("**Mara**:\nHey (waves)."), "raw content preserved (NOT stripped)")
+        XCTAssertTrue(md.contains("**You**:\nHi there."))
+        XCTAssertTrue(md.contains("a rooftop bar · easygoing"), "scene/mood header")
+        XCTAssertTrue(md.contains("\n\n---\n\n"), "blocks separated by rules")
+    }
+
     private func requestBody() throws -> [String: Any] {
         let body = try XCTUnwrap(LLMStubURLProtocol.capturedBody())
         return try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])

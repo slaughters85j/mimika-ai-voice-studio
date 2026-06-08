@@ -10,7 +10,9 @@
 //  be saved.
 //
 
+import AppKit
 import Foundation
+import UniformTypeIdentifiers
 
 extension EnsembleViewModel {
 
@@ -104,5 +106,44 @@ extension EnsembleViewModel {
         EnsembleStore.appendSession(ctx, scene: scene, mood: mood,
                                     transcriptMultiTalk: script, speakers: labels.speakers)
         showNotice("Saved to History")
+    }
+
+    // MARK: - Markdown transcript (parity with Solo's "Save transcript")
+
+    /// Save the transcript as a Markdown file — real speaker names, FULL content
+    /// (stage directions preserved, for the user's records), matching Solo's
+    /// `ChatViewModel.saveTranscript`.
+    func saveTranscript() {
+        let panel = NSSavePanel()
+        panel.title = "Save Ensemble Transcript"
+        panel.nameFieldStringValue = "ensemble-transcript.md"
+        panel.allowedContentTypes = [.plainText]
+        panel.allowsOtherFileTypes = true
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try formatTranscriptMarkdown().write(to: url, atomically: true, encoding: .utf8)
+        } catch {
+            showNotice("Couldn't save transcript")
+        }
+    }
+
+    /// `**Name**:` blocks separated by `---`, with an optional scene/mood header.
+    /// Unlike the Multi-Talk export this does NOT strip stage directions — a
+    /// saved transcript preserves the full output. Names come from exportLabels
+    /// so duplicates stay distinct.
+    func formatTranscriptMarkdown() -> String {
+        let label = exportLabels().label
+        var out = ""
+        let header = [scene, mood].filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        if !header.isEmpty {
+            out += "_" + header.joined(separator: " · ") + "_\n\n---\n\n"
+        }
+        var blocks: [String] = []
+        for turn in turns {
+            let content = turn.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !content.isEmpty else { continue }
+            blocks.append("**\(label(turn.speakerID))**:\n\(content)")
+        }
+        return out + blocks.joined(separator: "\n\n---\n\n") + "\n"
     }
 }

@@ -127,10 +127,10 @@ struct EnsembleSetupView: View {
             ActivePromptPicker(scope: .ensemble, showsManager: $showsPromptManager)
             Text("The instructions the persona-writer uses to generate each character. Edit or add your own — the default can't be deleted.")
                 .font(Theme.fontXS).foregroundStyle(Theme.textSecondary)
-            TextField("Scene — e.g. Ten Forward, after Data's violin recital", text: $scene, axis: .vertical)
+            TextField("Scene — e.g. a coffee shop on a rainy afternoon", text: $scene, axis: .vertical)
                 .lineLimit(2...3).textFieldStyle(.plain)
                 .padding(.horizontal, Theme.space3).padding(.vertical, Theme.space2).themeInputField()
-            TextField("Mood — e.g. unimpressed by everyone but Data", text: $mood, axis: .vertical)
+            TextField("Mood — e.g. relaxed, but a friendly debate is brewing", text: $mood, axis: .vertical)
                 .lineLimit(2...3).textFieldStyle(.plain)
                 .padding(.horizontal, Theme.space3).padding(.vertical, Theme.space2).themeInputField()
             if case let .error(message) = writer.status {
