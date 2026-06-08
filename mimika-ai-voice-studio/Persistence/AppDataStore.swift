@@ -74,16 +74,25 @@ enum AppDataStore {
     static func loadOrSeedPrompts(_ ctx: ModelContext, seedContent: [PromptScope: String]) {
         for scope in PromptScope.allCases {
             let existing = prompts(ctx, scope: scope)
+            let seed = seedContent[scope] ?? ""
             if existing.isEmpty {
                 let p = SystemPrompt(
                     name: seedName(for: scope),
                     scope: scope,
-                    content: seedContent[scope] ?? "",
+                    content: seed,
                     isActive: true
                 )
                 ctx.insert(p)
-            } else if !existing.contains(where: \.isActive) {
-                existing.first?.isActive = true
+            } else {
+                if !existing.contains(where: \.isActive) { existing.first?.isActive = true }
+                // Backfill an untouched seeded default (still named the seed name
+                // AND still empty) with the scope default — so the editor shows
+                // the real prompt to tweak instead of a blank box. Renamed or
+                // edited prompts are left alone.
+                if !seed.isEmpty,
+                   let stale = existing.first(where: { $0.name == seedName(for: scope) && $0.content.isEmpty }) {
+                    stale.content = seed
+                }
             }
         }
         try? ctx.save()

@@ -111,6 +111,24 @@ final class EnsemblePersistenceTests: XCTestCase {
         }
     }
 
+    func test_loadOrSeedPrompts_backfillsEmptyNamedDefault() throws {
+        let ctx = try makeContext()
+        // Old build: the ensemble default was seeded with EMPTY content.
+        AppDataStore.loadOrSeedPrompts(ctx, seedContent: [:])
+        XCTAssertEqual(AppDataStore.prompts(ctx, scope: .ensemble).first?.content, "")
+
+        // A later launch passes the real default → backfills the untouched row.
+        AppDataStore.loadOrSeedPrompts(ctx, seedContent: [.ensemble: "THE DEFAULT BODY"])
+        let after = AppDataStore.prompts(ctx, scope: .ensemble)
+        XCTAssertEqual(after.count, 1, "no duplicate row created")
+        XCTAssertEqual(after.first?.content, "THE DEFAULT BODY", "empty named default is backfilled")
+
+        // But an EDITED default is never clobbered.
+        after.first?.content = "my tweaks"
+        AppDataStore.loadOrSeedPrompts(ctx, seedContent: [.ensemble: "THE DEFAULT BODY"])
+        XCTAssertEqual(AppDataStore.prompts(ctx, scope: .ensemble).first?.content, "my tweaks")
+    }
+
     // MARK: - Migration safety (on-disk reopen)
 
     func test_onDiskStore_preservesLegacyRows_andSeedsEnsemble_acrossReopen() throws {
