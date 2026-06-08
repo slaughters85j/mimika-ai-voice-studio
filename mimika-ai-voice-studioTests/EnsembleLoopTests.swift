@@ -154,6 +154,18 @@ final class EnsembleLoopTests: XCTestCase {
         XCTAssertTrue(msgs.contains { $0.content.contains("earlier stuff") }, "rolling summary is prepended")
     }
 
+    func test_messagesForPersona_capsContextWhenSummarizerStalls() throws {
+        let vm = try makeVM(pinnedModel: "m", connectedModel: "m")
+        let ada = Persona(name: "Ada", voiceID: "x", systemPrompt: "")
+        vm.cast = [ada]
+        vm.verbatimWindow = 16
+        vm.turns = (0..<60).map { EnsembleTurn(speakerID: ada.id, speakerName: "Ada", content: "line \($0)") }
+        vm.summarizedUpTo = 0   // summarizer never advanced (stalled / failing)
+        let verbatim = vm.messagesForPersona(ada).filter { $0.content.contains("line ") }
+        XCTAssertEqual(verbatim.count, EnsembleViewModel.maxContextTurns,
+                       "context is capped at maxContextTurns, not unbounded")
+    }
+
     // MARK: - Export (Phase 6)
 
     func test_formatMultiTalkScript_tagsByNameSkipsEmpty() {

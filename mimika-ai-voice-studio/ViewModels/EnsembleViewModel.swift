@@ -105,6 +105,11 @@ final class EnsembleViewModel {
     /// turns accumulate before a fold runs.
     private var summaryTask: Task<Void, Never>?
     private static let summaryBatchSize = 8
+    private static let summaryMaxTokens = 256
+    /// Hard ceiling on verbatim turns rendered — a safety net so a repeatedly
+    /// failing summarizer can't grow context without bound (drops the oldest
+    /// unsummarized turns past this).
+    static let maxContextTurns = 40
 
     private static let fallbackURL = URL(string: "http://localhost:1234")!
 
@@ -495,6 +500,11 @@ final class EnsembleViewModel {
         summaryTask = Task { [weak self] in
             guard let self else { return }
             let summary = await self.summarize(newTurns, prior: prior)
+            // A reset (new/reused cast) cancels this task — never write a stale
+            // summary over the fresh conversation.
+            if Task.isCancelled { return }
+            // Advance only on a real summary; on failure (empty) keep the turns
+            // in the window (bounded by maxContextTurns) and retry next turn.
             if !summary.isEmpty {
                 self.rollingSummary = summary
                 self.summarizedUpTo = target
@@ -504,9 +514,12 @@ final class EnsembleViewModel {
     }
 
     /// One background LLM call that folds `newTurns` into `prior`, producing a
-    /// tight running summary. Streams (+ reasoning fallback) like the persona-
-    /// writer so it works on reasoning models too. Returns `prior` on failure so
-    /// a hiccup never wipes the summary.
+    /// tight running summary, capped at `summaryMaxTokens` to keep it short on a
+    /// shared local runner. Returns "" on any failure/empty output so the caller
+    /// does NOT advance `summarizedUpTo` (it retries next turn; the window stays
+    /// bounded by `maxContextTurns`). We do NOT request the reasoning channel —
+    /// a reasoning model's chain-of-thought is not a usable summary, so it's
+    /// better to skip the update than to store it.
     private func summarize(_ newTurns: [EnsembleTurn], prior: String) async -> String {
         let lines = newTurns.map { "\($0.speakerName): \($0.content)" }.joined(separator: "\n")
         let system = "You maintain a running third-person summary of a group conversation, used as context. Keep it tight (3-6 sentences): who is involved, the key points and disagreements, and any unresolved threads. Output ONLY the summary."
@@ -517,13 +530,13 @@ final class EnsembleViewModel {
             var raw = ""
             let stream = makeClient().streamChat(
                 messages: [ChatMessage(role: .user, content: user)],
-                model: resolvedModel, systemPrompt: system, temperature: 0.3, includeReasoning: true
+                model: resolvedModel, systemPrompt: system, temperature: 0.3,
+                maxTokens: Self.summaryMaxTokens
             )
             for try await delta in stream { raw += delta }
-            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? prior : trimmed
+            return raw.trimmingCharacters(in: .whitespacesAndNewlines)
         } catch {
-            return prior
+            return ""
         }
     }
 
