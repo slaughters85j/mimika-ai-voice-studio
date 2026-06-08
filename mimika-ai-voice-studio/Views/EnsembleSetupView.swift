@@ -29,6 +29,7 @@ struct EnsembleSetupView: View {
     @State private var voiceSelections: [Int: String] = [:]
     @State private var presetSelections: [Int: SamplingPreset] = [:]
     @State private var writer: PersonaWriter
+    @State private var showsPromptManager = false
 
     init(viewModel: EnsembleViewModel, voices: [BundledVoice], appState: AppState, onDone: @escaping () -> Void) {
         self.viewModel = viewModel
@@ -53,6 +54,9 @@ struct EnsembleSetupView: View {
             .task { await writer.checkConnection() }
             .onChange(of: writer.status) { _, newValue in
                 if newValue == .done { step = .voices }
+            }
+            .sheet(isPresented: $showsPromptManager) {
+                PromptManagerSheet(isPresented: $showsPromptManager, scope: .ensemble)
             }
         }
     }
@@ -120,6 +124,9 @@ struct EnsembleSetupView: View {
                 Text("Avoid reasoning / mixture-of-experts models (e.g. gpt-oss) — they can crash on load in LM Studio's Metal backend. A standard instruct model (Llama, Qwen, Mistral) is most reliable.")
                     .font(Theme.fontXS).foregroundStyle(Theme.warningFG)
             }
+            ActivePromptPicker(scope: .ensemble, showsManager: $showsPromptManager)
+            Text("The instructions the persona-writer uses to generate each character. Edit or add your own — the default can't be deleted.")
+                .font(Theme.fontXS).foregroundStyle(Theme.textSecondary)
             TextField("Scene — e.g. Ten Forward, after Data's violin recital", text: $scene, axis: .vertical)
                 .lineLimit(2...3).textFieldStyle(.plain)
                 .padding(.horizontal, Theme.space3).padding(.vertical, Theme.space2).themeInputField()
