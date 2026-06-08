@@ -38,6 +38,10 @@ final class EnsembleViewModel {
     var turnOrder: TurnMode = .weightedRandom
     var rngMode: RNGMode = .shuffleOnce
     var paceDelay: Duration = .milliseconds(600)
+    /// When true (default), each turn is synthesized + played in its assigned
+    /// voice and the loop is paced by speech duration (a short breath between
+    /// turns). When false, the loop is text-only with a reading-paced gap.
+    var voicedPlayback: Bool = true
     var maxTurns: Int = 60
     /// Hard per-turn length ceiling (OpenAI `max_tokens`). Keeps replies short
     /// on top of the "one or two sentences" instruction + stop sequences.
@@ -50,6 +54,9 @@ final class EnsembleViewModel {
 
     // MARK: - Connection (mirrors ChatViewModel)
     var connectionState: ConnectionState = .checking
+    /// The model id chosen in setup — requested verbatim so LM Studio doesn't
+    /// unload/reload a different model mid-turn. Falls back to chat settings.
+    var selectedModel: String = ""
 
     // MARK: - Context window
     var verbatimWindow: Int = 16
@@ -72,6 +79,9 @@ final class EnsembleViewModel {
     /// Set by the runner's onError; read after a turn to stop the loop and
     /// preserve the surfaced `.error` state instead of clobbering it.
     private var lastTurnFailed = false
+    /// One-shot guard so the surface auto-loads the last saved cast exactly once
+    /// on first appear (and never clobbers an in-progress conversation later).
+    private var didAttemptAutoLoad = false
 
     private static let fallbackURL = URL(string: "http://localhost:1234")!
 
@@ -100,6 +110,7 @@ final class EnsembleViewModel {
     /// default LM Studio setup with no pinned model still works instead of
     /// POSTing an empty model id).
     private var resolvedModel: String {
+        if !selectedModel.isEmpty { return selectedModel }
         if !appState.chatSettings.model.isEmpty { return appState.chatSettings.model }
         if case let .connected(model) = connectionState { return model }
         return appState.chatSettings.model
@@ -176,11 +187,12 @@ final class EnsembleViewModel {
     /// Replace the cast with a persona-writer result: resets the conversation,
     /// loads the runtime personas the loop uses, and persists the cast to
     /// SwiftData. Called from the setup flow once voices are confirmed.
-    func applyGeneratedCast(scene: String, mood: String, userName: String, confirmed: [ConfirmedPersona]) {
+    func applyGeneratedCast(scene: String, mood: String, userName: String, model: String, confirmed: [ConfirmedPersona]) {
         guard !confirmed.isEmpty else { return }
         stop()
         self.scene = scene
         self.mood = mood
+        if !model.isEmpty { selectedModel = model }
         let trimmedName = userName.trimmingCharacters(in: .whitespacesAndNewlines)
         userPeer.name = trimmedName.isEmpty ? "You" : trimmedName
         turns = []
@@ -204,6 +216,7 @@ final class EnsembleViewModel {
         guard let ctx = appState.modelContext else { return }
         let name = scene.isEmpty ? "Ensemble" : scene
         let castModel = EnsembleStore.create(ctx, name: name, scene: scene, mood: mood)
+        castModel.writerModel = selectedModel   // persisted so reuse restores the model
         for (i, entry) in confirmed.enumerated() {
             EnsembleStore.addPersona(
                 ctx, to: castModel,
@@ -217,6 +230,53 @@ final class EnsembleViewModel {
                 sortOrder: i
             )
         }
+    }
+
+    // MARK: - Reuse saved cast
+
+    /// True when there's at least one saved cast to reuse (drives the
+    /// "Reuse Last" affordance). A light fetch; casts are few.
+    var hasSavedCast: Bool {
+        guard let ctx = appState.modelContext else { return false }
+        return !EnsembleStore.casts(ctx).isEmpty
+    }
+
+    /// Reuse the most-recently-saved cast: same speakers, voices, presets,
+    /// scene, mood, and model — no persona-writer round-trip (instant). Resets
+    /// the conversation like a fresh cast. Returns false if nothing is saved.
+    @discardableResult
+    func loadLastCast() -> Bool {
+        guard let ctx = appState.modelContext,
+              let saved = EnsembleStore.casts(ctx).first else { return false }
+        stop()
+        scene = saved.scene
+        mood = saved.mood
+        if !saved.writerModel.isEmpty { selectedModel = saved.writerModel }
+        turns = []
+        rollingSummary = ""
+        shuffledOrder = []
+        orderCursor = 0
+        producedThisRun = 0
+        cast = saved.sortedPersonas.map { p in
+            Persona(
+                name: p.name,
+                voiceID: p.voiceID,
+                systemPrompt: p.personaPrompt,
+                temperature: p.temperature,
+                samplingPreset: p.samplingPreset
+            )
+        }
+        return true
+    }
+
+    /// On the surface's first appear, replace the untouched demo cast with the
+    /// user's most recent saved cast (if any). Runs once; never disturbs an
+    /// in-progress conversation.
+    func autoLoadLastCastIfFresh() {
+        guard !didAttemptAutoLoad else { return }
+        didAttemptAutoLoad = true
+        guard turns.isEmpty else { return }
+        _ = loadLastCast()
     }
 
     // MARK: - Run control
@@ -289,9 +349,12 @@ final class EnsembleViewModel {
                 runState = .awaitingStep
                 return
             }
-            // Reading-paced gap so a human can keep up in text-only mode.
-            // (Phase 3's voiced playback paces the loop by speech duration.)
-            try? await Task.sleep(for: Self.interTurnDelay(for: turns.last?.content ?? ""))
+            // Voiced: the speech already paced the turn, so just a short breath.
+            // Text-only: a reading-paced gap so a human can keep up.
+            let gap = voicedPlayback
+                ? paceDelay
+                : Self.interTurnDelay(for: turns.last?.content ?? "")
+            try? await Task.sleep(for: gap)
         }
         // Don't clobber a surfaced error — a failed turn stops the loop and
         // keeps `.error` visible instead of resetting to `.idle`.
@@ -334,8 +397,8 @@ final class EnsembleViewModel {
             temperature: preset.temperature,
             voiceID: persona.voiceID,
             options: currentSynthesisOptions(),
-            speak: false,            // Phase 1: text only
-            collectSamples: false,
+            speak: voicedPlayback,   // Phase 3: synthesize + play in-voice
+            collectSamples: false,   // Phase 6 flips this on for export
             stop: stopSequences(for: persona),
             maxTokens: maxResponseTokens,
             topP: preset.topP,

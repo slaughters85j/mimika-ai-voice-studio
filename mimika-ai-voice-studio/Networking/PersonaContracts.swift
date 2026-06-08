@@ -134,11 +134,10 @@ enum PersonaWriterPrompts {
     /// Skeleton-pass system prompt (hardcoded — plumbing, not user-editable).
     static let skeletonSystem = """
     You design a cast of distinct characters for a satirical, voiced group conversation. Given a scene, a mood, and a list of character names, return ONLY a JSON object — no prose, no markdown fences — matching exactly:
-    {"scene": "...", "mood": "...", "cast": [{"name": "...", "voice": "...", "temperature": 0.6, "reads_on_others": {"OtherName": "one-line read"}}]}
+    {"scene": "...", "mood": "...", "cast": [{"name": "...", "voice": "...", "reads_on_others": {"OtherName": "one-line read"}}]}
     Rules:
     - One cast entry per provided name, in the given order. If a name is blank, invent a fitting one.
-    - "voice": a short spoken-voice descriptor (e.g. "gravelly older man", "clipped British woman").
-    - "temperature": a number between 0.4 and 0.9; vary it per character so they don't all sound alike.
+    - "voice": a short spoken-voice descriptor (e.g. "gravelly older man", "clipped British woman"); make each character's voice distinct so they don't all sound alike.
     - "reads_on_others": one terse line per OTHER cast member — this is the relationship graph; keep the reads mutually consistent.
     Return only the JSON object.
     """
@@ -154,7 +153,7 @@ enum PersonaWriterPrompts {
     /// and brush-off-if-called-an-AI.
     static let expansionSystemDefault = """
     You write ONE character's persona for a voiced group conversation. You are given the full cast skeleton (names, the mood, and the relationship graph) and ONE target character name. Return ONLY a JSON object — no prose, no markdown fences — matching exactly:
-    {"name": "...", "voice": "...", "temperature": 0.6, "persona_prompt": "...", "reads_on_others": {"OtherName": "one-line read"}}
+    {"name": "...", "voice": "...", "persona_prompt": "...", "reads_on_others": {"OtherName": "one-line read"}}
 
     The "persona_prompt" is the character's own system prompt and MUST:
     1. Be SPOKEN DIALOGUE ONLY — no stage directions, no asterisks, no brackets, no parentheticals. Every word is read aloud by a text-to-speech engine.
@@ -162,7 +161,7 @@ enum PersonaWriterPrompts {
     3. Include THE PEOPLE: this character's read on each OTHER named cast member, drawn from the relationship graph.
     4. Instruct the character that if someone calls them an AI or a bot, they brush it off in character and keep going.
 
-    Echo "name", "voice", "temperature", and "reads_on_others" from the skeleton unchanged. Return only the JSON object.
+    Echo "name", "voice", and "reads_on_others" from the skeleton unchanged. Return only the JSON object.
     """
 
     static func expansionUser(skeleton: CastSkeleton, targetName: String, scene: String, mood: String) -> String {

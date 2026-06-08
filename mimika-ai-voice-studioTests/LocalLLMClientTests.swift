@@ -36,6 +36,19 @@ final class LocalLLMClientTests: XCTestCase {
         return Data((chunk + "data: [DONE]\n\n").utf8)
     }
 
+    /// SSE with a reasoning delta, optionally followed by a content delta.
+    /// Models gpt-oss/LM Studio, which streams chain-of-thought via
+    /// `delta.reasoning` and may leave `content` empty.
+    private func sseReasoning(_ reasoning: String, content: String = "") -> Data {
+        let r = reasoning.replacingOccurrences(of: "\"", with: "\\\"")
+        var chunks = "data: {\"choices\":[{\"delta\":{\"reasoning\":\"\(r)\"}}]}\n\n"
+        if !content.isEmpty {
+            let c = content.replacingOccurrences(of: "\"", with: "\\\"")
+            chunks += "data: {\"choices\":[{\"delta\":{\"content\":\"\(c)\"}}]}\n\n"
+        }
+        return Data((chunks + "data: [DONE]\n\n").utf8)
+    }
+
     private func bodyJSON() throws -> [String: Any] {
         let body = try XCTUnwrap(LLMStubURLProtocol.capturedBody(), "no request body captured")
         return try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
@@ -67,6 +80,35 @@ final class LocalLLMClientTests: XCTestCase {
         let json = try bodyJSON()
         let temperature = try XCTUnwrap(json["temperature"] as? Double)
         XCTAssertEqual(temperature, 0.42, accuracy: 0.0001)
+    }
+
+    // MARK: - streamChat reasoning channel
+
+    func test_streamChat_ignoresReasoning_byDefault() async throws {
+        LLMStubURLProtocol.setResponse(sseReasoning("thinking out loud"))
+        var out = ""
+        for try await delta in makeClient().streamChat(
+            messages: [ChatMessage(role: .user, content: "x")], model: "m"
+        ) { out += delta }
+        XCTAssertEqual(out, "", "reasoning must never leak into the default content stream")
+    }
+
+    func test_streamChat_fallsBackToReasoning_whenContentEmpty() async throws {
+        LLMStubURLProtocol.setResponse(sseReasoning(#"{"ok":true}"#))
+        var out = ""
+        for try await delta in makeClient().streamChat(
+            messages: [ChatMessage(role: .user, content: "x")], model: "m", includeReasoning: true
+        ) { out += delta }
+        XCTAssertEqual(out, #"{"ok":true}"#, "reasoning is surfaced as fallback when content is empty")
+    }
+
+    func test_streamChat_prefersContent_overReasoning() async throws {
+        LLMStubURLProtocol.setResponse(sseReasoning("ignored thoughts", content: "real answer"))
+        var out = ""
+        for try await delta in makeClient().streamChat(
+            messages: [ChatMessage(role: .user, content: "x")], model: "m", includeReasoning: true
+        ) { out += delta }
+        XCTAssertEqual(out, "real answer", "content present → reasoning must not be appended")
     }
 
     // MARK: - completeChat

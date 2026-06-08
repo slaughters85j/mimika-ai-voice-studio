@@ -26,7 +26,8 @@ nonisolated struct Persona: Identifiable, Equatable, Sendable {
     var name: String
     var voiceID: String
     var systemPrompt: String
-    /// The persona-writer's assigned temperature (used to default the preset).
+    /// Retained for persistence back-compat; no longer drives sampling. The
+    /// `samplingPreset` is the single source of LLM temperature/top-p/top-k.
     var temperature: Double
     var weight: Double
     /// User-facing sampling preset (Strict / Relaxed / Spirited / Butterfly
@@ -97,14 +98,6 @@ nonisolated enum SamplingPreset: String, CaseIterable, Sendable {
         case .spirited:        return 60
         case .butterflyChaser: return 100
         }
-    }
-
-    /// Pick the preset whose temperature is closest to a writer-assigned value,
-    /// so each persona starts on a sensible default.
-    static func nearest(temperature: Double) -> SamplingPreset {
-        allCases.min {
-            abs($0.temperature - temperature) < abs($1.temperature - temperature)
-        } ?? .relaxed
     }
 }
 

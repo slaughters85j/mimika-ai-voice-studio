@@ -27,7 +27,10 @@ struct EnsembleSurfaceView: View {
             controls
             composer
         }
-        .onAppear { viewModel.startHealthChecks() }
+        .onAppear {
+            viewModel.startHealthChecks()
+            viewModel.autoLoadLastCastIfFresh()
+        }
         .sheet(isPresented: $showsSetup) {
             EnsembleSetupView(viewModel: viewModel, voices: voices, appState: appState,
                               onDone: { showsSetup = false })
@@ -40,9 +43,22 @@ struct EnsembleSurfaceView: View {
         HStack(spacing: Theme.space3) {
             ConnectionStatusPill(state: viewModel.connectionState)
             Spacer()
+            if let color = currentSpeakerColor {
+                Circle().fill(color).frame(width: 8, height: 8)
+            }
             Text(statusText)
                 .font(Theme.fontXS)
                 .foregroundStyle(Theme.textSecondary)
+            if viewModel.hasSavedCast {
+                Button(action: { viewModel.loadLastCast() }) {
+                    Label("Reuse Last", systemImage: "clock.arrow.circlepath")
+                        .font(Theme.fontXS)
+                        .foregroundStyle(Theme.accent)
+                }
+                .buttonStyle(.plain)
+                .help("Reload your most recent cast — same speakers, scene, and voices")
+                .accessibilityIdentifier("ensemble.reuseLast")
+            }
             Button(action: { showsSetup = true }) {
                 Label("New Cast", systemImage: "person.3.sequence.fill")
                     .font(Theme.fontXS)
@@ -119,6 +135,13 @@ struct EnsembleSurfaceView: View {
               let idx = viewModel.cast.firstIndex(where: { $0.id == sid }) else {
             return Theme.accent   // the user
         }
+        return Theme.speakerColor(at: idx)
+    }
+
+    /// Tint for the "now speaking" dot — the current speaker's cast color.
+    private var currentSpeakerColor: Color? {
+        guard let id = viewModel.currentSpeakerID,
+              let idx = viewModel.cast.firstIndex(where: { $0.id == id }) else { return nil }
         return Theme.speakerColor(at: idx)
     }
 

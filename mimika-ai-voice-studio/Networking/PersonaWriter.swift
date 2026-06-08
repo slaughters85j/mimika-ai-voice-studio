@@ -6,9 +6,10 @@
 //  "write character personas in this exact JSON shape." Skeleton-first — one
 //  call returns the cast skeleton + relationship graph, then each persona is
 //  expanded in its own call (cast names render immediately; personas fill in
-//  progressively). JSON is requested with response_format, decoded tolerantly
-//  via JSONExtractor, and retried once as plain text if the server rejects the
-//  format or returns unparseable output.
+//  progressively). JSON is streamed (no response_format), decoded tolerantly
+//  via JSONExtractor, and retried with escalating temperature on unparseable
+//  output. Reasoning models (gpt-oss) answer in a separate channel, so the
+//  client is asked to surface that as a fallback (see requestJSON).
 //
 
 import Foundation
@@ -30,6 +31,13 @@ final class PersonaWriter {
     /// Filled progressively as each expansion call returns.
     var personas: [PersonaFull] = []
     var connectionState: ConnectionState = .checking
+    /// Models the endpoint reports (from /v1/models). The user picks one so we
+    /// request EXACTLY the model they have loaded — requesting a different id
+    /// makes LM Studio JIT-load (or swap to) another model, adding latency and
+    /// possible eviction churn. (The earlier cast-JSON truncation was the
+    /// reasoning-channel issue, not the model id — see `requestJSON`.)
+    var availableModels: [String] = []
+    var selectedModel: String = ""
 
     private let appState: AppState
     private let session: URLSession
@@ -46,11 +54,19 @@ final class PersonaWriter {
     func checkConnection() async {
         do {
             let models = try await makeClient().listModels()
-            if let model = models.first {
-                let prefer = writerModel.isEmpty ? model : writerModel
-                connectionState = .connected(model: prefer)
-            } else {
+            availableModels = models
+            // Default the pick to the chat model if it's available, else first.
+            if selectedModel.isEmpty || !models.contains(selectedModel) {
+                if !appState.chatSettings.model.isEmpty, models.contains(appState.chatSettings.model) {
+                    selectedModel = appState.chatSettings.model
+                } else {
+                    selectedModel = models.first ?? ""
+                }
+            }
+            if models.isEmpty {
                 connectionState = .disconnected(reason: "no models loaded")
+            } else {
+                connectionState = .connected(model: selectedModel)
             }
         } catch {
             connectionState = .disconnected(reason: shortError(error))
@@ -108,10 +124,11 @@ final class PersonaWriter {
 
     // MARK: - JSON request with retry
 
-    /// Request one JSON object. Attempt 1 asks for `response_format: json_object`;
-    /// if the server rejects that (HTTP error) OR the output won't parse, retry
-    /// once as plain `.text` and rely on the JSONExtractor + system prompt.
-    /// Internal + static so it's unit-testable with an injected client.
+    /// Request one JSON object via the STREAMING endpoint (same request shape as
+    /// Solo Chat, so LM Studio doesn't unload/reload the model). Retries up to
+    /// `attempts` times with escalating temperature, then decodes the
+    /// accumulated text with the tolerant extractor. Internal + static so it's
+    /// unit-testable with an injected client.
     static func requestJSON<T: Decodable>(
         _ type: T.Type,
         client: LocalLLMClient,
@@ -124,21 +141,24 @@ final class PersonaWriter {
         var lastError: Error?
         for attempt in 0..<max(1, attempts) {
             do {
-                // First attempt asks for json_object; retries drop the format
-                // hint in case the server's JSON grammar is what truncates the
-                // output on a small model. Each attempt is a fresh sample, so a
-                // retry can also recover from a one-off truncation.
-                let format: LocalLLMClient.ResponseFormat = (attempt == 0) ? .jsonObject : .text
-                // Escalate temperature on retries: a low-temp model can stop at
-                // the SAME spot deterministically every attempt (observed: an 8B
-                // model emits EOS right after `"cast":` at temp 0.3). Raising it
-                // gives each retry a genuinely different sample.
+                // Stream with the same request shape as Solo Chat and DON'T send
+                // `response_format`: on reasoning models (gpt-oss via LM Studio)
+                // the structured-output grammar makes the model emit its whole
+                // answer into the reasoning channel and leave `content` empty.
+                // `includeReasoning: true` lets the client surface that reasoning
+                // text as a fallback when no content arrives, so the JSON the
+                // model "thought out loud" is still recovered by JSONExtractor.
+                //
+                // Escalate temperature on retries so a deterministic empty/short
+                // sample isn't reproduced identically every attempt.
                 let temp = min(1.0, temperature + Double(attempt) * 0.35)
-                let raw = try await client.completeChat(
+                var raw = ""
+                let stream = client.streamChat(
                     messages: [ChatMessage(role: .user, content: user)],
-                    model: model, systemPrompt: system,
-                    temperature: temp, responseFormat: format
+                    model: model, systemPrompt: system, temperature: temp,
+                    includeReasoning: true
                 )
+                for try await delta in stream { raw += delta }
                 return try JSONExtractor.decode(T.self, from: raw)
             } catch {
                 // A cancellation must NOT be converted into another request.
@@ -155,14 +175,11 @@ final class PersonaWriter {
         LocalLLMClient(baseURL: URL(string: appState.currentEndpointBaseURL) ?? Self.fallbackURL, session: session)
     }
 
-    /// Prefer the cast's writer model when set; here just the app's pinned model
-    /// or the probe-resolved one (mirrors the speaker-side fallback).
-    private var writerModel: String { appState.chatSettings.model }
-
     private var resolvedModel: String {
+        if !selectedModel.isEmpty { return selectedModel }
         if !appState.chatSettings.model.isEmpty { return appState.chatSettings.model }
         if case let .connected(model) = connectionState { return model }
-        return appState.chatSettings.model
+        return ""
     }
 
     /// The active editable expansion prompt (PromptScope .ensemble), falling

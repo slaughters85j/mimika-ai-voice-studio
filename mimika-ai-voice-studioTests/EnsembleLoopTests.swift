@@ -14,6 +14,7 @@
 //
 
 import XCTest
+import SwiftData
 @testable import mimika_ai_voice_studio
 
 @MainActor
@@ -48,6 +49,7 @@ final class EnsembleLoopTests: XCTestCase {
             session: session
         )
         vm.connectionState = .connected(model: connectedModel)
+        vm.voicedPlayback = false   // exercise the generate path without audio
         return vm
     }
 
@@ -55,6 +57,47 @@ final class EnsembleLoopTests: XCTestCase {
         let escaped = content.replacingOccurrences(of: "\"", with: "\\\"")
         let chunk = "data: {\"choices\":[{\"delta\":{\"content\":\"\(escaped)\"}}]}\n\n"
         return Data((chunk + "data: [DONE]\n\n").utf8)
+    }
+
+    // MARK: - Reuse last cast
+
+    func test_loadLastCast_restoresSavedCast() throws {
+        let ctx = ModelContext(try HistoryStore.makeInMemoryContainer())
+        let appState = AppState()
+        appState.modelContext = ctx
+
+        // Seed a saved cast directly via the store (no persona-writer round-trip).
+        let saved = EnsembleStore.create(ctx, name: "Bridge", scene: "the bridge", mood: "tense")
+        saved.writerModel = "pinned-model"
+        EnsembleStore.addPersona(ctx, to: saved, name: "Picard", voiceID: "javert",
+                                 personaPrompt: "Engage.", temperature: 0.6,
+                                 samplingPreset: .strict, sortOrder: 0)
+        EnsembleStore.addPersona(ctx, to: saved, name: "Q", voiceID: "marius",
+                                 personaPrompt: "Mon capitaine.", temperature: 0.9,
+                                 samplingPreset: .spirited, sortOrder: 1)
+
+        let vm = EnsembleViewModel(engine: StubEngine(), player: try StreamingPlayer(), appState: appState)
+        XCTAssertTrue(vm.hasSavedCast)
+        XCTAssertTrue(vm.loadLastCast())
+        XCTAssertEqual(vm.scene, "the bridge")
+        XCTAssertEqual(vm.mood, "tense")
+        XCTAssertEqual(vm.selectedModel, "pinned-model")
+        XCTAssertEqual(vm.cast.map(\.name), ["Picard", "Q"])
+        XCTAssertEqual(vm.cast.map(\.voiceID), ["javert", "marius"])
+        XCTAssertEqual(vm.cast.map(\.samplingPreset), [.strict, .spirited])
+        XCTAssertEqual(vm.cast.first?.systemPrompt, "Engage.")
+    }
+
+    func test_loadLastCast_returnsFalse_whenNothingSaved() throws {
+        let ctx = ModelContext(try HistoryStore.makeInMemoryContainer())
+        let appState = AppState()
+        appState.modelContext = ctx
+
+        let vm = EnsembleViewModel(engine: StubEngine(), player: try StreamingPlayer(), appState: appState)
+        XCTAssertFalse(vm.hasSavedCast)
+        XCTAssertFalse(vm.loadLastCast(), "no saved cast → no-op")
+        XCTAssertEqual(vm.cast.map(\.name), EnsembleViewModel.demoCast.map(\.name),
+                       "falls back to the demo cast loaded at init")
     }
 
     private func requestBody() throws -> [String: Any] {
@@ -146,13 +189,6 @@ final class EnsembleLoopTests: XCTestCase {
         vm.cast = [ada, Persona(name: "Bertrand", voiceID: "y", systemPrompt: "")]
         let raw = "Ada: Reporting in. Bertrand: I disagree. You: stop it."
         XCTAssertEqual(vm.cleanedTurnText(raw, speaker: ada), "Reporting in.")
-    }
-
-    func test_samplingPreset_nearestMapsWriterTemperature() {
-        XCTAssertEqual(SamplingPreset.nearest(temperature: 0.3), .strict)
-        XCTAssertEqual(SamplingPreset.nearest(temperature: 0.7), .relaxed)
-        XCTAssertEqual(SamplingPreset.nearest(temperature: 0.9), .spirited)
-        XCTAssertEqual(SamplingPreset.nearest(temperature: 1.1), .butterflyChaser)
     }
 
     func test_runOneTurn_sendsPresetSamplingAndRepeatPenalty() async throws {

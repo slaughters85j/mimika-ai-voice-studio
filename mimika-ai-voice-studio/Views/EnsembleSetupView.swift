@@ -106,6 +106,20 @@ struct EnsembleSetupView: View {
         VStack(alignment: .leading, spacing: Theme.space3) {
             stepTitle("Scene & mood")
             connectionRow
+            if !writer.availableModels.isEmpty {
+                HStack(spacing: Theme.space2) {
+                    Text("Model").font(Theme.fontXS).foregroundStyle(Theme.textSecondary)
+                    Picker("", selection: $writer.selectedModel) {
+                        ForEach(writer.availableModels, id: \.self) { name in Text(name).tag(name) }
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                Text("Pick the model you have loaded in LM Studio so it isn't asked to swap models mid-setup (slower, and it may evict your loaded model).")
+                    .font(Theme.fontXS).foregroundStyle(Theme.textSecondary)
+                Text("Avoid reasoning / mixture-of-experts models (e.g. gpt-oss) — they can crash on load in LM Studio's Metal backend. A standard instruct model (Llama, Qwen, Mistral) is most reliable.")
+                    .font(Theme.fontXS).foregroundStyle(Theme.warningFG)
+            }
             TextField("Scene — e.g. Ten Forward, after Data's violin recital", text: $scene, axis: .vertical)
                 .lineLimit(2...3).textFieldStyle(.plain)
                 .padding(.horizontal, Theme.space3).padding(.vertical, Theme.space2).themeInputField()
@@ -147,7 +161,7 @@ struct EnsembleSetupView: View {
                     }
                     .padding(.vertical, 2)
                 }
-            } else {
+            } else if !isErrored {
                 ProgressView().controlSize(.small).tint(Theme.accent)
             }
             if case let .error(message) = writer.status {
@@ -257,6 +271,11 @@ struct EnsembleSetupView: View {
         return false
     }
 
+    private var isErrored: Bool {
+        if case .error = writer.status { return true }
+        return false
+    }
+
     private func nameBinding(_ i: Int) -> Binding<String> {
         Binding(
             get: { i < names.count ? names[i] : "" },
@@ -297,10 +316,11 @@ struct EnsembleSetupView: View {
         )
     }
 
-    /// Sampling preset for a persona: the user's pick, else the preset nearest
-    /// the writer's assigned temperature.
+    /// Sampling preset for a persona: the user's pick, else the Relaxed
+    /// (balanced) default. The writer no longer assigns a per-character
+    /// temperature — the preset is the single source of sampling settings.
     private func resolvedPreset(for persona: PersonaFull, index: Int) -> SamplingPreset {
-        presetSelections[index] ?? SamplingPreset.nearest(temperature: persona.temperature)
+        presetSelections[index] ?? .relaxed
     }
 
     private func presetBinding(for persona: PersonaFull, index: Int) -> Binding<SamplingPreset> {
@@ -323,7 +343,7 @@ struct EnsembleSetupView: View {
                 preset: resolvedPreset(for: persona, index: index)
             )
         }
-        viewModel.applyGeneratedCast(scene: scene, mood: mood, userName: userName, confirmed: confirmed)
+        viewModel.applyGeneratedCast(scene: scene, mood: mood, userName: userName, model: writer.selectedModel, confirmed: confirmed)
         onDone()
     }
 }

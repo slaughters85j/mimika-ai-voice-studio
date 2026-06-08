@@ -93,7 +93,8 @@ actor LocalLLMClient {
         maxTokens: Int? = nil,
         topP: Double? = nil,
         topK: Int? = nil,
-        repeatPenalty: Double? = nil
+        repeatPenalty: Double? = nil,
+        includeReasoning: Bool = false
     ) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream<String, Error> { continuation in
             let task = Task {
@@ -108,6 +109,7 @@ actor LocalLLMClient {
                         topP: topP,
                         topK: topK,
                         repeatPenalty: repeatPenalty,
+                        includeReasoning: includeReasoning,
                         continuation: continuation
                     )
                     continuation.finish()
@@ -131,6 +133,7 @@ actor LocalLLMClient {
         topP: Double?,
         topK: Int?,
         repeatPenalty: Double?,
+        includeReasoning: Bool,
         continuation: AsyncThrowingStream<String, Error>.Continuation
     ) async throws {
         let url = baseURL.appendingPathComponent("v1/chat/completions")
@@ -161,6 +164,15 @@ actor LocalLLMClient {
             throw ClientError.httpError(status: http.statusCode, body: String(data: collected, encoding: .utf8))
         }
 
+        // Reasoning models (gpt-oss via LM Studio, DeepSeek-R1, …) stream their
+        // chain-of-thought in a SEPARATE channel and may leave `content` empty
+        // entirely. We never merge that into the live content stream (callers
+        // would speak it). When `includeReasoning` is set we buffer it and, only
+        // if NO content ever arrives, surface it once at the end as a fallback —
+        // the LM Studio "content empty, reasoning populated" case the persona-
+        // writer needs so its JSONExtractor can still recover the object.
+        var reasoningFallback = ""
+        var yieldedContent = false
         for try await line in bytes.lines {
             try Task.checkCancellation()
 
@@ -173,8 +185,12 @@ actor LocalLLMClient {
 
             do {
                 let delta = try JSONDecoder().decode(ChatStreamChunk.self, from: payloadData)
-                if let content = delta.choices.first?.delta.content, !content.isEmpty {
+                let chunk = delta.choices.first?.delta
+                if let content = chunk?.content, !content.isEmpty {
+                    yieldedContent = true
                     continuation.yield(content)
+                } else if includeReasoning, let r = chunk?.reasoning ?? chunk?.reasoning_content, !r.isEmpty {
+                    reasoningFallback += r
                 }
             } catch {
                 // Some servers (e.g. LM Studio) occasionally send partial JSON or non-content
@@ -182,6 +198,11 @@ actor LocalLLMClient {
                 // aren't tokens we care about.
                 continue
             }
+        }
+        // Only when the model produced NO content do we surface the buffered
+        // reasoning — so a model that answered normally never leaks its thoughts.
+        if includeReasoning, !yieldedContent, !reasoningFallback.isEmpty {
+            continuation.yield(reasoningFallback)
         }
     }
 
@@ -277,6 +298,13 @@ private nonisolated struct ChatStreamChunk: Codable {
         let delta: Delta
         struct Delta: Codable {
             let content: String?
+            // Reasoning models stream chain-of-thought in a separate channel:
+            // gpt-oss via LM Studio (0.3.23+) uses `reasoning`; DeepSeek-R1 and
+            // some servers use `reasoning_content`. Decoded so the persona-writer
+            // can recover an answer the model left ONLY in this channel (see
+            // `includeReasoning`). Both Optional → absent for non-reasoning models.
+            let reasoning: String?
+            let reasoning_content: String?
         }
     }
 }

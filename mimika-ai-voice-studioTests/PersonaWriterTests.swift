@@ -2,9 +2,9 @@
 //  PersonaWriterTests.swift
 //  mimika-ai-voice-studioTests
 //
-//  Persona-writer request path: the response_format retry-once fallback, the
-//  happy path, tolerant contract decoding, and voice resolution. The LLM is
-//  stubbed via LLMStubURLProtocol (FIFO queue for the retry sequence).
+//  Persona-writer request path: the happy path, retry-on-error, reasoning-channel
+//  recovery (gpt-oss), tolerant contract decoding, and voice resolution. The LLM
+//  is stubbed via LLMStubURLProtocol (FIFO queue for the retry sequence).
 //
 
 import XCTest
@@ -24,12 +24,25 @@ final class PersonaWriterTests: XCTestCase {
         return LocalLLMClient(baseURL: URL(string: "http://localhost:1234")!, session: URLSession(configuration: config))
     }
 
-    /// Wrap raw JSON the model "said" as a non-streaming completion response.
+    /// Wrap raw JSON the model "said" as a streaming SSE response (the writer
+    /// now uses the streaming endpoint, same shape as Solo Chat).
     private func completion(_ said: String) -> Data {
         let escaped = said
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
-        return Data("{\"choices\":[{\"message\":{\"content\":\"\(escaped)\"}}]}".utf8)
+        let chunk = "data: {\"choices\":[{\"delta\":{\"content\":\"\(escaped)\"}}]}\n\n"
+        return Data((chunk + "data: [DONE]\n\n").utf8)
+    }
+
+    /// A REASONING-channel SSE response: `content` never appears and the model's
+    /// answer streams via `delta.reasoning` (gpt-oss via LM Studio). The writer
+    /// opts into reasoning capture, so the JSON is still recovered.
+    private func reasoningCompletion(_ said: String) -> Data {
+        let escaped = said
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        let chunk = "data: {\"choices\":[{\"delta\":{\"reasoning\":\"\(escaped)\"}}]}\n\n"
+        return Data((chunk + "data: [DONE]\n\n").utf8)
     }
 
     func test_requestJSON_succeedsOnFirstTry() async throws {
@@ -42,8 +55,22 @@ final class PersonaWriterTests: XCTestCase {
         XCTAssertEqual(LLMStubURLProtocol.requestCount, 1)
     }
 
+    func test_requestJSON_recoversJSONFromReasoningChannel() async throws {
+        // gpt-oss/LM Studio: the whole answer (incl. the JSON) lands in the
+        // reasoning channel with `content` empty. The writer must still recover
+        // it — and without spending a retry.
+        LLMStubURLProtocol.setResponse(reasoningCompletion(#"{"scene":"s","mood":"m","cast":[]}"#))
+        let skeleton = try await PersonaWriter.requestJSON(
+            CastSkeleton.self, client: stubClient(),
+            model: "m", system: "sys", user: "usr", temperature: 0.3
+        )
+        XCTAssertEqual(skeleton.scene, "s")
+        XCTAssertEqual(LLMStubURLProtocol.requestCount, 1, "reasoning fallback must not trigger a retry")
+    }
+
     func test_requestJSON_retriesAsTextWhenFirstAttemptRejected() async throws {
-        // Attempt 1 (json_object) -> server rejects with 400; retry -> 200 OK.
+        // Attempt 1 errors (e.g. 400 / timeout); the writer retries the same
+        // streaming request and the second attempt returns 200 OK.
         LLMStubURLProtocol.enqueue(Data("response_format unsupported".utf8), statusCode: 400)
         LLMStubURLProtocol.enqueue(completion(#"{"name":"Ada","voice":"dry","temperature":0.6,"persona_prompt":"hi","reads_on_others":{}}"#))
 
