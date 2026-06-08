@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		052509EC66CB8DA591623EA8 /* EnsemblePersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 478629569DD37CB57C8DB570 /* EnsemblePersistenceTests.swift */; };
 		183A55DA3F22258A054ED407 /* PersonaWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B563B22C4CF504AC16217555 /* PersonaWriter.swift */; };
+		19F5CB11FA9B60F35E92C7FE /* DirectorPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD88380CD0677E849D049018 /* DirectorPrompt.swift */; };
 		1C49B7C9EA40FE27EA70173C /* Conductor.swift in Sources */ = {isa = PBXBuildFile; fileRef = E464314A8241A9CB95AC93CF /* Conductor.swift */; };
 		297244A0784F43AD5DDC752C /* VoiceRecorderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B6B92722E9401E7184418D8 /* VoiceRecorderView.swift */; };
 		37D19F12A7E498FA669E37BB /* PersonaContracts.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBAB6B97A4F0AB6AD1876144 /* PersonaContracts.swift */; };
@@ -30,6 +31,7 @@
 		9A28843F630780EC11A80853 /* RecordingQualityAnalyzer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B324F0FD7499845E6EDA68A4 /* RecordingQualityAnalyzer.swift */; };
 		A013435DB894EB392B1C4FBA /* EnsembleCastEditorSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = C39989818B12E30B025277F9 /* EnsembleCastEditorSheet.swift */; };
 		AB17554B5BACBF301B090DD0 /* EnsembleViewModel+Interruption.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8EAA320219AD219F53EF673 /* EnsembleViewModel+Interruption.swift */; };
+		BDF03E2F201819BC6671F989 /* EnsembleSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B3F3E9741D103FD18E981B2 /* EnsembleSettingsView.swift */; };
 		C5B6AA6C38A3FA3E1AA7A537 /* EnsembleViewModel+Export.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22B75B6336F9B9BD064A2D45 /* EnsembleViewModel+Export.swift */; };
 		D1CE0591FA2E58F9E18ACD95 /* VoiceRecorderViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14BDDD7B827E5800F6747CE2 /* VoiceRecorderViewModel.swift */; };
 		D50B19572FC1302900097B8B /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = D50B19562FC1302900097B8B /* FluidAudio */; };
@@ -208,6 +210,7 @@
 		D53CE7052FD2FADC0071832E /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = D53CE6052FD2FADC0071832E /* InfoPlist.strings */; };
 		D5B49AEC3A4C1DADFB8A6F29 /* EnsembleLoopTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C50F4576D8DAB6980750D51 /* EnsembleLoopTests.swift */; };
 		D9CB8AC833524EFF73383AD6 /* EnsembleViewModel+Context.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6581221A724E53EAD1AF6FF /* EnsembleViewModel+Context.swift */; };
+		F32CB45378CA5EE418905F43 /* EnsembleViewModel+Director.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE64C94E90821F9C8BEE43DA /* EnsembleViewModel+Director.swift */; };
 		FFD73B22C32033F66E873DA6 /* LocalLLMClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9140AC48D1DDEDF29BA38333 /* LocalLLMClientTests.swift */; };
 /* End PBXBuildFile section */
 
@@ -235,6 +238,7 @@
 		4455AFA696C04E5F1C41B3BB /* ConductorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ConductorTests.swift; sourceTree = "<group>"; };
 		4582C82E02AAE970C6CEBDD5 /* JSONExtractorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JSONExtractorTests.swift; sourceTree = "<group>"; };
 		478629569DD37CB57C8DB570 /* EnsemblePersistenceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EnsemblePersistenceTests.swift; sourceTree = "<group>"; };
+		4B3F3E9741D103FD18E981B2 /* EnsembleSettingsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EnsembleSettingsView.swift; sourceTree = "<group>"; };
 		4B6B92722E9401E7184418D8 /* VoiceRecorderView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceRecorderView.swift; sourceTree = "<group>"; };
 		4DD2824F42C62169628B96DE /* EnsembleModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EnsembleModels.swift; sourceTree = "<group>"; };
 		55A819B4287E427883CE6048 /* JSONExtractor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JSONExtractor.swift; sourceTree = "<group>"; };
@@ -246,11 +250,13 @@
 		980F894943A89B60283FDCB8 /* MicrophoneRecorder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MicrophoneRecorder.swift; sourceTree = "<group>"; };
 		9F063B7FB9F736C210A43433 /* EnsembleViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EnsembleViewModel.swift; sourceTree = "<group>"; };
 		A883F854A5733B5667175CB9 /* EnsembleStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EnsembleStore.swift; sourceTree = "<group>"; };
+		AD88380CD0677E849D049018 /* DirectorPrompt.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DirectorPrompt.swift; sourceTree = "<group>"; };
 		B324F0FD7499845E6EDA68A4 /* RecordingQualityAnalyzer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RecordingQualityAnalyzer.swift; sourceTree = "<group>"; };
 		B563B22C4CF504AC16217555 /* PersonaWriter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PersonaWriter.swift; sourceTree = "<group>"; };
 		C39989818B12E30B025277F9 /* EnsembleCastEditorSheet.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EnsembleCastEditorSheet.swift; sourceTree = "<group>"; };
 		CBAB6B97A4F0AB6AD1876144 /* PersonaContracts.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PersonaContracts.swift; sourceTree = "<group>"; };
 		CDBCAE0FB784C0AF344F9A30 /* EnsembleSurfaceView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EnsembleSurfaceView.swift; sourceTree = "<group>"; };
+		CE64C94E90821F9C8BEE43DA /* EnsembleViewModel+Director.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "EnsembleViewModel+Director.swift"; sourceTree = "<group>"; };
 		D53CE5742FD2FADC0071832E /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
 		D53CE5752FD2FADC0071832E /* SynthesisStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynthesisStatus.swift; sourceTree = "<group>"; };
 		D53CE5772FD2FADC0071832E /* AACEncoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AACEncoder.swift; sourceTree = "<group>"; };
@@ -683,6 +689,7 @@
 				CBAB6B97A4F0AB6AD1876144 /* PersonaContracts.swift */,
 				55A819B4287E427883CE6048 /* JSONExtractor.swift */,
 				B563B22C4CF504AC16217555 /* PersonaWriter.swift */,
+				AD88380CD0677E849D049018 /* DirectorPrompt.swift */,
 			);
 			path = Networking;
 			sourceTree = "<group>";
@@ -727,6 +734,7 @@
 				E6581221A724E53EAD1AF6FF /* EnsembleViewModel+Context.swift */,
 				D8EAA320219AD219F53EF673 /* EnsembleViewModel+Interruption.swift */,
 				22B75B6336F9B9BD064A2D45 /* EnsembleViewModel+Export.swift */,
+				CE64C94E90821F9C8BEE43DA /* EnsembleViewModel+Director.swift */,
 			);
 			path = ViewModels;
 			sourceTree = "<group>";
@@ -764,6 +772,7 @@
 				CDBCAE0FB784C0AF344F9A30 /* EnsembleSurfaceView.swift */,
 				2BD26F9434166E6F03BF338E /* EnsembleSetupView.swift */,
 				C39989818B12E30B025277F9 /* EnsembleCastEditorSheet.swift */,
+				4B3F3E9741D103FD18E981B2 /* EnsembleSettingsView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -1211,6 +1220,9 @@
 				AB17554B5BACBF301B090DD0 /* EnsembleViewModel+Interruption.swift in Sources */,
 				A013435DB894EB392B1C4FBA /* EnsembleCastEditorSheet.swift in Sources */,
 				C5B6AA6C38A3FA3E1AA7A537 /* EnsembleViewModel+Export.swift in Sources */,
+				19F5CB11FA9B60F35E92C7FE /* DirectorPrompt.swift in Sources */,
+				F32CB45378CA5EE418905F43 /* EnsembleViewModel+Director.swift in Sources */,
+				BDF03E2F201819BC6671F989 /* EnsembleSettingsView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

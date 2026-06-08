@@ -16,30 +16,38 @@ struct EnsembleCastEditorSheet: View {
     var onClose: () -> Void
 
     var body: some View {
-        ModalContainer(title: "Edit Cast", onClose: onClose) {
+        ModalContainer(title: "Cast & Settings", onClose: onClose) {
             VStack(alignment: .leading, spacing: Theme.space3) {
-                if viewModel.cast.isEmpty {
-                    Text("No cast loaded yet. Generate a new cast or reuse the last one first.")
-                        .font(Theme.fontSM).foregroundStyle(Theme.textSecondary)
-                } else if voiceOptions.isEmpty {
-                    Text("No voices are available. Add a voice in the Voice Manager first.")
-                        .font(Theme.fontSM).foregroundStyle(Theme.warningFG)
-                } else {
-                    Text("Voice and delivery for each speaker — changes apply now and save with the cast.")
-                        .font(Theme.fontXS).foregroundStyle(Theme.textSecondary)
-                    ScrollView {
-                        VStack(spacing: Theme.space2) {
-                            ForEach(Array(viewModel.cast.enumerated()), id: \.element.id) { index, persona in
-                                personaRow(index: index, persona: persona)
-                            }
-                        }
+                ScrollView {
+                    VStack(alignment: .leading, spacing: Theme.space4) {
+                        castSection
+                        Divider().background(Theme.borderColor)
+                        EnsembleSettingsView(viewModel: viewModel)
                     }
-                    .frame(maxHeight: 320)
                 }
+                .frame(maxHeight: 400)
                 Spacer()
                 HStack { Spacer(); doneButton }
             }
-            .frame(minWidth: 440, minHeight: 360)
+            .frame(minWidth: 460, minHeight: 440)
+        }
+    }
+
+    @ViewBuilder
+    private var castSection: some View {
+        if viewModel.cast.isEmpty {
+            Text("No cast loaded yet. Generate a new cast or reuse the last one first.")
+                .font(Theme.fontSM).foregroundStyle(Theme.textSecondary)
+        } else if voiceOptions.isEmpty {
+            Text("No voices are available. Add a voice in the Voice Manager first.")
+                .font(Theme.fontSM).foregroundStyle(Theme.warningFG)
+        } else {
+            Text("CAST").font(Theme.fontXS).foregroundStyle(Theme.textSecondary)
+            Text("Voice and delivery for each speaker — changes apply now and save with the cast.")
+                .font(Theme.fontXS).foregroundStyle(Theme.textSecondary)
+            ForEach(Array(viewModel.cast.enumerated()), id: \.element.id) { index, persona in
+                personaRow(index: index, persona: persona)
+            }
         }
     }
 

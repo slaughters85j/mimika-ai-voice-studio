@@ -166,6 +166,35 @@ final class EnsembleLoopTests: XCTestCase {
                        "context is capped at maxContextTurns, not unbounded")
     }
 
+    // MARK: - Director + grenade (Phase 6)
+
+    func test_directorPrompt_resolvesNameExcludingSelf() {
+        let mulder = Persona(name: "Fox Mulder", voiceID: "x", systemPrompt: "")
+        let scully = Persona(name: "Dana Scully", voiceID: "y", systemPrompt: "")
+        let cast = [mulder, scully]
+        XCTAssertEqual(DirectorPrompt.resolve("Dana Scully should go next.", cast: cast, excluding: mulder.id), scully.id)
+        XCTAssertEqual(DirectorPrompt.resolve("scully", cast: cast, excluding: nil), scully.id)
+        XCTAssertNil(DirectorPrompt.resolve("Fox Mulder", cast: cast, excluding: mulder.id), "can't pick the last speaker")
+        XCTAssertNil(DirectorPrompt.resolve("nobody here", cast: cast, excluding: nil))
+    }
+
+    func test_detectsAgreementCollapse() {
+        let id = UUID()
+        func turn(_ s: String) -> EnsembleTurn { EnsembleTurn(speakerID: id, speakerName: "A", content: s) }
+        XCTAssertTrue(EnsembleViewModel.detectsAgreementCollapse(turns: [
+            turn("I completely agree with that."),
+            turn("Exactly, well said."),
+            turn("Absolutely, you're right.")
+        ]))
+        XCTAssertFalse(EnsembleViewModel.detectsAgreementCollapse(turns: [
+            turn("I agree with that."),
+            turn("But I'm not so sure, actually."),
+            turn("Exactly though.")
+        ]), "a pushback breaks the collapse")
+        XCTAssertFalse(EnsembleViewModel.detectsAgreementCollapse(turns: [turn("I agree."), turn("Exactly.")]),
+                       "too few turns")
+    }
+
     // MARK: - Export (Phase 6)
 
     func test_formatMultiTalkScript_tagsByNameSkipsEmpty() {

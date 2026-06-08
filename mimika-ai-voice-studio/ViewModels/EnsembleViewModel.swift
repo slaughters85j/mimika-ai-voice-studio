@@ -39,10 +39,18 @@ final class EnsembleViewModel {
     var turnOrder: TurnMode = .weightedRandom
     var rngMode: RNGMode = .shuffleOnce
     var paceDelay: Duration = .milliseconds(600)
+    /// `paceDelay` as seconds — a slider-friendly bridge for the settings panel.
+    var paceSeconds: Double {
+        get { Double(paceDelay.components.seconds) + Double(paceDelay.components.attoseconds) * 1e-18 }
+        set { paceDelay = .seconds(max(0, newValue)) }
+    }
     /// When true (default), each turn is synthesized + played in its assigned
     /// voice and the loop is paced by speech duration (a short breath between
     /// turns). When false, the loop is text-only with a reading-paced gap.
     var voicedPlayback: Bool = true
+    /// One-shot disruption armed by "throw a grenade" — the next turn is told to
+    /// break the consensus, then this clears.
+    var pendingGrenade: Bool = false
     var maxTurns: Int = 60
     /// Hard per-turn length ceiling (OpenAI `max_tokens`). Keeps replies short
     /// on top of the "one or two sentences" instruction + stop sequences.
@@ -129,7 +137,7 @@ final class EnsembleViewModel {
         loadDefaultCastIfNeeded()
     }
 
-    private func makeClient() -> LocalLLMClient {
+    func makeClient() -> LocalLLMClient {
         LocalLLMClient(baseURL: URL(string: appState.currentEndpointBaseURL) ?? Self.fallbackURL, session: session)
     }
 
@@ -137,7 +145,7 @@ final class EnsembleViewModel {
     /// connection probe resolved (mirrors ChatViewModel.send()'s fallback so a
     /// default LM Studio setup with no pinned model still works instead of
     /// POSTing an empty model id).
-    private var resolvedModel: String {
+    var resolvedModel: String {
         if !selectedModel.isEmpty { return selectedModel }
         if !appState.chatSettings.model.isEmpty { return appState.chatSettings.model }
         if case let .connected(model) = connectionState { return model }
@@ -420,6 +428,11 @@ final class EnsembleViewModel {
         runLoopTask()
     }
 
+    /// Kick a single turn if the loop is parked — used after arming a grenade.
+    func kickIfParked() {
+        if !isLooping, canRun { resumeCast() }
+    }
+
     /// Tear down any in-progress dictation and reset the mic to idle — so Stop
     /// (or any hard reset) never leaves the mic capturing into `draft`.
     func cancelDictation() {
@@ -544,12 +557,17 @@ final class EnsembleViewModel {
     /// unit tests. Returns whether the loop should continue.
     func runOneTurn(lastSpeaker: UUID?) async -> Bool {
         runState = .picking
-        var generator = SystemRandomNumberGenerator()
-        let nextID = Conductor.pickNext(
-            cast: cast, turns: turns, lastSpeaker: lastSpeaker,
-            mode: turnOrder, rng: rngMode,
-            shuffledOrder: &shuffledOrder, cursor: &orderCursor, using: &generator
-        )
+        let nextID: UUID?
+        if turnOrder == .director {
+            nextID = await pickNextViaDirector(lastSpeaker: lastSpeaker)
+        } else {
+            var generator = SystemRandomNumberGenerator()
+            nextID = Conductor.pickNext(
+                cast: cast, turns: turns, lastSpeaker: lastSpeaker,
+                mode: turnOrder, rng: rngMode,
+                shuffledOrder: &shuffledOrder, cursor: &orderCursor, using: &generator
+            )
+        }
         guard let speakerID = nextID,
               let persona = cast.first(where: { $0.id == speakerID }) else {
             runState = .idle
@@ -562,6 +580,8 @@ final class EnsembleViewModel {
 
     private func runTurn(persona: Persona) async {
         lastTurnFailed = false
+        let grenade = pendingGrenade   // consume the one-shot disruption
+        pendingGrenade = false
 
         // Build the request BEFORE appending this turn's placeholder so the
         // persona sees only the context that PRECEDES its own line — not an
@@ -570,7 +590,7 @@ final class EnsembleViewModel {
         let request = SpokenTurnRunner.Request(
             messages: messagesForPersona(persona),
             model: resolvedModel,
-            systemPrompt: framedSystemPrompt(persona),
+            systemPrompt: framedSystemPrompt(persona, grenade: grenade),
             temperature: preset.temperature,
             voiceID: persona.voiceID,
             options: currentSynthesisOptions(),
@@ -648,7 +668,7 @@ final class EnsembleViewModel {
     /// define WHO they are but nothing anchors WHAT they're discussing — an
     /// autonomous text loop then drifts off-theme (and small models slide into
     /// meta "I am an AI" navel-gazing).
-    private func framedSystemPrompt(_ persona: Persona) -> String {
+    private func framedSystemPrompt(_ persona: Persona, grenade: Bool = false) -> String {
         // Always-on: identity + "only your own single line" (stops the model
         // from scripting the whole table) + no meta. Scene/mood added when set.
         var context = "You are \(persona.name). Respond ONLY as \(persona.name), with a single short line of spoken dialogue. Do NOT write lines for any other character, and do NOT prefix your reply with a name. Remain fully in character; never refer to yourself as an AI, a model, or an assistant."
@@ -665,6 +685,9 @@ final class EnsembleViewModel {
            let said = turns.last?.content.trimmingCharacters(in: .whitespacesAndNewlines),
            !said.isEmpty {
             context += " \(you) just said: \"\(said)\". Respond to that directly."
+        }
+        if grenade {
+            context += " The conversation has gotten too agreeable — break the consensus NOW: take a sharp, contrarian position or throw in a provocative new angle that forces the others to react."
         }
         return persona.systemPrompt + "\n\n" + context
     }
