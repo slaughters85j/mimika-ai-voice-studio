@@ -52,24 +52,38 @@ final class PersonaWriter {
     // MARK: - Connection
 
     func checkConnection() async {
-        do {
-            let models = try await makeClient().listModels()
-            availableModels = models
-            // Default the pick to the chat model if it's available, else first.
-            if selectedModel.isEmpty || !models.contains(selectedModel) {
-                if !appState.chatSettings.model.isEmpty, models.contains(appState.chatSettings.model) {
-                    selectedModel = appState.chatSettings.model
-                } else {
-                    selectedModel = models.first ?? ""
+        let config = PersonaProviderStore.load()
+        switch config.kind {
+        case .local:
+            do {
+                let models = try await makeClient().listModels()
+                availableModels = models
+                // Default the pick to the chat model if it's available, else first.
+                if selectedModel.isEmpty || !models.contains(selectedModel) {
+                    if !appState.chatSettings.model.isEmpty, models.contains(appState.chatSettings.model) {
+                        selectedModel = appState.chatSettings.model
+                    } else {
+                        selectedModel = models.first ?? ""
+                    }
                 }
+                connectionState = models.isEmpty
+                    ? .disconnected(reason: "no models loaded")
+                    : .connected(model: selectedModel)
+            } catch {
+                connectionState = .disconnected(reason: shortError(error))
             }
-            if models.isEmpty {
-                connectionState = .disconnected(reason: "no models loaded")
-            } else {
-                connectionState = .connected(model: selectedModel)
+        case .anthropic:
+            // The cloud path has no local model picker — the model is chosen in
+            // App Settings; "connected" means the API key validates.
+            availableModels = []
+            let provider = AnthropicPersonaWriterProvider(
+                client: AnthropicMessagesClient(apiKey: PersonaProviderStore.anthropicAPIKey(), session: session),
+                model: config.anthropicModel
+            )
+            switch await provider.health() {
+            case let .ok(label):   connectionState = .connected(model: label)
+            case let .down(reason): connectionState = .disconnected(reason: reason)
             }
-        } catch {
-            connectionState = .disconnected(reason: shortError(error))
         }
     }
 
@@ -91,15 +105,14 @@ final class PersonaWriter {
     }
 
     private func runGenerate(names: [String], scene: String, mood: String) async {
-        let client = makeClient()
-        let model = resolvedModel
+        let provider = makeProvider()
         let expansionSystem = activeExpansionPrompt()
         do {
-            let skel = try await Self.requestJSON(
-                CastSkeleton.self, client: client, model: model,
+            let skel = try await provider.requestJSON(
+                CastSkeleton.self,
                 system: PersonaWriterPrompts.skeletonSystem,
                 user: PersonaWriterPrompts.skeletonUser(names: names, scene: scene, mood: mood),
-                temperature: 0.5
+                schema: PersonaWriterSchemas.skeleton, temperature: 0.5, attempts: 3
             )
             if Task.isCancelled { return }
             // Pin the cast names back to what the user typed — local models
@@ -112,11 +125,11 @@ final class PersonaWriter {
             var produced: [PersonaFull] = []
             for stub in reconciled.cast {
                 if Task.isCancelled { return }
-                var full = try await Self.requestJSON(
-                    PersonaFull.self, client: client, model: model,
+                var full = try await provider.requestJSON(
+                    PersonaFull.self,
                     system: expansionSystem,
                     user: PersonaWriterPrompts.expansionUser(skeleton: reconciled, targetName: stub.name, scene: scene, mood: mood),
-                    temperature: 0.4
+                    schema: PersonaWriterSchemas.persona, temperature: 0.4, attempts: 3
                 )
                 full.name = stub.name   // enforce the pinned name; the expansion can't rename it
                 produced.append(full)
@@ -135,7 +148,7 @@ final class PersonaWriter {
     /// `attempts` times with escalating temperature, then decodes the
     /// accumulated text with the tolerant extractor. Internal + static so it's
     /// unit-testable with an injected client.
-    static func requestJSON<T: Decodable>(
+    static func requestJSON<T: Decodable & Sendable>(
         _ type: T.Type,
         client: LocalLLMClient,
         model: String,
@@ -225,6 +238,19 @@ final class PersonaWriter {
 
     private func makeClient() -> LocalLLMClient {
         LocalLLMClient(baseURL: URL(string: appState.currentEndpointBaseURL) ?? Self.fallbackURL, session: session)
+    }
+
+    /// Build the configured persona-writer backend. Local (OpenAI-compatible) is
+    /// the default; the Anthropic path is opt-in via App Settings.
+    private func makeProvider() -> any PersonaWriterProvider {
+        let config = PersonaProviderStore.load()
+        switch config.kind {
+        case .local:
+            return LocalPersonaWriterProvider(client: makeClient(), model: resolvedModel)
+        case .anthropic:
+            let client = AnthropicMessagesClient(apiKey: PersonaProviderStore.anthropicAPIKey(), session: session)
+            return AnthropicPersonaWriterProvider(client: client, model: config.anthropicModel)
+        }
     }
 
     private var resolvedModel: String {

@@ -53,7 +53,7 @@ nonisolated struct PersonaStub: Codable, Sendable {
         name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
         voice = try c.decodeIfPresent(String.self, forKey: .voice) ?? ""
         temperature = try c.decodeIfPresent(Double.self, forKey: .temperature) ?? 0.7
-        readsOnOthers = try c.decodeIfPresent([String: String].self, forKey: .readsOnOthers) ?? [:]
+        readsOnOthers = decodeReadsOnOthers(c, .readsOnOthers)
     }
 }
 
@@ -83,8 +83,44 @@ nonisolated struct PersonaFull: Codable, Sendable {
         voice = try c.decodeIfPresent(String.self, forKey: .voice) ?? ""
         temperature = try c.decodeIfPresent(Double.self, forKey: .temperature) ?? 0.7
         personaPrompt = try c.decodeIfPresent(String.self, forKey: .personaPrompt) ?? ""
-        readsOnOthers = try c.decodeIfPresent([String: String].self, forKey: .readsOnOthers) ?? [:]
+        readsOnOthers = decodeReadsOnOthers(c, .readsOnOthers)
     }
+}
+
+// MARK: - reads_on_others tolerant decode (map OR array form)
+
+/// Local models emit `reads_on_others` as a {Name: read} map; the Anthropic
+/// structured-output schema requires an array of {name, read} (a map with
+/// arbitrary keys can't be expressed under `additionalProperties: false`). Decode
+/// either form into the same [String: String].
+nonisolated struct ReadPair: Codable, Sendable {
+    let name: String
+    let read: String
+}
+
+nonisolated func decodeReadsOnOthers<K: CodingKey>(_ container: KeyedDecodingContainer<K>, _ key: K) -> [String: String] {
+    if let map = try? container.decodeIfPresent([String: String].self, forKey: key), !map.isEmpty {
+        return map
+    }
+    if let pairs = try? container.decodeIfPresent([ReadPair].self, forKey: key) {
+        return Dictionary(pairs.map { ($0.name, $0.read) }, uniquingKeysWith: { first, _ in first })
+    }
+    return [:]
+}
+
+// MARK: - Structured-output JSON schemas (Anthropic provider)
+
+/// JSON Schemas for the persona-writer's two calls, sent as Anthropic structured
+/// outputs so Claude returns guaranteed-shape JSON. `reads_on_others` uses the
+/// array form (see ReadPair). Kept beside the DTOs so the two can't drift.
+nonisolated enum PersonaWriterSchemas {
+    static let skeleton = """
+    {"type":"object","additionalProperties":false,"required":["scene","mood","cast"],"properties":{"scene":{"type":"string"},"mood":{"type":"string"},"cast":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["name","voice","reads_on_others"],"properties":{"name":{"type":"string"},"voice":{"type":"string"},"reads_on_others":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["name","read"],"properties":{"name":{"type":"string"},"read":{"type":"string"}}}}}}}}}
+    """
+
+    static let persona = """
+    {"type":"object","additionalProperties":false,"required":["name","voice","persona_prompt","reads_on_others"],"properties":{"name":{"type":"string"},"voice":{"type":"string"},"persona_prompt":{"type":"string"},"reads_on_others":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["name","read"],"properties":{"name":{"type":"string"},"read":{"type":"string"}}}}}}
+    """
 }
 
 // MARK: - Confirmed persona (writer output + user-confirmed voiceID)
