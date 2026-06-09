@@ -24,35 +24,57 @@ extension EnsembleViewModel {
     ) -> [ChatMessage] {
         var out: [ChatMessage] = []
 
+        // Coalesce consecutive non-me lines (other personas AND the user — both
+        // map to the `user` role) into ONE message. Strict user/assistant
+        // alternation is required by several local chat templates (Gemma,
+        // Mistral): two `user` messages in a row — which happens the moment the
+        // user interjects after a persona, or any time two other speakers go
+        // back-to-back — makes those templates reject the whole prompt with a
+        // "roles must alternate" error (the bug that flashed Data's turn).
+        var userBlock: [String] = []
+        func flushUserBlock() {
+            guard !userBlock.isEmpty else { return }
+            out.append(ChatMessage(role: .user, content: userBlock.joined(separator: "\n")))
+            userBlock.removeAll(keepingCapacity: true)
+        }
+
         if !rollingSummary.isEmpty {
-            out.append(ChatMessage(role: .user, content: "Earlier in the conversation: \(rollingSummary)"))
+            userBlock.append("Earlier in the conversation: \(rollingSummary)")
         }
 
         let windowed = Array(turns.suffix(max(0, window)))
         for turn in windowed {
             if turn.speakerID == me.id {
-                // My own line — I am the assistant.
+                // My own line — I am the assistant. Close any pending user block.
+                flushUserBlock()
                 var content = turn.content
                 if turn.wasCutOff { content += "  [cut off]" }
                 out.append(ChatMessage(role: .assistant, content: content))
             } else {
-                // Another persona OR the user — a name-prefixed external person.
-                var content = "\(turn.speakerName): \(turn.content)"
-                if turn.wasCutOff { content += " [cut off]" }
-                out.append(ChatMessage(role: .user, content: content))
+                // Another persona OR the user — a name-prefixed external line.
+                var line = "\(turn.speakerName): \(turn.content)"
+                if turn.wasCutOff { line += " [cut off]" }
+                userBlock.append(line)
             }
         }
+        flushUserBlock()
 
-        // First turn of the scene — there is nothing to react to yet. Hand the
-        // model a concrete, benign kickoff instead of an EMPTY messages array:
-        // generating an assistant turn into a void lets a weakly-aligned local
-        // model confabulate a request (occasionally a harmful one) out of nothing.
-        if windowed.isEmpty {
+        // First turn of the scene — nothing to react to yet. Seed a concrete,
+        // benign kickoff instead of an EMPTY messages array (which lets a weak
+        // local model confabulate a request — occasionally a harmful one).
+        if out.isEmpty {
             out.append(ChatMessage(role: .user, content: "You're opening the scene. Say your first line now — in character, on the established scene and topic, as one short spoken sentence."))
         }
 
+        // Strict templates also require the FIRST message to be `user`. If the
+        // window happens to start on my own line, lead with a tiny primer rather
+        // than an illegal leading assistant message.
+        if out.first?.role == .assistant {
+            out.insert(ChatMessage(role: .user, content: "(continuing the conversation)"), at: 0)
+        }
+
         // If my own line is the most recent, nudge for a NEW line rather than an
-        // echo — local models sometimes need the trailing-user-turn convention.
+        // echo — and keep alternation (the trailing message stays `user`).
         if windowed.last?.speakerID == me.id {
             out.append(ChatMessage(role: .user, content: "(continue)"))
         }
