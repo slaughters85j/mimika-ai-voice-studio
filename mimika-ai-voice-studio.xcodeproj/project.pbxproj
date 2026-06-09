@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		02678B6169DFFA75BFF7C79E /* ReadAloudOnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 326CF9D0C590CC2F94FFF15E /* ReadAloudOnboardingView.swift */; };
 		052509EC66CB8DA591623EA8 /* EnsemblePersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 478629569DD37CB57C8DB570 /* EnsemblePersistenceTests.swift */; };
 		183A55DA3F22258A054ED407 /* PersonaWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B563B22C4CF504AC16217555 /* PersonaWriter.swift */; };
 		19F5CB11FA9B60F35E92C7FE /* DirectorPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD88380CD0677E849D049018 /* DirectorPrompt.swift */; };
@@ -246,6 +247,7 @@
 		14BDDD7B827E5800F6747CE2 /* VoiceRecorderViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceRecorderViewModel.swift; sourceTree = "<group>"; };
 		22B75B6336F9B9BD064A2D45 /* EnsembleViewModel+Export.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "EnsembleViewModel+Export.swift"; sourceTree = "<group>"; };
 		2BD26F9434166E6F03BF338E /* EnsembleSetupView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EnsembleSetupView.swift; sourceTree = "<group>"; };
+		326CF9D0C590CC2F94FFF15E /* ReadAloudOnboardingView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ReadAloudOnboardingView.swift; sourceTree = "<group>"; };
 		357B46FC95DFDCF061168CFD /* AnthropicMessagesClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AnthropicMessagesClient.swift; sourceTree = "<group>"; };
 		4455AFA696C04E5F1C41B3BB /* ConductorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ConductorTests.swift; sourceTree = "<group>"; };
 		4582C82E02AAE970C6CEBDD5 /* JSONExtractorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JSONExtractorTests.swift; sourceTree = "<group>"; };
@@ -802,6 +804,7 @@
 				4B3F3E9741D103FD18E981B2 /* EnsembleSettingsView.swift */,
 				E9CC17D2ABF0DB738583B68A /* EnsemblePersonaEditorSheet.swift */,
 				7811C7B05509321C8D2C8261 /* MenuBarContent.swift */,
+				326CF9D0C590CC2F94FFF15E /* ReadAloudOnboardingView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -1262,6 +1265,7 @@
 				B2D61E5F956C207E61EC2FE7 /* ReadAloudService.swift in Sources */,
 				6D3F9D1982689A0AD1288331 /* LoginItem.swift in Sources */,
 				E860D94181A218CD8B2C5C6B /* MenuBarContent.swift in Sources */,
+				02678B6169DFFA75BFF7C79E /* ReadAloudOnboardingView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

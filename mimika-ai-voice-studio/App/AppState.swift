@@ -62,6 +62,10 @@ final class AppState {
     /// so it's reachable from any tab.
     var showsAppSettings: Bool = false
 
+    /// First-time Read-Aloud onboarding sheet (how to use the service + set the
+    /// keyboard shortcut), shown right after the user enables the feature.
+    var showsReadAloudOnboarding: Bool = false
+
     /// Chat-scoped settings sheet visibility (TTS voice for chat replies,
     /// chat system prompt). Triggered by the gear icon inside the Chat
     /// tab's own header — those settings only make sense in chat context.
