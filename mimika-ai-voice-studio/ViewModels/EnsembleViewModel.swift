@@ -36,7 +36,7 @@ final class EnsembleViewModel {
     var currentSpeakerID: UUID?
     var runState: RunState = .idle
     var advanceMode: AdvanceMode = .step
-    var turnOrder: TurnMode = .weightedRandom
+    var turnOrder: TurnMode = .director
     var rngMode: RNGMode = .shuffleOnce
     var paceDelay: Duration = .milliseconds(600)
     /// `paceDelay` as seconds — a slider-friendly bridge for the settings panel.
