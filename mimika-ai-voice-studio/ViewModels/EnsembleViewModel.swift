@@ -63,11 +63,9 @@ final class EnsembleViewModel {
 
     // MARK: - Connection (mirrors ChatViewModel)
     var connectionState: ConnectionState = .checking
-    /// The model id chosen in setup — requested verbatim so LM Studio doesn't
-    /// unload/reload a different model mid-turn. Falls back to chat settings.
-    var selectedModel: String = ""
-    /// Models the endpoint reports (refreshed on the health check) — drives the
-    /// settings model picker so the speaker/director/summary model is editable.
+    /// Models the endpoint reports (refreshed on the health check) — ground truth
+    /// for validating the one app-level model preference in `resolvedModel`. The
+    /// model is configured ONCE in App Settings; there's no per-cast override.
     var availableModels: [String] = []
 
     // MARK: - Dictation / barge-in (mirrors ChatViewModel)
@@ -242,12 +240,11 @@ final class EnsembleViewModel {
     /// Replace the cast with a persona-writer result: resets the conversation,
     /// loads the runtime personas the loop uses, and persists the cast to
     /// SwiftData. Called from the setup flow once voices are confirmed.
-    func applyGeneratedCast(scene: String, mood: String, userName: String, model: String, confirmed: [ConfirmedPersona]) {
+    func applyGeneratedCast(scene: String, mood: String, userName: String, confirmed: [ConfirmedPersona]) {
         guard !confirmed.isEmpty else { return }
         stop()
         self.scene = scene
         self.mood = mood
-        if !model.isEmpty { selectedModel = model }
         let trimmedName = userName.trimmingCharacters(in: .whitespacesAndNewlines)
         userPeer.name = trimmedName.isEmpty ? "You" : trimmedName
         turns = []
@@ -273,7 +270,6 @@ final class EnsembleViewModel {
         guard let ctx = appState.modelContext else { return }
         let name = scene.isEmpty ? "Ensemble" : scene
         let castModel = EnsembleStore.create(ctx, name: name, scene: scene, mood: mood)
-        castModel.writerModel = selectedModel   // persisted so reuse restores the model
         currentCastID = castModel.id
         for (i, entry) in confirmed.enumerated() {
             EnsembleStore.addPersona(
@@ -310,7 +306,6 @@ final class EnsembleViewModel {
         currentCastID = saved.id
         scene = saved.scene
         mood = saved.mood
-        if !saved.writerModel.isEmpty { selectedModel = saved.writerModel }
         turns = []
         rollingSummary = ""
         summarizedUpTo = 0

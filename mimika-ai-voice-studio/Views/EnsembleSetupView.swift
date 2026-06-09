@@ -365,7 +365,7 @@ struct EnsembleSetupView: View {
                 preset: resolvedPreset(for: persona, index: index)
             )
         }
-        viewModel.applyGeneratedCast(scene: scene, mood: mood, userName: userName, model: writer.selectedModel, confirmed: confirmed)
+        viewModel.applyGeneratedCast(scene: scene, mood: mood, userName: userName, confirmed: confirmed)
         onDone()
     }
 }

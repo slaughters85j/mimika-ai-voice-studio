@@ -68,7 +68,6 @@ final class EnsembleLoopTests: XCTestCase {
 
         // Seed a saved cast directly via the store (no persona-writer round-trip).
         let saved = EnsembleStore.create(ctx, name: "Bridge", scene: "the bridge", mood: "tense")
-        saved.writerModel = "pinned-model"
         EnsembleStore.addPersona(ctx, to: saved, name: "Picard", voiceID: "javert",
                                  personaPrompt: "Engage.", temperature: 0.6,
                                  samplingPreset: .strict, sortOrder: 0)
@@ -81,7 +80,6 @@ final class EnsembleLoopTests: XCTestCase {
         XCTAssertTrue(vm.loadLastCast())
         XCTAssertEqual(vm.scene, "the bridge")
         XCTAssertEqual(vm.mood, "tense")
-        XCTAssertEqual(vm.selectedModel, "pinned-model")
         XCTAssertEqual(vm.cast.map(\.name), ["Picard", "Q"])
         XCTAssertEqual(vm.cast.map(\.voiceID), ["javert", "marius"])
         XCTAssertEqual(vm.cast.map(\.samplingPreset), [.strict, .spirited])

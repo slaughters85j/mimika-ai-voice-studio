@@ -16,15 +16,8 @@ struct EnsembleSettingsView: View {
         VStack(alignment: .leading, spacing: Theme.space2) {
             Text("RUN SETTINGS").font(Theme.fontXS).foregroundStyle(Theme.textSecondary)
 
-            if !viewModel.availableModels.isEmpty {
-                row("Model") {
-                    Picker("", selection: modelBinding) {
-                        ForEach(viewModel.availableModels, id: \.self) { Text($0).tag($0) }
-                    }
-                    .pickerStyle(.menu).labelsHidden().frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-
+            // The model is configured once in App Settings (Local LLM Endpoint),
+            // not here — one source of truth, no per-cast override.
             row("Turn order") {
                 Picker("", selection: $viewModel.turnOrder) {
                     ForEach(TurnMode.allCases, id: \.self) { Text($0.displayName).tag($0) }
@@ -59,13 +52,6 @@ struct EnsembleSettingsView: View {
             Toggle("Rolling summary on long sessions", isOn: $viewModel.rollingSummaryEnabled)
                 .font(Theme.fontSM).foregroundStyle(Theme.textPrimary)
         }
-    }
-
-    private var modelBinding: Binding<String> {
-        Binding(
-            get: { viewModel.selectedModel.isEmpty ? (viewModel.availableModels.first ?? "") : viewModel.selectedModel },
-            set: { viewModel.selectedModel = $0 }
-        )
     }
 
     /// Manual binding for the `paceSeconds` computed bridge (Duration ↔ seconds).
