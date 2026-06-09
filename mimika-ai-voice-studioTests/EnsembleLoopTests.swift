@@ -236,6 +236,16 @@ final class EnsembleLoopTests: XCTestCase {
         XCTAssertTrue(script.contains("{Alex 3} Three."))
     }
 
+    func test_resolvedModel_honorsSavedOnlyWhenLoaded() throws {
+        let vm = try makeVM(pinnedModel: "dolphin", connectedModel: "dolphin")
+        // Endpoint now serves only gemma — the saved "dolphin" is stale.
+        vm.availableModels = ["gemma"]
+        XCTAssertEqual(vm.resolvedModel, "gemma", "a saved model not served falls back to the loaded one")
+        // When the saved model IS served, honour it.
+        vm.availableModels = ["dolphin", "gemma"]
+        XCTAssertEqual(vm.resolvedModel, "dolphin")
+    }
+
     func test_formatTranscriptMarkdown_realNames_preservesContentAndHeader() throws {
         let vm = try makeVM(pinnedModel: "m", connectedModel: "m")
         let mara = Persona(name: "Mara", voiceID: "v1", systemPrompt: "")

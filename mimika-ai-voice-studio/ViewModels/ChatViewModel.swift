@@ -125,12 +125,14 @@ final class ChatViewModel {
     func checkConnection() async {
         do {
             let models = try await makeClient().listModels()
-            if let model = models.first {
-                let prefer = settings.model.isEmpty ? model : settings.model
-                connectionState = .connected(model: prefer)
-            } else {
+            guard let loaded = models.first else {
                 connectionState = .disconnected(reason: "no models loaded")
+                return
             }
+            // Honour the saved model only if the endpoint serves it; otherwise
+            // report the loaded model so the pill matches what actually runs.
+            let saved = settings.model
+            connectionState = .connected(model: models.contains(saved) ? saved : loaded)
         } catch {
             connectionState = .disconnected(reason: shortError(error))
         }
@@ -177,7 +179,9 @@ final class ChatViewModel {
             let detector = SentenceDetector()
             let stream = self.makeClient().streamChat(
                 messages: self.messagesForRequest(),
-                model: settings.model.isEmpty ? model : settings.model,
+                // `model` is the connection's effective model (validated against
+                // the loaded set in checkConnection) — use it directly.
+                model: model,
                 systemPrompt: systemPromptSnapshot
             )
             do {

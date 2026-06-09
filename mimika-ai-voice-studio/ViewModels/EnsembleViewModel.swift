@@ -149,10 +149,21 @@ final class EnsembleViewModel {
     /// default LM Studio setup with no pinned model still works instead of
     /// POSTing an empty model id).
     var resolvedModel: String {
-        if !selectedModel.isEmpty { return selectedModel }
-        if !appState.chatSettings.model.isEmpty { return appState.chatSettings.model }
+        // The app-level model preference is the single source of truth — but
+        // honour it only if the endpoint actually serves it (otherwise it's a
+        // stale name from before the loaded model was swapped). Fall back to the
+        // loaded model so the live turns track reality.
+        let saved = appState.chatSettings.model
+        if !availableModels.isEmpty {
+            // Endpoint probed — it's ground truth: honour the saved preference
+            // only if it's actually served, else use the loaded model.
+            if !saved.isEmpty, availableModels.contains(saved) { return saved }
+            return availableModels.first ?? saved
+        }
+        // Not probed yet — best effort from the saved preference / last connection.
+        if !saved.isEmpty { return saved }
         if case let .connected(model) = connectionState { return model }
-        return appState.chatSettings.model
+        return ""
     }
 
     // MARK: - Derived
@@ -189,12 +200,16 @@ final class EnsembleViewModel {
         do {
             let models = try await makeClient().listModels()
             availableModels = models
-            if let model = models.first {
-                let prefer = appState.chatSettings.model.isEmpty ? model : appState.chatSettings.model
-                connectionState = .connected(model: prefer)
-            } else {
+            guard !models.isEmpty else {
                 connectionState = .disconnected(reason: "no models loaded")
+                return
             }
+            // Report the model that will ACTUALLY serve the request: the app-level
+            // preference if the endpoint serves it, else the loaded model. This is
+            // what makes the pill self-heal when the user swaps models in LM Studio.
+            let saved = appState.chatSettings.model
+            let effective = models.contains(saved) ? saved : (models.first ?? saved)
+            connectionState = .connected(model: effective)
         } catch {
             connectionState = .disconnected(reason: shortError(error))
         }

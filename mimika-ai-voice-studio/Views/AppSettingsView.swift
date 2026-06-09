@@ -342,7 +342,10 @@ struct AppSettingsView: View {
         do {
             let list = try await client.listModels()
             availableModels = list
-            if workingCopy.model.isEmpty, let first = list.first {
+            // Re-select the loaded model when the saved one isn't served (e.g. the
+            // user swapped the loaded model in LM Studio) — keeps this picker, the
+            // Connected pill, and the live requests all in agreement.
+            if (workingCopy.model.isEmpty || !list.contains(workingCopy.model)), let first = list.first {
                 workingCopy.model = first
             }
         } catch {
