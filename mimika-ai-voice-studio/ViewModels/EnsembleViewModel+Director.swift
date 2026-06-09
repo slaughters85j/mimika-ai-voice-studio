@@ -20,7 +20,8 @@ extension EnsembleViewModel {
     /// random excluding the last speaker.
     func pickNextViaDirector(lastSpeaker: UUID?) async -> UUID? {
         if let last = turns.last,
-           let mentioned = Conductor.detectMention(in: last.content, cast: cast, excluding: last.speakerID) {
+           let mentioned = Conductor.detectMention(in: last.content, cast: cast, excluding: last.speakerID),
+           !Conductor.wouldExtendMentionPingPong(mentioned: mentioned, cast: cast, turns: turns) {
             return mentioned
         }
         let prompt = DirectorPrompt.build(cast: cast, turns: turnsForModel(), window: verbatimWindow)

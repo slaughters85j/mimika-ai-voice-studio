@@ -129,6 +129,65 @@ final class ConductorTests: XCTestCase {
         XCTAssertEqual(Set(seen), Set([a.id, b.id, c.id]))
     }
 
+    // MARK: - Mention ping-pong carve-out (N>=3)
+
+    func test_wouldExtendMentionPingPong_detectsMutualMention_onlyWith3PlusCast() {
+        let a = persona("Ada"), b = persona("Bertrand"), c = persona("Cosette")
+        let turns = [
+            EnsembleTurn(speakerID: b.id, speakerName: "Bertrand", content: "And you, Ada?"),
+            EnsembleTurn(speakerID: a.id, speakerName: "Ada", content: "Back to you, Bertrand."),
+        ]
+        // last (Ada) names Bertrand; prev (Bertrand) named Ada → ping-pong.
+        XCTAssertTrue(Conductor.wouldExtendMentionPingPong(mentioned: b.id, cast: [a, b, c], turns: turns))
+        // With only two speakers, the alternation is structural — never flagged.
+        XCTAssertFalse(Conductor.wouldExtendMentionPingPong(mentioned: b.id, cast: [a, b], turns: turns))
+    }
+
+    func test_wouldExtendMentionPingPong_falseWhenPriorLineWasNotMutual() {
+        let a = persona("Ada"), b = persona("Bertrand"), c = persona("Cosette")
+        let turns = [
+            EnsembleTurn(speakerID: b.id, speakerName: "Bertrand", content: "I have my own view."),
+            EnsembleTurn(speakerID: a.id, speakerName: "Ada", content: "What about you, Bertrand?"),
+        ]
+        XCTAssertFalse(Conductor.wouldExtendMentionPingPong(mentioned: b.id, cast: [a, b, c], turns: turns))
+    }
+
+    func test_pickNext_breaksMentionPingPong_makingThirdVoiceReachable() {
+        let a = persona("Ada"), b = persona("Bertrand"), c = persona("Cosette")
+        let cast = [a, b, c]
+        let turns = [
+            EnsembleTurn(speakerID: b.id, speakerName: "Bertrand", content: "And you, Ada?"),
+            EnsembleTurn(speakerID: a.id, speakerName: "Ada", content: "Back to you, Bertrand."),
+        ]
+        // Without the carve-out the mention to Bertrand wins every time; with it,
+        // pickNext falls to weighted-random (excluding Ada) → Cosette is reachable.
+        var sawCosette = false
+        for seed in UInt64(0)..<64 {
+            var gen = SeededGenerator(seed: seed)
+            var order: [UUID] = []; var cursor = 0
+            let id = Conductor.pickNext(cast: cast, turns: turns, lastSpeaker: a.id,
+                                        mode: .weightedRandom, rng: .rerollPerTurn,
+                                        shuffledOrder: &order, cursor: &cursor, using: &gen)
+            if id == c.id { sawCosette = true; break }
+        }
+        XCTAssertTrue(sawCosette, "the starved third persona becomes reachable once the ping-pong is broken")
+    }
+
+    func test_pickNext_stillHonorsMentionWhenNotPingPong() {
+        // A normal mention (no mutual back-reference) is still honored.
+        let a = persona("Ada"), b = persona("Bertrand"), c = persona("Cosette")
+        let turns = [
+            EnsembleTurn(speakerID: c.id, speakerName: "Cosette", content: "I'll start us off."),
+            EnsembleTurn(speakerID: a.id, speakerName: "Ada", content: "What do you think, Bertrand?"),
+        ]
+        var gen = SeededGenerator(seed: 1)
+        var order: [UUID] = []; var cursor = 0
+        let id = Conductor.pickNext(cast: [a, b, c], turns: turns, lastSpeaker: a.id,
+                                    mode: .weightedRandom, rng: .shuffleOnce,
+                                    shuffledOrder: &order, cursor: &cursor, using: &gen)
+        XCTAssertEqual(id, b.id, "a non-ping-pong mention is still honored")
+    }
+
     func test_pickNext_emptyCastReturnsNil() {
         var gen = SeededGenerator(seed: 9)
         var order: [UUID] = []; var cursor = 0

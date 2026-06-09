@@ -32,9 +32,13 @@ nonisolated enum Conductor {
         let picked: UUID?
         let rule: String
 
-        // 1) Mention override — highest priority, free, honored by every mode.
+        // 1) Mention override — highest priority, free, honored by every mode...
+        //    ...UNLESS honouring it would extend an A↔B mutual-mention ping-pong
+        //    in a cast of 3+ (which starves everyone else); then defer to the mode
+        //    so a quiet third voice can take the turn.
         if let last = turns.last,
-           let mentioned = detectMention(in: last.content, cast: cast, excluding: last.speakerID) {
+           let mentioned = detectMention(in: last.content, cast: cast, excluding: last.speakerID),
+           !wouldExtendMentionPingPong(mentioned: mentioned, cast: cast, turns: turns) {
             picked = mentioned
             rule = "mention-override"
         } else {
@@ -97,6 +101,21 @@ nonisolated enum Conductor {
             }
         }
         return matched.count == 1 ? matched.first : nil
+    }
+
+    /// True when honouring `mentioned` would extend a two-speaker mutual-mention
+    /// ping-pong: the last speaker names `mentioned`, and `mentioned` — who spoke
+    /// just before — named the last speaker back. Only meaningful with 3+ cast:
+    /// with two speakers the A↔B alternation is structural and the only other
+    /// candidate IS the mentioned speaker, so suppressing the mention changes
+    /// nothing. When it fires, the caller defers to the mode/director so a starved
+    /// third voice can take the turn instead of the two locking each other in.
+    static func wouldExtendMentionPingPong(mentioned: UUID, cast: [Persona], turns: [EnsembleTurn]) -> Bool {
+        guard cast.count >= 3, turns.count >= 2 else { return false }
+        let last = turns[turns.count - 1]   // names `mentioned`
+        let prev = turns[turns.count - 2]
+        return prev.speakerID == mentioned
+            && detectMention(in: prev.content, cast: cast, excluding: prev.speakerID) == last.speakerID
     }
 
     /// Weighted random pick. Weights are clamped to a tiny positive floor so a
