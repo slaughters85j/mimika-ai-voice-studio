@@ -1,0 +1,35 @@
+{
+  "configurations" : [
+    {
+      "id" : "C36A444C-5AC6-47D9-AA61-2712E18C4068",
+      "name" : "Test Scheme Action",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:mimika-ai-voice-studio.xcodeproj",
+      "identifier" : "D5ECD2172FB78D5A00C23A9D",
+      "name" : "mimika-ai-voice-studio"
+    }
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:mimika-ai-voice-studio.xcodeproj",
+        "identifier" : "D5ECD2262FB78D5B00C23A9D",
+        "name" : "mimika-ai-voice-studioTests"
+      }
+    },
+    {
+      "target" : {
+        "containerPath" : "container:mimika-ai-voice-studio.xcodeproj",
+        "identifier" : "D5ECD2302FB78D5B00C23A9D",
+        "name" : "mimika-ai-voice-studioUITests"
+      }
+    }
+  ],
+  "version" : 1
+}
