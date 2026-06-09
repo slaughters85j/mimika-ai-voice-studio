@@ -131,12 +131,21 @@ struct mimika_ai_voice_studioApp: App {
         .menuBarExtraStyle(.menu)
     }
 
-    /// Binding that inserts/removes the menu-bar item based on the persisted
-    /// Read-Aloud setting (toggled in App Settings).
+    /// READ-ONLY reflection of the persisted Read-Aloud setting, driving the
+    /// menu-bar item's `isInserted`. The setter is intentionally a NO-OP.
+    ///
+    /// SwiftUI's MenuBarExtra controller echoes this binding back through `set`
+    /// during scene reconciliation — including a `false` echo when the item is
+    /// torn down / fails to insert. With a writing setter, that `false` clobbers
+    /// the user's enabled setting and persists it (readAloudEnabled flips to
+    /// false on disk → icon never sticks). The setting is owned SOLELY by App
+    /// Settings; the menu bar only reads it. Ignoring write-backs also kills the
+    /// scene re-invalidation loop that patch 1 targeted — without persisting a
+    /// stale value.
     private var menuBarVisible: Binding<Bool> {
         Binding(
             get: { appState.chatSettings.readAloudEnabled },
-            set: { appState.chatSettings.readAloudEnabled = $0; SettingsStore.save(appState.chatSettings) }
+            set: { _ in }
         )
     }
 
