@@ -32,6 +32,23 @@ struct mimika_ai_voice_studioApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var appState = AppState()
 
+    /// SwiftData container for History — built ONCE and reused. It used to be a
+    /// computed property, which rebuilt a fresh ModelContainer on every scene
+    /// re-evaluation; a second ModelContainer on the same on-disk store DEADLOCKS
+    /// on the first's SQLite lock (the launch hang the menu-bar scene exposed).
+    private let historyContainer: ModelContainer
+
+    init() {
+        do {
+            historyContainer = try HistoryStore.makeContainer()
+        } catch {
+            // Schema couldn't be set up at all — fall back to an in-memory
+            // container so the app at least launches.
+            FileHandle.standardError.write(Data("history container failed: \(error); falling back to in-memory\n".utf8))
+            historyContainer = try! HistoryStore.makeInMemoryContainer()
+        }
+    }
+
     var body: some Scene {
         WindowGroup(id: "main") {
             ContentView(appState: appState)
@@ -140,16 +157,4 @@ struct mimika_ai_voice_studioApp: App {
         )
     }
 
-    /// SwiftData container for the History schema.
-    @MainActor
-    private var historyContainer: ModelContainer {
-        do {
-            return try HistoryStore.makeContainer()
-        } catch {
-            // First-launch crash here means the schema couldn't be set up at all.
-            // Fall back to an in-memory container so the app at least launches.
-            FileHandle.standardError.write(Data("history container failed: \(error); falling back to in-memory\n".utf8))
-            return try! HistoryStore.makeInMemoryContainer()
-        }
-    }
 }
