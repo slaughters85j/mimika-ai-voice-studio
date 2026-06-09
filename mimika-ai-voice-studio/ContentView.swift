@@ -138,9 +138,23 @@ struct ContentView: View {
                 onSave: { newSettings in
                     SettingsStore.save(newSettings)
                     chatVM?.settings = newSettings
+                    LoginItem.setEnabled(newSettings.launchAtLogin)
                     Task { await chatVM?.checkConnection() }
                 }
             )
+        }
+        // Read-Aloud onboarding — shown once right after the feature is enabled.
+        .sheet(isPresented: $appState.showsReadAloudOnboarding) {
+            ReadAloudOnboardingView(onClose: { appState.showsReadAloudOnboarding = false })
+        }
+        .onChange(of: appState.chatSettings.readAloudEnabled) { wasEnabled, isEnabled in
+            // Surface the setup guide when Read Aloud is turned ON. Delay so the
+            // App Settings sheet finishes dismissing before this one presents.
+            guard isEnabled, !wasEnabled else { return }
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(450))
+                appState.showsReadAloudOnboarding = true
+            }
         }
         // Chat-scoped settings (TTS voice + chat system prompt). Reachable
         // only from the Chat tab's own gear button.

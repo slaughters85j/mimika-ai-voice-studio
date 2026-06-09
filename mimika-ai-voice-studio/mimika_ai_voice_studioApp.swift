@@ -21,7 +21,9 @@ import SwiftUI
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        true
+        // Stay resident in the menu bar when Read Aloud is on; otherwise the red
+        // close button quits the app (the original single-window behavior).
+        !SettingsStore.load().readAloudEnabled
     }
 }
 
@@ -30,13 +32,43 @@ struct mimika_ai_voice_studioApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var appState = AppState()
 
+    /// SwiftData container for History — built ONCE and reused. It used to be a
+    /// computed property, which rebuilt a fresh ModelContainer on every scene
+    /// re-evaluation; a second ModelContainer on the same on-disk store DEADLOCKS
+    /// on the first's SQLite lock (the launch hang the menu-bar scene exposed).
+    private let historyContainer: ModelContainer
+
+    init() {
+        do {
+            historyContainer = try HistoryStore.makeContainer()
+        } catch {
+            // Schema couldn't be set up at all — fall back to an in-memory
+            // container so the app at least launches.
+            FileHandle.standardError.write(Data("history container failed: \(error); falling back to in-memory\n".utf8))
+            historyContainer = try! HistoryStore.makeInMemoryContainer()
+        }
+    }
+
     var body: some Scene {
-        WindowGroup {
+        WindowGroup(id: "main") {
             ContentView(appState: appState)
                 .preferredColorScheme(.dark)
                 .background(Theme.bgPrimary)
                 .task {
                     await appState.bootstrapIfNeeded()
+                }
+                .task {
+                    // Read-Aloud wiring, deliberately OFF the engine-load path.
+                    // The Service is declared statically in Info.plist, so macOS
+                    // registers it — do NOT call NSUpdateDynamicServices() here:
+                    // it kicks a full Services rescan (pbs) on the main thread and
+                    // can stall launch. Touch the login item only when the user
+                    // opted in, since SMAppService status does a (possibly slow)
+                    // XPC round-trip.
+                    NSApp.servicesProvider = appState.readAloudService
+                    if appState.chatSettings.launchAtLogin {
+                        LoginItem.setEnabled(true)
+                    }
                 }
         }
         .windowStyle(.hiddenTitleBar)
@@ -90,6 +122,31 @@ struct mimika_ai_voice_studioApp: App {
                 }
             }
         }
+
+        // Menu-bar item — shown only while Read Aloud is enabled. Voice picker +
+        // Stop + reopen, all driven by the same in-process engine.
+        MenuBarExtra("mimika", systemImage: "mic.fill", isInserted: menuBarVisible) {
+            MenuBarContent(appState: appState)
+        }
+        .menuBarExtraStyle(.menu)
+    }
+
+    /// READ-ONLY reflection of the persisted Read-Aloud setting, driving the
+    /// menu-bar item's `isInserted`. The setter is intentionally a NO-OP.
+    ///
+    /// SwiftUI's MenuBarExtra controller echoes this binding back through `set`
+    /// during scene reconciliation — including a `false` echo when the item is
+    /// torn down / fails to insert. With a writing setter, that `false` clobbers
+    /// the user's enabled setting and persists it (readAloudEnabled flips to
+    /// false on disk → icon never sticks). The setting is owned SOLELY by App
+    /// Settings; the menu bar only reads it. Ignoring write-backs also kills the
+    /// scene re-invalidation loop that patch 1 targeted — without persisting a
+    /// stale value.
+    private var menuBarVisible: Binding<Bool> {
+        Binding(
+            get: { appState.chatSettings.readAloudEnabled },
+            set: { _ in }
+        )
     }
 
     /// Dispatch one of the `NSTextFinder.Action` cases to whatever
@@ -109,16 +166,4 @@ struct mimika_ai_voice_studioApp: App {
         )
     }
 
-    /// SwiftData container for the History schema.
-    @MainActor
-    private var historyContainer: ModelContainer {
-        do {
-            return try HistoryStore.makeContainer()
-        } catch {
-            // First-launch crash here means the schema couldn't be set up at all.
-            // Fall back to an in-memory container so the app at least launches.
-            FileHandle.standardError.write(Data("history container failed: \(error); falling back to in-memory\n".utf8))
-            return try! HistoryStore.makeInMemoryContainer()
-        }
-    }
 }

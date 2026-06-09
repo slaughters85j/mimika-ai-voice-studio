@@ -74,6 +74,8 @@ struct AppSettingsView: View {
                 Divider().background(Theme.borderColor)
                 pocketTTSTuningSection
                 Divider().background(Theme.borderColor)
+                readAloudSection
+                Divider().background(Theme.borderColor)
                 actions
             }
             .frame(maxWidth: 560)
@@ -282,6 +284,52 @@ struct AppSettingsView: View {
                 .help("Reset chunk budget to Python reference default (50)")
             }
         }
+    }
+
+    private var readAloudSection: some View {
+        VStack(alignment: .leading, spacing: Theme.space3) {
+            Text("Read Aloud & Menu Bar")
+                .font(Theme.fontSMBold)
+                .foregroundStyle(Theme.textPrimary)
+            Text("Adds a menu-bar voice picker and a system “Read Selection Aloud” service. Select text in any app, then right-click → Services — or assign a shortcut in System Settings → Keyboard Shortcuts → Services. Reads aloud with mimika’s on-device engine.")
+                .font(Theme.fontXS)
+                .foregroundStyle(Theme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Toggle("Enable Read Aloud + menu bar", isOn: $workingCopy.readAloudEnabled)
+                .font(Theme.fontSM)
+                .foregroundStyle(Theme.textPrimary)
+                .accessibilityIdentifier("appSettings.readAloudEnabled")
+
+            if workingCopy.readAloudEnabled {
+                HStack {
+                    Text("Voice").font(Theme.fontXS).foregroundStyle(Theme.textSecondary).frame(width: 90, alignment: .leading)
+                    Picker("", selection: $workingCopy.readAloudVoiceID) {
+                        ForEach(readAloudVoiceOptions, id: \.id) { opt in
+                            Text(opt.name).tag(opt.id)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("appSettings.readAloudVoice")
+                }
+                Toggle("Keep mimika in the menu bar at login", isOn: $workingCopy.launchAtLogin)
+                    .font(Theme.fontSM)
+                    .foregroundStyle(Theme.textPrimary)
+            }
+        }
+    }
+
+    /// Stock + imported Pocket-TTS voices for the read-aloud picker (mirrors the
+    /// menu-bar list).
+    private var readAloudVoiceOptions: [(id: String, name: String)] {
+        let stock = BundledVoice.stockIDs.sorted().map {
+            (id: $0, name: BundledVoice(predefined: $0).name)
+        }
+        let imported = VoiceManager.shared.voices
+            .filter { $0.pocketTTSKVPath != nil }
+            .map { (id: "imported:\($0.id)", name: $0.isEnhanced ? "✨ \($0.name)" : $0.name) }
+        return stock + imported
     }
 
     private var actions: some View {

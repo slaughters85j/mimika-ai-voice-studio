@@ -75,6 +75,13 @@ nonisolated struct ChatSettings: Codable, Equatable, Sendable {
     var multiTalkSystemPrompt: String
     var activeBackend: TTSBackendType
     var fishParams: FishGenParams
+    /// Read-Aloud / menu-bar feature (opt-in). When true, the app shows a
+    /// menu-bar voice picker and arms the system "Read Selection Aloud" service.
+    var readAloudEnabled: Bool
+    /// Voice used by the menu-bar read-aloud + the Services handler.
+    var readAloudVoiceID: String
+    /// Keep mimika available in the menu bar at login (SMAppService).
+    var launchAtLogin: Bool
 
     static let `default` = ChatSettings(
         baseURL: "http://localhost:1234",
@@ -84,7 +91,10 @@ nonisolated struct ChatSettings: Codable, Equatable, Sendable {
         singleVoiceSystemPrompt: defaultSingleVoicePrompt,
         multiTalkSystemPrompt: defaultMultiTalkPrompt,
         activeBackend: .pocketTTS,
-        fishParams: .default
+        fishParams: .default,
+        readAloudEnabled: false,
+        readAloudVoiceID: "cosette",
+        launchAtLogin: false
     )
 
     static let defaultSingleVoicePrompt = """
@@ -136,5 +146,30 @@ nonisolated enum SettingsStore {
 
     static func resetToDefaults() {
         UserDefaults.standard.removeObject(forKey: key)
+    }
+}
+
+// MARK: - ChatSettings migration-safe decoding
+// Synthesized Codable throws on a missing key, so adding a field would make
+// every existing saved settings blob fail to decode and silently reset to
+// defaults. This tolerant decoder defaults any absent field to `.default`, so
+// new fields (read-aloud, login item, …) can be added without losing prior
+// settings. `encode(to:)` + `CodingKeys` stay synthesized.
+
+extension ChatSettings {
+    nonisolated init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = ChatSettings.default
+        self.baseURL = try c.decodeIfPresent(String.self, forKey: .baseURL) ?? d.baseURL
+        self.model = try c.decodeIfPresent(String.self, forKey: .model) ?? d.model
+        self.systemPrompt = try c.decodeIfPresent(String.self, forKey: .systemPrompt) ?? d.systemPrompt
+        self.ttsVoiceID = try c.decodeIfPresent(String.self, forKey: .ttsVoiceID) ?? d.ttsVoiceID
+        self.singleVoiceSystemPrompt = try c.decodeIfPresent(String.self, forKey: .singleVoiceSystemPrompt) ?? d.singleVoiceSystemPrompt
+        self.multiTalkSystemPrompt = try c.decodeIfPresent(String.self, forKey: .multiTalkSystemPrompt) ?? d.multiTalkSystemPrompt
+        self.activeBackend = try c.decodeIfPresent(TTSBackendType.self, forKey: .activeBackend) ?? d.activeBackend
+        self.fishParams = try c.decodeIfPresent(FishGenParams.self, forKey: .fishParams) ?? d.fishParams
+        self.readAloudEnabled = try c.decodeIfPresent(Bool.self, forKey: .readAloudEnabled) ?? d.readAloudEnabled
+        self.readAloudVoiceID = try c.decodeIfPresent(String.self, forKey: .readAloudVoiceID) ?? d.readAloudVoiceID
+        self.launchAtLogin = try c.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? d.launchAtLogin
     }
 }

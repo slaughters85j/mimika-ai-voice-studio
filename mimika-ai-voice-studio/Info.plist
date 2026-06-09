@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  Partial Info.plist. GENERATE_INFOPLIST_FILE stays YES, so Xcode merges all
+	  the standard keys (CFBundleIdentifier from PRODUCT_BUNDLE_IDENTIFIER, the
+	  INFOPLIST_KEY_* values, version, etc.) into this dict. We only declare what
+	  the build settings can't express: the "Read Selection Aloud" system Service.
+	-->
+	<key>NSServices</key>
+	<array>
+		<dict>
+			<key>NSMenuItem</key>
+			<dict>
+				<key>default</key>
+				<string>Read Selection Aloud</string>
+			</dict>
+			<key>NSMessage</key>
+			<string>readSelectionAloud</string>
+			<key>NSPortName</key>
+			<string>Mimika</string>
+			<key>NSSendTypes</key>
+			<array>
+				<string>public.utf8-plain-text</string>
+				<string>NSStringPboardType</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>
