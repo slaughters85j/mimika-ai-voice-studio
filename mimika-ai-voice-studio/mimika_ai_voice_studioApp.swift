@@ -39,12 +39,19 @@ struct mimika_ai_voice_studioApp: App {
                 .background(Theme.bgPrimary)
                 .task {
                     await appState.bootstrapIfNeeded()
-                    // Read-Aloud wiring: register the Services provider so the
-                    // system "Read Selection Aloud" service reaches us, and sync
-                    // the login item to the saved preference.
+                }
+                .task {
+                    // Read-Aloud wiring, deliberately OFF the engine-load path.
+                    // The Service is declared statically in Info.plist, so macOS
+                    // registers it — do NOT call NSUpdateDynamicServices() here:
+                    // it kicks a full Services rescan (pbs) on the main thread and
+                    // can stall launch. Touch the login item only when the user
+                    // opted in, since SMAppService status does a (possibly slow)
+                    // XPC round-trip.
                     NSApp.servicesProvider = appState.readAloudService
-                    NSUpdateDynamicServices()
-                    LoginItem.setEnabled(appState.chatSettings.launchAtLogin)
+                    if appState.chatSettings.launchAtLogin {
+                        LoginItem.setEnabled(true)
+                    }
                 }
         }
         .windowStyle(.hiddenTitleBar)
