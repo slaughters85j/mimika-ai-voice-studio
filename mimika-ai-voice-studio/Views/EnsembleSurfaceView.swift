@@ -16,6 +16,19 @@ struct EnsembleSurfaceView: View {
     let player: StreamingPlayer
     let viewMode: ViewMode
 
+    /// Transient control-bar confirmation (grenade armed, pausing, …) + the
+    /// grenade info popover.
+    @State private var controlFlash: ControlFlash?
+    @State private var controlFlashToken = 0
+    @State private var showGrenadeInfo = false
+
+    /// A short, self-dismissing message shown centered in the controls bar.
+    private struct ControlFlash {
+        let text: String
+        let systemImage: String
+        let tint: Color
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             if let notice = viewModel.castLoadedNotice {
@@ -119,7 +132,7 @@ struct EnsembleSurfaceView: View {
     /// nudge, not a gate, so you can reach for it any time the chat goes flat.
     private var grenadeButton: some View {
         let nudge = viewModel.agreementCollapsed
-        return Button(action: { viewModel.throwGrenade() }) {
+        return Button(action: armGrenade) {
             Image(systemName: "flame.fill")
                 .font(.system(size: 13))
                 .foregroundStyle(nudge ? .white : Theme.textSecondary)
@@ -133,6 +146,69 @@ struct EnsembleSurfaceView: View {
               ? "The cast is nodding along — throw a grenade to break the consensus"
               : "Throw a grenade — force the next speaker to break the consensus")
         .accessibilityIdentifier("ensemble.grenade")
+    }
+
+    /// Yellow info affordance next to the grenade — a tappable explainer so the
+    /// flame's purpose is discoverable.
+    private var grenadeInfoButton: some View {
+        Button(action: { showGrenadeInfo = true }) {
+            Image(systemName: "info.circle")
+                .font(.system(size: 12))
+                .foregroundStyle(Theme.warningFG)
+        }
+        .buttonStyle(.plain)
+        .help("What does the grenade do?")
+        .popover(isPresented: $showGrenadeInfo, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: Theme.space2) {
+                Label("Throw a grenade", systemImage: "flame.fill")
+                    .font(Theme.fontSMBold).foregroundStyle(Theme.warningFG)
+                Text("Breaks a stale conversation: the next speaker is told to drop the consensus and take a sharp, contrarian angle. The flame lights up on its own when the cast starts agreeing too much — but you can throw it any time.")
+                    .font(Theme.fontXS).foregroundStyle(Theme.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(Theme.space3)
+            .frame(width: 260)
+        }
+        .accessibilityIdentifier("ensemble.grenadeInfo")
+    }
+
+    /// Transient, self-dismissing confirmation rendered centered in the controls.
+    private func flashLabel(_ f: ControlFlash) -> some View {
+        HStack(spacing: Theme.space1) {
+            Image(systemName: f.systemImage).font(.system(size: 11))
+            Text(f.text).font(Theme.fontXS)
+        }
+        .foregroundStyle(f.tint)
+        .transition(.opacity.combined(with: .scale(scale: 0.96)))
+    }
+
+    /// Arm the grenade + flash a confirmation (the throw is otherwise silent).
+    private func armGrenade() {
+        viewModel.throwGrenade()
+        flash(ControlFlash(text: "Grenade armed — the next line breaks the consensus",
+                           systemImage: "flame.fill", tint: Theme.warningFG))
+    }
+
+    /// Pause + flash. pause() defers to the END of the current turn (it just
+    /// flips advanceMode to .step), so the message says so rather than "Paused".
+    private func pauseTapped() {
+        viewModel.pause()
+        flash(ControlFlash(text: "Pausing after this line…",
+                           systemImage: "pause.fill", tint: Theme.textSecondary))
+    }
+
+    /// Show a transient control-bar message that auto-dismisses (token-guarded so
+    /// a newer flash isn't cleared early by an older one's timer).
+    private func flash(_ f: ControlFlash) {
+        controlFlashToken += 1
+        let token = controlFlashToken
+        withAnimation(.easeOut(duration: 0.2)) { controlFlash = f }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2.5))
+            if token == controlFlashToken {
+                withAnimation(.easeIn(duration: 0.4)) { controlFlash = nil }
+            }
+        }
     }
 
     /// Transient "last cast loaded" / "saved" confirmation banner.
@@ -161,11 +237,18 @@ struct EnsembleSurfaceView: View {
                 controlButton("Step", "forward.frame.fill") { viewModel.stepOnce() }
                 controlButton("Stop", "stop.fill") { viewModel.stop() }
             default:
-                controlButton("Pause", "pause.fill") { viewModel.pause() }
+                controlButton("Pause", "pause.fill") { pauseTapped() }
                 controlButton("Stop", "stop.fill") { viewModel.stop() }
             }
             Spacer()
-            if !viewModel.cast.isEmpty { grenadeButton }
+            if let f = controlFlash {
+                flashLabel(f)
+                Spacer()
+            }
+            if !viewModel.cast.isEmpty {
+                grenadeInfoButton
+                grenadeButton
+            }
         }
         .padding(.horizontal, Theme.space6)
         .padding(.vertical, Theme.space2)
