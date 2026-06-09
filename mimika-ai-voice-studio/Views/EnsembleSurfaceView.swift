@@ -29,9 +29,6 @@ struct EnsembleSurfaceView: View {
                 transcript
             }
             Divider().background(Theme.borderColor)
-            if viewModel.agreementCollapsed {
-                grenadeBanner
-            }
             controls
             composer
         }
@@ -117,27 +114,25 @@ struct EnsembleSurfaceView: View {
         }
     }
 
-    /// Shown when the conversation has collapsed into agreement — one tap arms a
-    /// one-shot disruption on the next turn.
-    private var grenadeBanner: some View {
-        HStack(spacing: Theme.space2) {
-            Image(systemName: "flame.fill").foregroundStyle(Theme.warningFG)
-            Text("The cast is all nodding along.")
-                .font(Theme.fontXS).foregroundStyle(Theme.textPrimary)
-            Spacer()
-            Button(action: { viewModel.throwGrenade() }) {
-                Text("Throw a grenade 💣")
-                    .font(Theme.fontXS).bold().foregroundStyle(.white)
-                    .padding(.horizontal, Theme.space3).padding(.vertical, Theme.space1)
-                    .background(Theme.warningFG)
-                    .clipShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("ensemble.grenade")
+    /// Always-available disruption: arms a one-shot "break the consensus" on the
+    /// next turn. It lights up when the agreement-collapse detector fires — a
+    /// nudge, not a gate, so you can reach for it any time the chat goes flat.
+    private var grenadeButton: some View {
+        let nudge = viewModel.agreementCollapsed
+        return Button(action: { viewModel.throwGrenade() }) {
+            Image(systemName: "flame.fill")
+                .font(.system(size: 13))
+                .foregroundStyle(nudge ? .white : Theme.textSecondary)
+                .padding(.horizontal, Theme.space2)
+                .padding(.vertical, Theme.space1)
+                .background(nudge ? Theme.warningFG : Color.clear)
+                .clipShape(Capsule())
         }
-        .padding(.horizontal, Theme.space6)
-        .padding(.vertical, Theme.space2)
-        .background(Theme.bgSecondary)
+        .buttonStyle(.plain)
+        .help(nudge
+              ? "The cast is nodding along — throw a grenade to break the consensus"
+              : "Throw a grenade — force the next speaker to break the consensus")
+        .accessibilityIdentifier("ensemble.grenade")
     }
 
     /// Transient "last cast loaded" / "saved" confirmation banner.
@@ -170,6 +165,7 @@ struct EnsembleSurfaceView: View {
                 controlButton("Stop", "stop.fill") { viewModel.stop() }
             }
             Spacer()
+            if !viewModel.cast.isEmpty { grenadeButton }
         }
         .padding(.horizontal, Theme.space6)
         .padding(.vertical, Theme.space2)
