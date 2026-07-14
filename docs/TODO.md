@@ -5,19 +5,26 @@ commits; a WP is only **Complete** after user validation.
 
 ## Current Focus
 
-Voice-isolation precision (`voice-isolation-tuning` branch). Diarization
-accuracy fixes + timeline-precision fixes + timing-QA loop are implemented,
-measured, and awaiting merge. Next up: WP-VIT-1 (pace-mismatch audio quality).
+WP-VIT-1 + WP-VIT-2 are COMPLETE (user-validated) on `revoice-pace-quality` —
+ship as v1.5.5 together with the merged `voice-isolation-tuning` work, then
+cut the release build for App Store Connect. Remaining open WPs: WP-VIT-3
+(in-app editor) and WP-VIT-4 (cleanup).
 
 ---
 
 ## WP-VIT-1 — Pace-mismatch clipping + WSOLA onset artifacts
 
-**Status:** Implemented + user-validated by ear on `revoice-pace-quality`
-("very noticeable change, for the better"; robotic onsets essentially gone).
-Three-part fix: onset guard, WSOLA natural-continuation alignment, elastic
-chaining bounded to +0.35 s — plus QA-loop early-exit when a finer cap
-measures worse than the best pass.
+**Status:** COMPLETE (user-validated). Five-part fix on
+`revoice-pace-quality`: onset guard, WSOLA natural-continuation alignment,
+elastic chaining bounded to +0.35 s, best-of-N re-synthesis for takes that
+would clip (>1.60× of target, up to 3 takes, keep shortest), and the
+paced-target gate (compress toward `min(slot, span + 0.35 s)` so segment ENDS
+are bounded like their starts — fixes the year-tail / last-segment drift).
+QA loop hardened: early-exit when a finer cap measures worse; a clean first
+pass with >10 % drops still gets one refinement attempt. Final measured
+state on the 3-speaker test clip: best-on-record across the board —
+77 matched / 12 dropped / max 0.70 s / 90th-pct 0.556 s / trend ~0.16 s/min,
+zero clip-with-fade events in the kept renders.
 
 RESIDUAL (accepted, documented): on a voice fundamentally ~1.5–2× slower
 than the original speaker, the chaining budget saturates at +0.35 s and
@@ -59,7 +66,13 @@ currently it's a genuine timing-vs-quality tradeoff the user must pick.
 
 ## WP-VIT-2 — Sub-word segmentation polish (gap splits + punctuation)
 
-**Status:** Not started
+**Status:** COMPLETE (user-validated — "1983 sounded perfect").
+Backward-attach for fragments + punctuation on gap splits, endSec no longer
+dragged across silences by punctuation timestamps, and number-run cap
+protection with FULL-WORD LOOKAHEAD (Parakeet word-start tokens are usually
+word prefixes — "three" arrives as " th"+"ree" — so the number test
+assembles the whole incoming word before the wordlist check; diagnosed via
+the `[Revoicer.tokens]` raw-token dump added to the QA loop).
 
 The cap split now defers to word-start tokens (done, tested), but GAP splits
 can still fragment words, and punctuation tokens with unreliable timestamps

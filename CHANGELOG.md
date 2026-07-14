@@ -2,6 +2,29 @@
 
 All notable changes to Mimika (formerly Pocket TTS).
 
+## 1.5.5
+
+Speaker Isolator accuracy + re-voice quality overhaul.
+
+- **Speaker detection you can actually tune** — the Speaker Sensitivity
+  slider's dead zone is gone (the full travel now does real work), a new
+  "Re-detect speakers" button re-runs detection on the cached audio without
+  repeating the slow separation step, phantom duplicate speakers are merged
+  automatically, and "Number of Speakers" now genuinely merges the detected
+  speakers down to the count you set.
+- **Re-voiced speech tracks the original lips** — systematic lip-sync drift
+  eliminated (measured ~2.3 s/min → ~0.1 s/min on a 3-speaker test clip, no
+  word more than ~0.7 s off): word-aware segment caps, diarization
+  end-padding recaptures trailing words, and an internal timing-QA pass
+  measures every re-voice and automatically re-renders drifting takes.
+- **Cleaner re-voiced audio** — the scratchy, robotic line starts under
+  "Match original speaking pace" are fixed (onset-protected compression +
+  improved WSOLA alignment); long sentences share their timing slack instead
+  of clipping words at chunk boundaries; over-long synthesis takes are
+  automatically re-rolled; segment ends are pulled back toward the original
+  timing; and years/numbers are never split across synthesis boundaries
+  ("nineteen eighty three" stays one utterance).
+
 ## 1.5.4
 
 - **Ensemble Mode** (Chat → Ensemble) — you and multiple AI personas hold one
