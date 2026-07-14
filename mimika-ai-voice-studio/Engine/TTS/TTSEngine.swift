@@ -187,6 +187,12 @@ actor TTSEngine: TTSEngineProtocol {
             let cancel = CancellationFlag()
             continuation.onTermination = { _ in cancel.cancel() }
             Task {
+                // Register with the app-wide quiescence gate BEFORE the first
+                // model call so applicationShouldTerminate can drain in-flight
+                // predictions instead of racing exit()'s MPSGraph static
+                // teardown (see SynthesisQuiescence in SynthesisCancellation.swift).
+                SynthesisQuiescence.shared.begin(cancel)
+                defer { SynthesisQuiescence.shared.end(cancel) }
                 do {
                     try await self.runSynthesis(text: text, voiceID: voiceID, options: options, continuation: continuation, cancel: cancel)
                 } catch {
