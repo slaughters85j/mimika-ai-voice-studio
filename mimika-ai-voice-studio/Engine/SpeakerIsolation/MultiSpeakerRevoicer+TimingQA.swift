@@ -92,6 +92,14 @@ extension MultiSpeakerRevoicer {
                     print(String(format: "[Revoicer]   %@ %.2f-%.2f: %@",
                                  speakerID, seg.startSec, seg.endSec, seg.text))
                 }
+                // Raw token stream (quoted, with times) — the segment
+                // view hides token boundaries, and coalesce bugs (severed
+                // words, stray punctuation tokens, mid-number splits) are
+                // only diagnosable from the tokens themselves.
+                let tokenDump = originalWords
+                    .map { String(format: "\"%@\"@%.2f", $0.text, $0.startSec) }
+                    .joined(separator: " ")
+                print("[Revoicer.tokens] \(speakerID): \(tokenDump)")
             }
             // Progress must stay monotonic across QA retries: carry the
             // completed count forward so a finer-cap pass reads as
@@ -134,13 +142,35 @@ extension MultiSpeakerRevoicer {
                 best = synth
                 bestDropped = report.droppedWordCount
                 bestMax = report.maxOffsetSec
+            } else {
+                // Measured WORSE than (or equal to) the best pass — finer
+                // caps are past the sweet spot: smaller slots mean more
+                // truncation boundaries, so refinement from here only
+                // degrades (observed: drops 1 → 23 → 18 across caps on a
+                // slow voice). Stop burning render + STT time.
+                print(String(format: "[Revoicer.QA] %@ cap=%.1f degraded vs best (%d vs %d dropped) — stopping refinement",
+                             speakerID, cap, report.droppedWordCount, bestDropped))
+                break
             }
             // Done only when offsets are within tolerance AND this pass
             // didn't drop words the first measured pass kept. A finer cap
             // creates more slot boundaries, and the renderer TRUNCATES
             // overruns — a pass that cut the drifting tail words entirely
             // would otherwise read as "clean" (dropped words can't flag).
-            if report.isClean, report.droppedWordCount <= (baselineDropped ?? 0) { break }
+            //
+            // The FIRST pass trivially satisfies the baseline (it IS the
+            // baseline), so it additionally needs a low absolute drop
+            // fraction to end the loop: a clean-offsets pass that dropped
+            // a third of the words (heavy clipping) is still worth one
+            // refinement attempt — a finer cap has been observed to cut
+            // drops 29 → 11 on the same content.
+            let dropFraction = Double(report.droppedWordCount)
+                / Double(max(1, report.matchedWordCount + report.droppedWordCount))
+            if report.isClean,
+               report.droppedWordCount <= (baselineDropped ?? 0),
+               iter > 0 || dropFraction <= 0.10 {
+                break
+            }
         }
 
         if let best {

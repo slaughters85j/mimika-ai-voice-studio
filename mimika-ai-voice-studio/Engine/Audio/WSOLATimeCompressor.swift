@@ -16,12 +16,13 @@
 //       input faster than we step through the output, dropping some
 //       portion of the signal in each window pair's overlap.
 //    2. Search ±toleranceSamples around the target start for the
-//       position whose waveform best matches the most recently
-//       placed output frame, scored by cross-correlation
-//       (vDSP_dotpr). This snap-to-similar-phase step is what
-//       distinguishes WSOLA from plain SOLA — it aligns windows at
-//       pitch-period boundaries so the output's fundamental is
-//       preserved (no chipmunk-ification).
+//       position whose waveform best matches the NATURAL CONTINUATION
+//       of the previously chosen window (the unwindowed input at
+//       previousChosenStart + synthesisHop), scored by
+//       cross-correlation (vDSP_dotpr). This snap-to-similar-phase
+//       step is what distinguishes WSOLA from plain SOLA — it aligns
+//       windows at pitch-period boundaries so the output's fundamental
+//       is preserved (no chipmunk-ification).
 //    3. Multiply the chosen input slice by a Hann taper (vDSP_vmul),
 //       then overlap-add into the output buffer at `k * synthesisHop`.
 //       Track the sum of window weights at each output sample so we
@@ -102,11 +103,28 @@ nonisolated enum WSOLATimeCompressor {
     ///     unchanged; `ratio == 1.2` returns `samples.count / 1.2`
     ///     samples. Values are clamped to `[1.0, 2.0]`; the renderer
     ///     itself caps at 1.30× before this is called.
+    ///   - onsetGuardSamples: length of the ONSET GUARD — the initial
+    ///     stretch of OUTPUT that passes through 1:1 (uncompressed).
+    ///     Voice onsets are transient/unvoiced and have no periodic
+    ///     structure for the correlation search to align on, so
+    ///     compressing them produces the audible "scratchy line front"
+    ///     artifact; steady voiced speech mid-line survives compression
+    ///     nearly transparently. Protecting the onset shifts ALL of the
+    ///     compression into the remainder (whose effective ratio rises
+    ///     slightly — e.g. a 1.30× request on a 2 s segment with a
+    ///     200 ms guard compresses the remainder at ~1.35×). The guard
+    ///     is auto-shrunk when the requested ratio leaves too little
+    ///     remainder to absorb it. Output length is UNCHANGED by the
+    ///     guard. Default 0 (previous behavior).
     /// - Returns: time-compressed buffer of length
     ///   `Int(samples.count / clampedRatio)`. Inputs shorter than one
     ///   analysis frame are returned unchanged (nothing useful to
     ///   compress).
-    static func compress(_ samples: [Float], ratio: Double) -> [Float] {
+    static func compress(
+        _ samples: [Float],
+        ratio: Double,
+        onsetGuardSamples: Int = 0
+    ) -> [Float] {
         // Sanity bounds. The renderer should never feed ratios outside
         // [1.0, 1.30], but defensively clamp so callers can't blow this
         // up. < 1.0 is a no-op (we don't stretch).
@@ -117,21 +135,37 @@ nonisolated enum WSOLATimeCompressor {
         let outputLength = Int(Double(samples.count) / clamped)
         guard outputLength > 0 else { return [] }
 
+        // Onset guard: cap the requested guard so the remainder still
+        // exists (≥ one frame of compressible output) AND its effective
+        // ratio stays within this function's own 2.0 clamp:
+        //   (N − g) / (L − g) ≤ 2   ⇔   g ≤ 2L − N.
+        let guardLength = max(0, min(onsetGuardSamples,
+                                     min(outputLength - frameSize,
+                                         2 * outputLength - samples.count)))
+        // Remainder hop compensates for the 1:1 guard region so the
+        // TOTAL output length still lands exactly at `outputLength`.
+        let remainderHop: Double = {
+            guard guardLength > 0, outputLength > guardLength else {
+                return Double(synthesisHop) * clamped
+            }
+            let remainderRatio = Double(samples.count - guardLength)
+                / Double(outputLength - guardLength)
+            return Double(synthesisHop) * remainderRatio
+        }()
+
         // Slight headroom so the final OLA frame can write past
         // `outputLength` without bounds-checking each access.
         var output = [Float](repeating: 0, count: outputLength + frameSize)
         var weights = [Float](repeating: 0, count: outputLength + frameSize)
 
-        // Analysis-domain hop is synthesisHop * ratio. For ratio > 1
-        // the analysis window walks the input faster than the
-        // synthesis hop walks the output ⇒ compression.
-        let analysisHop = Double(synthesisHop) * clamped
-
-        // Search target on the next iteration is the frame we just
-        // placed; on the first iteration there's nothing to align
-        // against so we take the window at t=0 verbatim.
-        var previousOutputFrame = [Float](repeating: 0, count: frameSize)
-        var isFirstFrame = true
+        // Alignment target: each new frame is correlated against the
+        // NATURAL CONTINUATION of the previously chosen input window
+        // (input at previousChosenStart + synthesisHop) — the standard
+        // WSOLA formulation. The earlier implementation correlated
+        // against the previously PLACED (Hann-tapered) output frame,
+        // which de-emphasizes the frame edges the search most needs to
+        // line up and audibly degraded alignment.
+        var previousChosenStart: Int? = nil
 
         var outputIndex = 0
         var targetInputPosition: Double = 0.0
@@ -141,15 +175,19 @@ nonisolated enum WSOLATimeCompressor {
             let targetStart = Int(targetInputPosition.rounded())
             if targetStart > maxInputStart { break }
 
+            // Inside the onset guard the walk is 1:1 — take the window
+            // at exactly the target (no search) so the onset passes
+            // through as a plain OLA reconstruction of the input.
+            let inGuard = outputIndex < guardLength
+
             let chosenStart: Int
-            if isFirstFrame {
+            if inGuard || previousChosenStart == nil {
                 chosenStart = max(0, min(targetStart, maxInputStart))
-                isFirstFrame = false
             } else {
                 chosenStart = findBestMatch(
                     in: samples,
                     around: targetStart,
-                    targetFrame: previousOutputFrame
+                    previousChosenStart: previousChosenStart!
                 )
             }
 
@@ -184,10 +222,12 @@ nonisolated enum WSOLATimeCompressor {
                 }
             }
 
-            previousOutputFrame = windowed
+            previousChosenStart = chosenStart
 
             outputIndex += synthesisHop
-            targetInputPosition += analysisHop
+            // 1:1 walk inside the onset guard; compression-rate walk
+            // (adjusted for the guard) outside it.
+            targetInputPosition += inGuard ? Double(synthesisHop) : remainderHop
         }
 
         // Normalize. With 75 % overlap on Hann windows the sum is ~1.0
@@ -209,48 +249,51 @@ nonisolated enum WSOLATimeCompressor {
 
     /// Return the input position within `±toleranceSamples` of
     /// `targetStart` whose `frameSize`-sample slice best correlates
-    /// (dot-product) with `targetFrame`. Cross-correlation is computed
-    /// via vDSP_dotpr; the highest score wins. Used to snap each new
-    /// analysis frame to a pitch-period boundary relative to the
-    /// previously emitted frame.
+    /// (dot-product) with the NATURAL CONTINUATION of the previously
+    /// chosen window — the unwindowed input at
+    /// `previousChosenStart + synthesisHop` (standard WSOLA). The
+    /// highest score wins; correlating against the raw input (not the
+    /// Hann-tapered placed frame) keeps the frame edges — where phase
+    /// continuity is actually decided — fully weighted in the search.
     private static func findBestMatch(
         in samples: [Float],
         around targetStart: Int,
-        targetFrame: [Float]
+        previousChosenStart: Int
     ) -> Int {
+        let maxStart = samples.count - frameSize
+        let naturalStart = max(0, min(previousChosenStart + synthesisHop, maxStart))
         let lo = max(0, targetStart - toleranceSamples)
-        let hi = min(samples.count - frameSize, targetStart + toleranceSamples)
+        let hi = min(maxStart, targetStart + toleranceSamples)
         guard lo <= hi else {
-            return max(0, min(targetStart, samples.count - frameSize))
+            return max(0, min(targetStart, maxStart))
         }
 
         var bestStart = targetStart
         var bestCorr: Float = -.infinity
 
         samples.withUnsafeBufferPointer { samplesPtr in
-            targetFrame.withUnsafeBufferPointer { targetPtr in
-                var candidate = lo
-                while candidate <= hi {
-                    var corr: Float = 0
-                    vDSP_dotpr(
-                        samplesPtr.baseAddress! + candidate, 1,
-                        targetPtr.baseAddress!, 1,
-                        &corr,
-                        vDSP_Length(frameSize)
-                    )
-                    // Apply a tiny linear penalty proportional to
-                    // distance from the requested target. Ties (which
-                    // are common on periodic signals like pure sines)
-                    // now resolve to the candidate closest to target;
-                    // real-speech correlation peaks easily dominate
-                    // the bias.
-                    let score = corr - Self.centerBiasLambda * Float(abs(candidate - targetStart))
-                    if score > bestCorr {
-                        bestCorr = score
-                        bestStart = candidate
-                    }
-                    candidate += 1
+            let targetPtr = samplesPtr.baseAddress! + naturalStart
+            var candidate = lo
+            while candidate <= hi {
+                var corr: Float = 0
+                vDSP_dotpr(
+                    samplesPtr.baseAddress! + candidate, 1,
+                    targetPtr, 1,
+                    &corr,
+                    vDSP_Length(frameSize)
+                )
+                // Apply a tiny linear penalty proportional to
+                // distance from the requested target. Ties (which
+                // are common on periodic signals like pure sines)
+                // now resolve to the candidate closest to target;
+                // real-speech correlation peaks easily dominate
+                // the bias.
+                let score = corr - Self.centerBiasLambda * Float(abs(candidate - targetStart))
+                if score > bestCorr {
+                    bestCorr = score
+                    bestStart = candidate
                 }
+                candidate += 1
             }
         }
 
