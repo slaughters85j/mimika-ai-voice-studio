@@ -169,6 +169,37 @@ actor FluidAudioSTT: STTProvider {
         )
     }
 
+    /// Word-level (per-token) timings with NO coalescing — raw Parakeet
+    /// token text (leading-space word-start signal preserved) + per-token
+    /// start/end. Backs the re-voice timing-QA loop, which coalesces
+    /// these itself at a varying cap and compares against the rendered
+    /// output's own tokens.
+    func transcribeWords(_ audio: URL) async throws -> [TimedWord] {
+        let manager = try await getOrCreateManager()
+        var decoderState = TdtDecoderState.make(decoderLayers: 2)
+        let result: ASRResult
+        do {
+            result = try await manager.transcribe(audio, decoderState: &decoderState)
+        } catch {
+            throw STTError.transcribeFailed(error)
+        }
+        guard let timings = result.tokenTimings, !timings.isEmpty else {
+            // No per-token timings → this file can't drive the QA loop.
+            // Return [] per the STTProvider contract so the caller takes
+            // the coalesced-segments fallback. (A single whole-transcript
+            // TimedWord here would route the revoicer INTO the QA loop
+            // with one un-alignable giant word — the QA reads clean while
+            // measuring nothing, and one full ASR pass of the rendered
+            // output is wasted per speaker.)
+            return []
+        }
+        return timings.map {
+            TimedWord(text: $0.token,
+                      startSec: TimeInterval($0.startTime),
+                      endSec: TimeInterval($0.endTime))
+        }
+    }
+
     // MARK: - Lazy model load
 
     private func getOrCreateManager() async throws -> AsrManager {

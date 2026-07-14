@@ -68,8 +68,27 @@ struct DiarizationSettingsPanel: View {
                     Divider().opacity(0.3)
                     sensitivityControl
 
-                    HStack {
+                    HStack(spacing: Theme.space3) {
                         Spacer()
+                        if !viewModel.speakers.isEmpty {
+                            Button(action: { viewModel.reDiarize() }) {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "arrow.clockwise")
+                                        .font(.system(size: 10, weight: .semibold))
+                                    Text("Re-detect speakers")
+                                        .font(Theme.fontXS)
+                                }
+                                .foregroundStyle(Theme.accent)
+                            }
+                            .buttonStyle(.plain)
+                            // Gated on .done (not just "not working"): after a
+                            // mid-pipeline separation failure the .error status
+                            // is what keeps Export/Change Voices disabled on
+                            // mix-derived rows, and a successful re-detect
+                            // would overwrite it with .done.
+                            .disabled(!viewModel.status.isDone)
+                            .help("Re-run speaker detection with the current settings — skips the slow separation step. Available after a completed run.")
+                        }
                         Button(action: {
                             viewModel.diarizationSettings = DiarizationSettings()
                         }) {
@@ -104,7 +123,7 @@ struct DiarizationSettingsPanel: View {
                 Text("Number of Speakers")
                     .font(Theme.fontSM)
                     .foregroundStyle(Theme.textPrimary)
-                Text("Force the diarizer to find exactly this many speakers. Leave on Auto unless the detection is consistently merging or splitting the wrong way.")
+                Text("Merge the detected speakers down to this many — closest-sounding first. If detection finds fewer, it stays as-is (it won't invent speakers). Leave on Auto to let it decide. Change this, then \"Re-detect speakers\".")
                     .font(Theme.fontXS)
                     .foregroundStyle(Theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -121,16 +140,18 @@ struct DiarizationSettingsPanel: View {
                 .labelsHidden()
                 .controlSize(.small)
             }
-            .disabled(viewModel.status.isWorking || !viewModel.speakers.isEmpty)
+            // Stays usable after a run (like the sensitivity slider) so
+            // the user can change the target count + "Re-detect speakers".
+            .disabled(viewModel.status.isWorking)
         }
     }
 
     // MARK: - Sensitivity
 
     /// 0.0 = merge more (fewer speakers); 1.0 = split more
-    /// (more speakers); 0.5 = SpeakerKit's default. The value
-    /// maps onto pyannote's clusterDistanceThreshold inside
-    /// `DiarizationSettings.pyannoteClusterDistanceThreshold`.
+    /// (more speakers); 0.5 = the engine's default. The value maps
+    /// onto FluidAudio's clustering gate inside
+    /// `DiarizationSettings.fluidAudioClusteringThreshold`.
     private var sensitivityControl: some View {
         let sens = viewModel.diarizationSettings.sensitivity
         return VStack(alignment: .leading, spacing: Theme.space2) {
@@ -166,9 +187,11 @@ struct DiarizationSettingsPanel: View {
                     .font(.system(size: 10))
                     .foregroundStyle(Theme.textSecondary)
             }
-            .disabled(viewModel.status.isWorking || !viewModel.speakers.isEmpty)
+            // Stays usable after a run (unlike the speaker-count stepper)
+            // so the user can re-tune sensitivity + "Re-detect speakers".
+            .disabled(viewModel.status.isWorking)
         }
-        .disabled(viewModel.status.isWorking || !viewModel.speakers.isEmpty)
+        .disabled(viewModel.status.isWorking)
     }
 
     private func sensitivityLabel(_ s: Double) -> String {

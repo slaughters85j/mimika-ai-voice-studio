@@ -98,6 +98,14 @@ final class SpeakerIsolatorViewModel {
         /// rough remaining-time estimate based on the rate of past
         /// chunks. nil if too early to estimate.
         case separatingSources(chunk: Int, total: Int, etaSec: Int?)
+        /// Revoice pipeline kicked off and preparing (STT model load +
+        /// transcription) before per-segment `.revoicing` progress
+        /// begins. Set SYNCHRONOUSLY at the top of
+        /// `runChangeVoicesPipeline` so the FIRST click disables the
+        /// button + shows the spinner — closing the re-entry window
+        /// where rapid taps each spawned (and orphaned) a Task while
+        /// `status` was still `.done`.
+        case preparingRevoice
         case revoicing(speakerID: String, current: Int, total: Int)
         case muxingVideo
         case done

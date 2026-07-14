@@ -419,4 +419,66 @@ final class DiarizationSettingsTests: XCTestCase {
             DiarizationSettings(sensitivity: 0.6)
         )
     }
+
+    // MARK: - FluidAudio sensitivity → clustering-gate remap
+
+    func test_sensitivityDefault_preservesStockClusteringThreshold() {
+        // Slider centre must still map to FluidAudio's stock effective
+        // gate (0.84) → clusteringThreshold 0.70, so out-of-box behaviour
+        // is unchanged by the remap.
+        let s = DiarizationSettings(sensitivity: 0.5)
+        XCTAssertEqual(s.fluidAudioClusteringThreshold, 0.70, accuracy: 0.0005)
+        XCTAssertEqual(
+            DiarizationSettings.effectiveSpeakerGate(forSensitivity: 0.5),
+            0.84, accuracy: 0.0005
+        )
+    }
+
+    func test_sensitivityMergeEnd_staysBelowNeverSplitCeiling() {
+        // The old map sent the merge end to an effective gate of 1.14
+        // (>1.0 = "never split", a dead quarter of the slider). The remap
+        // caps it at 0.95 so the merge half actually does something.
+        let gate = DiarizationSettings.effectiveSpeakerGate(forSensitivity: 0.0)
+        XCTAssertEqual(gate, 0.95, accuracy: 0.0005)
+        XCTAssertLessThan(gate, 1.0, "merge end must stay under the never-split ceiling")
+    }
+
+    func test_sensitivitySplitEnd_isAggressiveButSane() {
+        XCTAssertEqual(
+            DiarizationSettings.effectiveSpeakerGate(forSensitivity: 1.0),
+            0.62, accuracy: 0.0005
+        )
+    }
+
+    func test_effectiveGate_isMonotonicDecreasingAndNeverDead() {
+        // Across the whole travel: strictly decreasing (higher sensitivity
+        // ⇒ lower gate ⇒ more splits) and never in the >1.0 dead zone.
+        var previous = Float(2.0)
+        for step in 0...20 {
+            let sens = Double(step) / 20.0
+            let gate = DiarizationSettings.effectiveSpeakerGate(forSensitivity: sens)
+            XCTAssertLessThan(gate, previous, "gate must strictly decrease as sensitivity rises (sens=\(sens))")
+            XCTAssertLessThanOrEqual(gate, 0.95, "gate must never enter the dead zone (sens=\(sens))")
+            XCTAssertGreaterThan(gate, 0.0)
+            previous = gate
+        }
+    }
+
+    func test_effectiveGate_clampsOutOfRangeSensitivity() {
+        XCTAssertEqual(
+            DiarizationSettings.effectiveSpeakerGate(forSensitivity: -0.5),
+            DiarizationSettings.effectiveSpeakerGate(forSensitivity: 0.0),
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            DiarizationSettings.effectiveSpeakerGate(forSensitivity: 1.5),
+            DiarizationSettings.effectiveSpeakerGate(forSensitivity: 1.0),
+            accuracy: 0.0001
+        )
+    }
 }
+
+// The FluidAudio merge-map, re-voice precision, and timing-QA evaluator
+// suites live in their own sibling files (FluidAudioMergeMapTests.swift,
+// RevoicePrecisionTests.swift, TimingQAEvaluatorTests.swift) per the
+// one-suite-per-file convention.

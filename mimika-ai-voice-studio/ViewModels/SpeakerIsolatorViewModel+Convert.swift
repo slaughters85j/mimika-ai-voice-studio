@@ -280,6 +280,100 @@ extension SpeakerIsolatorViewModel {
         }
     }
 
+    // MARK: - reDiarize
+
+    /// Re-run ONLY speaker detection on the already-processed input, using
+    /// the current `diarizationSettings`, and rebuild the speaker rows —
+    /// without re-running the expensive HTDemucs separation. (The
+    /// diarization phase itself re-reads + re-decodes the source file at
+    /// 16 kHz; what's reused from the last run is the cached isolation
+    /// bed, not the decoded audio.) Backs the panel's "Re-detect
+    /// speakers" action so the user can dial the Speaker Sensitivity
+    /// slider against a live speaker count instead of discarding results
+    /// and re-running the whole pipeline blind.
+    ///
+    /// Only available from `.done`: a run that ended in `.error` after a
+    /// mid-pipeline separation failure deliberately keeps that status to
+    /// gate the footer's Export / Change Voices actions on mix-derived
+    /// (music-under-vocals) rows — re-detecting from that state would
+    /// flip it to `.done` and silently un-gate them.
+    ///
+    /// Reuses the beds cached by the last `convertAndIsolate`:
+    ///   * AP-off — `vocalsBed` is the mono mix; re-isolate from it and
+    ///     rebuild the mix-derived Background row (its complement shifts
+    ///     with the new segment boundaries).
+    ///   * AP-on  — `vocalsBed` is the stereo vocals stem; re-isolate from
+    ///     a mono downmix and keep the (unchanged) separated-music
+    ///     Background row verbatim.
+    ///
+    /// Per-row actions reset to `.useOriginal`: the diarizer's speaker IDs
+    /// are not stable across runs, so a fresh SPEAKER_NN labelling can't
+    /// carry the old per-speaker voice choices.
+    func reDiarize() {
+        guard status.isDone, !speakers.isEmpty else { return }
+        guard let url = inputAudioURL, let vocalsBed = self.vocalsBed else { return }
+        let settings = self.diarizationSettings
+        let pipeline = self.pipeline
+        let musicBedPresent = self.musicBed != nil
+        // The unchanged separated-music Background row (AP-on only), kept
+        // verbatim so re-detection doesn't recompute the music preview.
+        let existingBackground = self.speakers.first { $0.isBackground }
+        let totalDuration = self.inputDurationSec
+
+        setStatus(.diarizing)
+        inflightTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let didStart = url.startAccessingSecurityScopedResource()
+            defer { if didStart { url.stopAccessingSecurityScopedResource() } }
+            do {
+                let segments = try await pipeline.runDiarizationPhase(url: url, settings: settings)
+                try Task.checkCancellation()
+                guard !segments.isEmpty else {
+                    self.setStatus(.error("No speakers detected in the input audio."))
+                    return
+                }
+
+                self.setStatus(.isolating)
+                // Mono 24 kHz preview source: identity for the AP-off mono
+                // mix, (L+R)/2 + resample for the AP-on stereo vocals stem.
+                let mono24k = try Self.downmixAndResampleForPreview(vocalsBed, targetRate: 24_000)
+                let monoBuffer = AudioBuffer.mono(mono24k, sampleRate: 24_000)
+                let isolated = pipeline.runIsolationPhase(
+                    input: monoBuffer, segments: segments, preserveSilence: true)
+
+                var rebuilt = Self.buildSpeakerRows(
+                    isolated: isolated,
+                    segments: segments,
+                    monoSamples: mono24k,
+                    sampleRate: 24_000,
+                    totalDurationSec: totalDuration ?? (Double(mono24k.count) / 24_000.0),
+                    pipeline: pipeline,
+                    includeMixDerivedBackground: !musicBedPresent
+                )
+                // AP-on: re-append the unchanged music-stem Background row,
+                // resetting its action to match the fresh detection.
+                if musicBedPresent, var bg = existingBackground {
+                    bg.action = .useOriginal
+                    rebuilt.append(bg)
+                }
+                // Fresh detection recycles the same SPEAKER_NN ids for
+                // different audio (the SDK's speaker DB resets per run),
+                // so stale playback/expansion state would re-attach to
+                // the new rows — a row the user was previewing would
+                // auto-play a DIFFERENT speaker's audio. Clear both,
+                // exactly like clearResults().
+                self.playingSpeakerID = nil
+                self.expandedSpeakerID = nil
+                self.speakers = rebuilt
+                self.setStatus(.done)
+            } catch is CancellationError {
+                self.setStatus(.idle)
+            } catch {
+                self.setStatus(.error(String(describing: error)))
+            }
+        }
+    }
+
     // MARK: - Model gates
 
     /// Ensure the diarization model is on disk; surfaces download

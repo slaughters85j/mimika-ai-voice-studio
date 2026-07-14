@@ -281,7 +281,7 @@ The two stores are surfaced together in pickers but managed separately. **Voices
 - Use `// MARK:` for every class, struct, extension, and meaningful function group
 - Don't delete comments; you may update them
 - Modern UI elements only — sane defaults from SwiftUI, no AppKit hacks unless required
-- Files over **300 lines** → refactor (move helpers into extensions or sibling files)
+- Keep files under **400 lines**; refactor when they approach this limit (move helpers into extensions or sibling files). Matches AGENTS.md and the user-global CLAUDE.md.
 - **macOS + iOS portable** when possible; `#if os(iOS)` for UI deltas. Engine layer must stay pure (no UI imports).
 - Use Swift Concurrency (`async/await`, `AsyncStream`) — not GCD — except where AVAudioEngine taps require callbacks
 
