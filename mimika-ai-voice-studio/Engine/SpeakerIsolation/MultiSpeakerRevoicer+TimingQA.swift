@@ -92,6 +92,14 @@ extension MultiSpeakerRevoicer {
                     print(String(format: "[Revoicer]   %@ %.2f-%.2f: %@",
                                  speakerID, seg.startSec, seg.endSec, seg.text))
                 }
+                // Raw token stream (quoted, with times) — the segment
+                // view hides token boundaries, and coalesce bugs (severed
+                // words, stray punctuation tokens, mid-number splits) are
+                // only diagnosable from the tokens themselves.
+                let tokenDump = originalWords
+                    .map { String(format: "\"%@\"@%.2f", $0.text, $0.startSec) }
+                    .joined(separator: " ")
+                print("[Revoicer.tokens] \(speakerID): \(tokenDump)")
             }
             // Progress must stay monotonic across QA retries: carry the
             // completed count forward so a finer-cap pass reads as
@@ -149,7 +157,20 @@ extension MultiSpeakerRevoicer {
             // creates more slot boundaries, and the renderer TRUNCATES
             // overruns — a pass that cut the drifting tail words entirely
             // would otherwise read as "clean" (dropped words can't flag).
-            if report.isClean, report.droppedWordCount <= (baselineDropped ?? 0) { break }
+            //
+            // The FIRST pass trivially satisfies the baseline (it IS the
+            // baseline), so it additionally needs a low absolute drop
+            // fraction to end the loop: a clean-offsets pass that dropped
+            // a third of the words (heavy clipping) is still worth one
+            // refinement attempt — a finer cap has been observed to cut
+            // drops 29 → 11 on the same content.
+            let dropFraction = Double(report.droppedWordCount)
+                / Double(max(1, report.matchedWordCount + report.droppedWordCount))
+            if report.isClean,
+               report.droppedWordCount <= (baselineDropped ?? 0),
+               iter > 0 || dropFraction <= 0.10 {
+                break
+            }
         }
 
         if let best {

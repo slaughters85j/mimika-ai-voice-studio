@@ -166,23 +166,50 @@ actor SpeechFrameworkSTT: STTProvider {
         var buffer: [String] = [words[0].substring]
         var startSec: Double = words[0].timestamp
         var endSec: Double = words[0].timestamp + words[0].duration
+        /// Running accumulator of the word currently being built across
+        /// sub-word tokens; drives the number-run cap protection.
+        var currentWord = words[0].substring
+        /// WP-VIT-2: set when a gap split landed on a token that cannot
+        /// START a segment (a word fragment like "ism", or bare
+        /// punctuation whose timestamp sits past a silence). The token is
+        /// backward-attached to the current segment and the split defers
+        /// to the next startable token — a segment must never open with a
+        /// severed word half or a stray period.
+        var splitPending = false
 
-        for w in words.dropFirst() {
+        for (idx, w) in words.enumerated().dropFirst() {
             let gap = w.timestamp - endSec
             // Split on a natural pause OR when adding this word would push
             // the segment past `maxSegmentSec` (re-voice drift cap).
             let exceedsCap = maxSegmentSec.map { (w.timestamp + w.duration) - startSec > $0 } ?? false
-            // A cap split may only land on a WORD boundary. In sub-word
-            // mode (separator == "", Parakeet tokens) word-start tokens
-            // carry a leading space and continuation tokens don't —
-            // splitting before a continuation would sever the word
-            // ("…compli" / "cated…" spoken as separate utterances). In
-            // whole-word mode (separator != "") every span is a word
-            // start. When the crossing token is mid-word, the split
-            // defers to the next word-start token, so a capped segment
-            // can overrun by at most the remainder of one word.
+            // A split may only land on a WORD boundary. In sub-word mode
+            // (separator == "", Parakeet tokens) word-start tokens carry
+            // a leading space and continuation tokens don't — splitting
+            // before a continuation would sever the word ("…compli" /
+            // "cated…" spoken as separate utterances). In whole-word mode
+            // (separator != "") every span is a word start.
             let isWordStart = separator != "" || w.substring.hasPrefix(" ")
-            if gap >= utteranceGapSec || (exceedsCap && isWordStart) {
+            // …and it must carry real word content: bare punctuation can
+            // arrive with the NEXT phrase's timestamp and would otherwise
+            // open a segment as a stray ". As in…".
+            let hasContent = w.substring.contains { $0.isLetter || $0.isNumber }
+            let canStartSegment = isWordStart && hasContent
+            // Never CAP-split between two spoken-number words — a split
+            // number reads as two TTS utterances and garbles it. Natural
+            // pauses (gap splits) still apply inside number runs.
+            // The incoming word-start token is usually only a PREFIX of
+            // the word in sub-word mode ("three" arrives as " th"+"ree"),
+            // so the membership test must run on the FULL incoming word —
+            // assembled by looking ahead across its continuation tokens.
+            let numberRun = isWordStart
+                && Self.isSpokenNumberToken(currentWord)
+                && Self.isSpokenNumberToken(
+                    Self.assembleWord(startingAt: idx, in: words, separator: separator))
+            let wantsSplit = splitPending
+                || gap >= utteranceGapSec
+                || (exceedsCap && !numberRun)
+
+            if wantsSplit && canStartSegment {
                 out.append(TranscribedSegment(
                     text: buffer.joined(separator: separator)
                         .trimmingCharacters(in: .whitespacesAndNewlines),
@@ -191,10 +218,29 @@ actor SpeechFrameworkSTT: STTProvider {
                 ))
                 buffer = [w.substring]
                 startSec = w.timestamp
+                splitPending = false
             } else {
+                if gap >= utteranceGapSec && !canStartSegment {
+                    // Backward-attach + defer the split (see above).
+                    splitPending = true
+                }
                 buffer.append(w.substring)
             }
-            endSec = w.timestamp + w.duration
+            // Track the word being built. Word-start tokens WITHOUT
+            // content (stray punctuation like " -" between number words)
+            // must not reset the tracker — that severed the number-run
+            // linkage and let the cap split mid-number.
+            if isWordStart && hasContent {
+                currentWord = w.substring
+            } else if !isWordStart {
+                currentWord += w.substring
+            }
+            // Punctuation-only tokens must not drag endSec across a
+            // silence their (often unreliable) timestamp sits beyond —
+            // the segment's audible extent ends at its last real word.
+            if hasContent {
+                endSec = w.timestamp + w.duration
+            }
         }
         out.append(TranscribedSegment(
             text: buffer.joined(separator: separator)
@@ -204,6 +250,56 @@ actor SpeechFrameworkSTT: STTProvider {
         ))
         return out
     }
+
+    /// Lowercased word with edge punctuation stripped — the comparison
+    /// form for `spokenNumberWords` ("Eighty" / "three." → "eighty" /
+    /// "three").
+    nonisolated static func normalizedWord(_ s: String) -> String {
+        s.lowercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: .punctuationCharacters)
+    }
+
+    /// The full word beginning at `index`: the token itself plus every
+    /// following CONTINUATION token (no leading space) up to the next
+    /// word-start. In whole-word mode (separator != "") tokens are
+    /// already whole words and this returns the token as-is.
+    nonisolated static func assembleWord(
+        startingAt index: Int,
+        in words: [WordSpan],
+        separator: String
+    ) -> String {
+        guard separator.isEmpty else { return words[index].substring }
+        var word = words[index].substring
+        var j = index + 1
+        while j < words.count, !words[j].substring.hasPrefix(" ") {
+            word += words[j].substring
+            j += 1
+        }
+        return word
+    }
+
+    /// True when a token reads as part of a spoken number: a number word
+    /// from `spokenNumberWords` OR an all-digit token ("1983", "80") for
+    /// ASR variants that emit digits instead of words.
+    nonisolated static func isSpokenNumberToken(_ s: String) -> Bool {
+        let n = normalizedWord(s)
+        guard !n.isEmpty else { return false }
+        return spokenNumberWords.contains(n) || n.allSatisfy { $0.isNumber }
+    }
+
+    /// Number words that must not be separated by a CAP split — a
+    /// mid-number boundary makes TTS read "…in nineteen" / "eighty
+    /// three." as two utterances. Checked pairwise: the split is
+    /// suppressed only when BOTH the completed word and the incoming
+    /// word are spoken-number words.
+    nonisolated static let spokenNumberWords: Set<String> = [
+        "zero", "one", "two", "three", "four", "five", "six", "seven",
+        "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen",
+        "fifteen", "sixteen", "seventeen", "eighteen", "nineteen",
+        "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty",
+        "ninety", "hundred", "thousand", "million", "billion", "point", "oh",
+    ]
 
     /// Single-shot guard for the recognition callback. SFSpeechRecognizer
     /// is documented to call the handler once at isFinal under

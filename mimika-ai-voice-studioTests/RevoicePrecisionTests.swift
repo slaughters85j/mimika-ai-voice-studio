@@ -57,6 +57,125 @@ final class RevoicePrecisionTests: XCTestCase {
         XCTAssertEqual(segs[1].text, "case")
     }
 
+    // MARK: - coalesce WP-VIT-2 (gap-split fragments + punctuation + numbers)
+
+    /// A gap split landing on a CONTINUATION token must backward-attach
+    /// the fragment and defer the split — never open a segment with a
+    /// severed word half ("ism against civilians").
+    func test_coalesce_gapSplit_backwardAttachesWordFragment() {
+        let words = [
+            span(" acts", 0.0),
+            span(" of", 0.5),
+            span(" terror", 0.9),
+            span("ism", 1.9, 0.2),      // 0.6 s gap MID-WORD (ASR timing quirk)
+            span(" against", 2.2, 0.3),
+        ]
+        let segs = SpeechFrameworkSTT.coalesce(words, utteranceGapSec: 0.3, separator: "")
+        XCTAssertEqual(segs.count, 2)
+        XCTAssertEqual(segs[0].text, "acts of terrorism", "fragment attaches backward, word stays whole")
+        XCTAssertEqual(segs[1].text, "against", "split lands on the next word-start token")
+        XCTAssertEqual(segs[0].endSec, 2.1, accuracy: 1e-9, "real sub-word content extends the segment end")
+    }
+
+    /// A punctuation token carrying the NEXT phrase's timestamp must not
+    /// open a segment (". As in the bombing…") — it attaches to the
+    /// closing segment WITHOUT dragging its end across the silence.
+    func test_coalesce_gapSplit_punctuationDoesNotLeadSegment() {
+        let words = [
+            span(" civilians", 0.0, 0.5),
+            span(".", 4.0, 0.1),        // sentence-final period, timestamped past the gap
+            span(" As", 4.2, 0.3),
+            span(" in", 4.6, 0.3),
+        ]
+        let segs = SpeechFrameworkSTT.coalesce(words, utteranceGapSec: 0.3, separator: "")
+        XCTAssertEqual(segs.count, 2)
+        XCTAssertEqual(segs[0].text, "civilians.")
+        XCTAssertEqual(segs[0].endSec, 0.5, accuracy: 1e-9,
+                       "a bare period must not drag endSec across 3.5 s of silence")
+        XCTAssertEqual(segs[1].text, "As in")
+        XCTAssertEqual(segs[1].startSec, 4.2, accuracy: 1e-9)
+    }
+
+    /// The cap must never split BETWEEN spoken-number words — a split
+    /// number ("…in nineteen" / "eighty three.") reads as two TTS
+    /// utterances and garbles it.
+    func test_coalesce_cap_neverSplitsNumberRun() {
+        let words = [
+            span(" in", 0.0),
+            span(" nineteen", 0.5),
+            span(" eighty", 1.2),       // cap 1.5 first exceeded here
+            span(" three.", 1.7),
+            span(" later", 2.4),        // 0.3 s gap → normal split resumes
+        ]
+        let segs = SpeechFrameworkSTT.coalesce(
+            words, utteranceGapSec: 0.3, separator: "", maxSegmentSec: 1.5)
+        XCTAssertEqual(segs.count, 2)
+        XCTAssertEqual(segs[0].text, "in nineteen eighty three.",
+                       "the number run overruns the cap rather than splitting mid-number")
+        XCTAssertEqual(segs[1].text, "later")
+    }
+
+    /// Regression: a stray word-start PUNCTUATION token between number
+    /// words (" -") must not reset the number tracker — that severed the
+    /// run linkage and let the cap split mid-number ("…eighty | three.").
+    func test_coalesce_cap_numberRunSurvivesStrayPunctuationToken() {
+        let words = [
+            span(" in", 0.0),
+            span(" nineteen", 0.5),
+            span(" eighty", 1.2),
+            span(" -", 1.6, 0.05),      // stray word-start punct token
+            span(" three.", 1.7),
+        ]
+        let segs = SpeechFrameworkSTT.coalesce(
+            words, utteranceGapSec: 0.3, separator: "", maxSegmentSec: 1.5)
+        XCTAssertEqual(segs.count, 1,
+                       "punctuation between number words must not break the number run")
+        XCTAssertTrue(segs[0].text.hasSuffix("three."), "the full number stays in one segment")
+    }
+
+    /// All-digit tokens count as number words too (ASR variants emit
+    /// "1983" instead of "nineteen eighty three").
+    func test_coalesce_cap_digitTokensCountAsNumbers() {
+        XCTAssertTrue(SpeechFrameworkSTT.isSpokenNumberToken(" 1983"))
+        XCTAssertTrue(SpeechFrameworkSTT.isSpokenNumberToken("80."))
+        XCTAssertTrue(SpeechFrameworkSTT.isSpokenNumberToken(" Eighty"))
+        XCTAssertFalse(SpeechFrameworkSTT.isSpokenNumberToken(" -"))
+        XCTAssertFalse(SpeechFrameworkSTT.isSpokenNumberToken("later"))
+    }
+
+    /// Regression, from a real Parakeet token dump: word-start tokens are
+    /// usually only a PREFIX of the word ("three" arrives as " th"+"ree"),
+    /// so the number test must assemble the full incoming word before the
+    /// wordlist lookup — testing the bare prefix ("th" ∉ set) let the cap
+    /// split "…nineteen eighty | three." mid-number.
+    func test_coalesce_cap_numberRunSurvivesSubWordPrefixTokens() {
+        let words = [
+            span(" bar", 22.00, 0.08), span("rac", 22.08, 0.16), span("ks", 22.24, 0.08),
+            span(" in", 22.32, 0.08),
+            span(" Be", 22.40, 0.16), span("ir", 22.56, 0.16), span("ut", 22.72, 0.16),
+            span(" in", 22.88, 0.16),
+            span(" nin", 23.04, 0.08), span("ete", 23.12, 0.08), span("en", 23.20, 0.08),
+            span(" e", 23.28, 0.08), span("ight", 23.36, 0.08), span("y", 23.44, 0.08),
+            span(" th", 23.60, 0.32), span("ree", 23.92, 0.32), span(".", 24.24, 0.0),
+        ]
+        let segs = SpeechFrameworkSTT.coalesce(
+            words, utteranceGapSec: 0.3, separator: "", maxSegmentSec: 1.5)
+        XCTAssertEqual(segs.count, 1, "the number run must hold together across sub-word prefix tokens")
+        XCTAssertEqual(segs[0].text, "barracks in Beirut in nineteen eighty three.")
+    }
+
+    /// Number protection suppresses only CAP splits: a real pause between
+    /// number words is still a natural gap split.
+    func test_coalesce_numberRun_realPauseStillSplits() {
+        let words = [
+            span(" nineteen", 0.0),
+            span(" eighty", 1.0),       // 0.6 s genuine pause
+        ]
+        let segs = SpeechFrameworkSTT.coalesce(
+            words, utteranceGapSec: 0.3, separator: "", maxSegmentSec: 1.5)
+        XCTAssertEqual(segs.count, 2, "gap splits inside number runs stay natural")
+    }
+
     // MARK: - endPaddedSegments
 
     func test_endPaddedSegments_clampsToNextStartElsePadsFull() {

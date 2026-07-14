@@ -47,6 +47,50 @@ private struct FixedLengthSineEngine: TTSEngineProtocol {
     }
 }
 
+/// Thread-safe call counter for the varying-length engine (the mock is a
+/// value type; the counter must survive copies).
+private final class SynthCallCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var n = 0
+    /// Returns the 0-based index of this call.
+    func next() -> Int {
+        lock.lock(); defer { lock.unlock() }
+        let v = n
+        n += 1
+        return v
+    }
+    var count: Int {
+        lock.lock(); defer { lock.unlock() }
+        return n
+    }
+}
+
+/// Like FixedLengthSineEngine, but each successive synthesize call emits
+/// the next length in `lengths` (clamping to the last) — models the
+/// engine's run-to-run length nondeterminism for best-of-N tests.
+private struct VaryingLengthSineEngine: TTSEngineProtocol {
+    let lengths: [Int]
+    let counter = SynthCallCounter()
+    let frequencyHz: Double = 220
+    let sampleRate: Int = 24_000
+
+    func availableVoiceIDs() -> [String] { ["mock"] }
+
+    func synthesize(text: String, voiceID: String, options: SynthesisOptions) -> AsyncStream<PCMFrame> {
+        let call = counter.next()
+        let count = lengths[min(call, lengths.count - 1)]
+        let omega = 2.0 * .pi * frequencyHz / Double(sampleRate)
+        return AsyncStream { continuation in
+            var samples = [Float](repeating: 0, count: count)
+            for i in 0..<count {
+                samples[i] = Float(sin(omega * Double(i)))
+            }
+            continuation.yield(PCMFrame(samples: samples, isFinal: true))
+            continuation.finish()
+        }
+    }
+}
+
 // MARK: - Tests
 
 final class TimelineAlignedRendererGateTests: XCTestCase {
@@ -81,10 +125,12 @@ final class TimelineAlignedRendererGateTests: XCTestCase {
                        "Gate must not fire when synth length matches slot length")
     }
 
-    func testHardFallbackOver1Point60xProducesIdenticalOutput() async {
-        // Synth is 2.0 x slot — well above the 1.60 hard-fallback
-        // threshold. Gate logs a warning but DOESN'T compress; both
-        // outputs identical (both use clip-with-fade).
+    func testChronicOvershootCompressesBeforeSlotClip() async {
+        // Synth is 2.0 x the paced target — a chronic take (re-rolls
+        // exhausted, deterministic mock). WP-VIT-1 semantics: it gets the
+        // capped 1.30x compression BEFORE the slot clip (more words
+        // survive the fade), so gate ON now DIFFERS from gate OFF's raw
+        // clip. Output length is unchanged either way.
         let slotSec = 1.0
         let synthSamples = Int(2.0 * slotSec * Double(sampleRate))
         let engine = FixedLengthSineEngine(samplesPerCall: synthSamples)
@@ -103,8 +149,42 @@ final class TimelineAlignedRendererGateTests: XCTestCase {
             options: makeOptions(matchOriginalPace: false)
         )
 
-        XCTAssertEqual(withGate, withoutGate,
-                       "Hard-fallback case (overshoot > 1.60x) must produce identical output with or without gate")
+        XCTAssertEqual(withGate.count, withoutGate.count)
+        XCTAssertNotEqual(withGate, withoutGate,
+                          "chronic overshoot must be 1.30x-compressed before the slot clip, unlike the raw pace-off clip")
+    }
+
+    /// Regression for the "line after 1983" drift: a segment whose SLOT is
+    /// much larger than the segment (speaker's last segment / pre-gap /
+    /// cap-exempt number run) used to play out at natural length — its END
+    /// drifting ~1 s off the lips. The paced target (span + 0.35 s) now
+    /// pulls it back.
+    func testHugeSlotSegment_endDriftBoundedByPacedTarget() async {
+        let spanSec = 1.0
+        let totalSec = 3.0                                 // slot runs to EOF — huge
+        let synthSamples = Int(1.6 * spanSec * Double(sampleRate))   // ends 1.6 s, lips stop at 1.0 s
+        let engine = FixedLengthSineEngine(samplesPerCall: synthSamples)
+        let segments = [
+            TranscribedSegment(text: "nineteen eighty three", startSec: 0, endSec: spanSec)
+        ]
+
+        let paceOn = await TimelineAlignedRenderer.render(
+            segments: segments, totalDurationSec: totalSec,
+            voiceID: "mock", engine: engine,
+            options: makeOptions(matchOriginalPace: true)
+        )
+        let paceOff = await TimelineAlignedRenderer.render(
+            segments: segments, totalDurationSec: totalSec,
+            voiceID: "mock", engine: engine,
+            options: makeOptions(matchOriginalPace: false)
+        )
+
+        func lastActiveIndex(_ s: [Float]) -> Int { s.lastIndex(where: { $0 != 0 }) ?? -1 }
+        // Pace OFF: natural length — audio runs to ~1.6 s.
+        XCTAssertGreaterThan(lastActiveIndex(paceOff), Int(1.55 * Double(sampleRate)))
+        // Pace ON: compressed toward span + 0.35 s — audio ends by ~1.40 s.
+        XCTAssertLessThan(lastActiveIndex(paceOn), Int(1.45 * Double(sampleRate)),
+                          "the paced target must bound end drift even when the slot is huge")
     }
 
     // MARK: - Gate fires
@@ -291,6 +371,75 @@ final class TimelineAlignedRendererGateTests: XCTestCase {
         // Chunk 2 occupies [1.2 s, 2.0 s] after the push.
         let tail = Array(paceOn[Int(1.3 * Double(sampleRate))..<Int(1.9 * Double(sampleRate))])
         XCTAssertGreaterThan(rms(tail), 0.01, "pushed chunk must still produce audio through the tail")
+    }
+
+    // MARK: - Best-of-N re-roll (WP-VIT-1 residual)
+
+    func testReroll_replacesClippingTakeWithShorterOne() async {
+        // Take 1 is 2.0x the slot (would clip); take 2 fits exactly. The
+        // renderer must re-roll once, keep the short take, and place it
+        // verbatim — no truncation fade at the slot end.
+        let slotSec = 1.0
+        let slotSamples = Int(slotSec * Double(sampleRate))
+        let engine = VaryingLengthSineEngine(lengths: [2 * slotSamples, slotSamples])
+        let segments = [TranscribedSegment(text: "hello", startSec: 0, endSec: slotSec)]
+
+        let out = await TimelineAlignedRenderer.render(
+            segments: segments, totalDurationSec: slotSec,
+            voiceID: "mock", engine: engine,
+            options: makeOptions(matchOriginalPace: true)
+        )
+        XCTAssertEqual(engine.counter.count, 2, "one re-roll, then the short take clears the clip zone")
+        // Probe inside the final fade window: the SHORT take fills its slot
+        // exactly (no truncation → no fade-out), so the raw sine appears
+        // verbatim. A kept long take would be faded to near-zero here.
+        let probe = slotSamples - 100
+        let omega = 2.0 * .pi * 220.0 / Double(sampleRate)
+        XCTAssertEqual(out[probe], Float(sin(omega * Double(probe))), accuracy: 1e-3,
+                       "the short take must be kept and placed without a truncation fade")
+    }
+
+    func testReroll_notTriggeredInsideGateRange() async {
+        // 1.4x overshoot is compressible (≤1.60) — no re-roll spend.
+        let slotSec = 1.0
+        let slotSamples = Int(slotSec * Double(sampleRate))
+        let engine = VaryingLengthSineEngine(lengths: [Int(1.4 * Double(slotSamples))])
+        let segments = [TranscribedSegment(text: "hello", startSec: 0, endSec: slotSec)]
+        _ = await TimelineAlignedRenderer.render(
+            segments: segments, totalDurationSec: slotSec,
+            voiceID: "mock", engine: engine,
+            options: makeOptions(matchOriginalPace: true)
+        )
+        XCTAssertEqual(engine.counter.count, 1, "re-roll only fires past the 1.60x clip threshold")
+    }
+
+    func testReroll_notTriggeredWhenPaceOff() async {
+        // Pace OFF is the pristine A/B path — single take even when it clips.
+        let slotSec = 1.0
+        let slotSamples = Int(slotSec * Double(sampleRate))
+        let engine = VaryingLengthSineEngine(lengths: [2 * slotSamples, slotSamples])
+        let segments = [TranscribedSegment(text: "hello", startSec: 0, endSec: slotSec)]
+        _ = await TimelineAlignedRenderer.render(
+            segments: segments, totalDurationSec: slotSec,
+            voiceID: "mock", engine: engine,
+            options: makeOptions(matchOriginalPace: false)
+        )
+        XCTAssertEqual(engine.counter.count, 1)
+    }
+
+    func testReroll_exhaustsBudgetAndKeepsShortest() async {
+        // All takes clip → spend the full budget (3 takes), keep the shortest.
+        let slotSec = 1.0
+        let slotSamples = Int(slotSec * Double(sampleRate))
+        let engine = VaryingLengthSineEngine(
+            lengths: [Int(2.5 * Double(slotSamples)), 2 * slotSamples, Int(2.2 * Double(slotSamples))])
+        let segments = [TranscribedSegment(text: "hello", startSec: 0, endSec: slotSec)]
+        _ = await TimelineAlignedRenderer.render(
+            segments: segments, totalDurationSec: slotSec,
+            voiceID: "mock", engine: engine,
+            options: makeOptions(matchOriginalPace: true)
+        )
+        XCTAssertEqual(engine.counter.count, TimelineAlignedRenderer.maxSynthTakes)
     }
 
     // MARK: - Helpers
