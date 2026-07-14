@@ -47,12 +47,53 @@
 //  When `options.matchOriginalPace` is off, the gate is bypassed and
 //  the renderer falls back to today's clip-with-fade behavior on
 //  every overshoot — useful as an A/B escape hatch.
+//
+//  WP-VIT-1 (pace quality), pace-on only:
+//    * ELASTIC CHAINING — a chunk may start where the previous chunk's
+//      audio actually ended (≤ chainMaxDeviationSec past its original
+//      timestamp), and its slot extends by the same bound. A sentence's
+//      capped chunks share the sentence's slack instead of each chunk
+//      compressing/clipping alone at a zero-slack boundary.
+//    * ONSET GUARD — compression never touches the first onsetGuardSec
+//      of a chunk (transient onsets are where WSOLA artifacts are most
+//      audible); the remainder absorbs the ratio.
 
 import Foundation
 
 nonisolated enum TimelineAlignedRenderer {
 
     static let sampleRate: Int = 24_000
+
+    // MARK: - Pace-quality tuning (WP-VIT-1)
+
+    /// Elastic-chaining bound: how far a segment's START may be pushed
+    /// LATER than its original timestamp when the previous same-speaker
+    /// segment's audio spilled past it. Back-to-back capped chunks
+    /// (zero slack after the 1.5 s drift cap) were the main source of
+    /// clip-with-fade word loss — chaining lets a run of chunks borrow
+    /// slack from the whole sentence while keeping every chunk's start
+    /// within this bound of the original (inside the timing-QA loop's
+    /// 0.5 s tolerance, so drift stays caught). Applies only when
+    /// `matchOriginalPace` is on; pace-off keeps pristine placement.
+    static let chainMaxDeviationSec: Double = 0.35
+
+    /// Onset guard forwarded to `WSOLATimeCompressor.compress`: the
+    /// first stretch of each compressed segment passes through 1:1 so
+    /// the voice onset (transient, aperiodic — where WSOLA artifacts
+    /// are most audible as a scratchy line front) is never compressed.
+    static let onsetGuardSec: Double = 0.2
+
+    /// Where a segment may actually start: at its original timestamp,
+    /// or later if the previous segment's audio (`nextAvailable`) spilled
+    /// past it — but never more than `maxDeviation` late, and never
+    /// earlier than the original. Pure; unit-tested.
+    static func chainedOffset(
+        original: Int,
+        nextAvailable: Int,
+        maxDeviation: Int
+    ) -> Int {
+        min(max(original, nextAvailable), original + maxDeviation)
+    }
 
     /// Render `segments` into a master PCM buffer that's exactly
     /// `totalDurationSec` long. Each segment is synthesized
@@ -93,6 +134,12 @@ nonisolated enum TimelineAlignedRenderer {
             .sorted { $0.startSec < $1.startSec }
         let total = sorted.count
 
+        // Elastic chaining state: the sample index where the previous
+        // segment's placed audio actually ended. Only consulted when
+        // `matchOriginalPace` is on.
+        var nextAvailableOffset = 0
+        let maxDeviationSamples = Int(chainMaxDeviationSec * Double(sampleRate))
+
         for (i, segment) in sorted.enumerated() {
             if Task.isCancelled { break }
             onProgress?(i + 1, total)
@@ -124,17 +171,46 @@ nonisolated enum TimelineAlignedRenderer {
             // 2. Compute the offset (where the segment STARTS in the
             //    master) and the slot (max samples allowed before the
             //    next segment's start, or end-of-audio).
-            let offsetSamples = Int(segment.startSec * Double(sampleRate))
+            //
+            //    Pace-on: ELASTIC CHAINING. Back-to-back capped chunks
+            //    have zero slack, so a slow voice used to overshoot —
+            //    and compress/clip — at every chunk boundary. Instead,
+            //    a chunk may start where the previous one's audio
+            //    actually ended (bounded to +chainMaxDeviationSec of
+            //    its original timestamp), and its slot extends by the
+            //    same bound into the next chunk's original slot — the
+            //    next chunk will be pushed by exactly the spill, so the
+            //    regions never overlap. Net effect: a sentence's chunks
+            //    share the sentence's total slack instead of each chunk
+            //    hitting the gate alone.
+            let originalOffset = Int(segment.startSec * Double(sampleRate))
+            let offsetSamples = options.matchOriginalPace
+                ? chainedOffset(original: originalOffset,
+                                nextAvailable: nextAvailableOffset,
+                                maxDeviation: maxDeviationSamples)
+                : originalOffset
             guard offsetSamples >= 0, offsetSamples < totalSamples else { continue }
+            if offsetSamples > originalOffset {
+                print(String(format: "[Renderer] seg %d/%d: chained start +%.2fs (previous segment spilled)",
+                             i + 1, total,
+                             Double(offsetSamples - originalOffset) / Double(sampleRate)))
+            }
 
-            let slotEndSec: Double = {
+            let slotEndSamples: Int = {
                 if i + 1 < sorted.count {
-                    return sorted[i + 1].startSec
+                    let nextOriginal = Int(sorted[i + 1].startSec * Double(sampleRate))
+                    // Pace-on: the next chunk can absorb up to
+                    // maxDeviation of push, so this chunk may run that
+                    // far past the next original start. Last chunk (and
+                    // pace-off) never extends past hard limits.
+                    return options.matchOriginalPace
+                        ? min(nextOriginal + maxDeviationSamples, totalSamples)
+                        : nextOriginal
                 } else {
-                    return totalDurationSec
+                    return totalSamples
                 }
             }()
-            let slotSampleCount = max(0, Int(slotEndSec * Double(sampleRate)) - offsetSamples)
+            let slotSampleCount = max(0, slotEndSamples - offsetSamples)
 
             // 2.5. Phase 9 pace-fit gate. When matchOriginalPace is
             //      on and the synth overshoots its slot, time-
@@ -156,7 +232,14 @@ nonisolated enum TimelineAlignedRenderer {
                     let ratio = min(overshoot, 1.30)
                     print(String(format: "[Renderer] seg %d/%d: slot=%.2fs synth=%.2fs overshoot=%.2fx → compress @ %.2fx",
                                  i + 1, total, slotSec, synthSec, overshoot, ratio))
-                    segSamples = WSOLATimeCompressor.compress(segSamples, ratio: ratio)
+                    // Onset guard: never compress the (transient,
+                    // aperiodic) first stretch — that's where WSOLA
+                    // artifacts read as a scratchy line front.
+                    segSamples = WSOLATimeCompressor.compress(
+                        segSamples,
+                        ratio: ratio,
+                        onsetGuardSamples: Int(onsetGuardSec * Double(sampleRate))
+                    )
                 } else if overshoot > 1.60 {
                     // Synth is more than 60% too long. Falling back
                     // to clip-with-fade — the source pace is just
@@ -203,6 +286,10 @@ nonisolated enum TimelineAlignedRenderer {
                 }
                 master[offsetSamples + j] = sample
             }
+
+            // Elastic-chaining bookkeeping: the next chunk may start
+            // where this one's audio actually ended (bounded above).
+            nextAvailableOffset = offsetSamples + copyCount
         }
 
         return master

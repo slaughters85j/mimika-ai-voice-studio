@@ -214,6 +214,85 @@ final class TimelineAlignedRendererGateTests: XCTestCase {
         XCTAssertGreaterThan(secondSlotRMS, 0.01)
     }
 
+    // MARK: - Elastic chaining (WP-VIT-1)
+
+    func testChainedOffset_pureBounds() {
+        // Previous chunk ended before this one's original start → start
+        // at the original (never early).
+        XCTAssertEqual(TimelineAlignedRenderer.chainedOffset(
+            original: 24_000, nextAvailable: 20_000, maxDeviation: 8_400), 24_000)
+        // Previous chunk spilled a little → start where it ended.
+        XCTAssertEqual(TimelineAlignedRenderer.chainedOffset(
+            original: 24_000, nextAvailable: 28_800, maxDeviation: 8_400), 28_800)
+        // Previous chunk spilled a lot → clamp to original + maxDeviation.
+        XCTAssertEqual(TimelineAlignedRenderer.chainedOffset(
+            original: 24_000, nextAvailable: 100_000, maxDeviation: 8_400), 32_400)
+    }
+
+    func testBackToBackOvershoot_chainingLetsFirstChunkSpillUncompressed() async {
+        // Two back-to-back chunks (zero slack — the post-drift-cap
+        // shape), each synth 1.20 x its slot. Pre-chaining, chunk 1 hit
+        // the gate (compress). With chaining, chunk 1's slot extends
+        // into chunk 2's original slot (chunk 2 gets pushed by the
+        // spill), so chunk 1 passes through UNCOMPRESSED and UNFADED —
+        // its raw sine must appear verbatim past its original slot end.
+        let slotSec = 1.0
+        let synthSamples = Int(1.20 * slotSec * Double(sampleRate))  // 28_800
+        let engine = FixedLengthSineEngine(samplesPerCall: synthSamples)
+        let segments = [
+            TranscribedSegment(text: "first", startSec: 0, endSec: slotSec),
+            TranscribedSegment(text: "second", startSec: slotSec, endSec: 2.0 * slotSec),
+        ]
+
+        let paceOn = await TimelineAlignedRenderer.render(
+            segments: segments, totalDurationSec: 2.0 * slotSec,
+            voiceID: "mock", engine: engine,
+            options: makeOptions(matchOriginalPace: true)
+        )
+
+        // Probe inside chunk 1's spill region (1.0 s < t < 1.2 s),
+        // off any exact cycle boundary. Chaining ⇒ this sample is chunk
+        // 1's sine verbatim (no compression, no fade-out).
+        let probe = 25_321
+        let omega = 2.0 * .pi * 220.0 / Double(sampleRate)
+        let expected = Float(sin(omega * Double(probe)))
+        XCTAssertEqual(paceOn[probe], expected, accuracy: 1e-3,
+                       "chunk 1 must spill past its original slot uncompressed when chaining absorbs the overshoot")
+
+        // Pace OFF keeps pristine placement: that same sample belongs to
+        // chunk 2's faded-in start, so it must NOT be chunk 1's verbatim
+        // sine.
+        let paceOff = await TimelineAlignedRenderer.render(
+            segments: segments, totalDurationSec: 2.0 * slotSec,
+            voiceID: "mock", engine: engine,
+            options: makeOptions(matchOriginalPace: false)
+        )
+        XCTAssertGreaterThan(abs(paceOff[probe] - expected), 0.1,
+                             "pace OFF must keep the original hard placement (chunk 2 fade-in at its original start)")
+    }
+
+    func testChaining_pushedChunkStillFillsToEnd() async {
+        // The pushed second chunk still renders into [pushed start,
+        // total] with audible content — no dead air introduced by the
+        // shift.
+        let slotSec = 1.0
+        let synthSamples = Int(1.20 * slotSec * Double(sampleRate))
+        let engine = FixedLengthSineEngine(samplesPerCall: synthSamples)
+        let segments = [
+            TranscribedSegment(text: "first", startSec: 0, endSec: slotSec),
+            TranscribedSegment(text: "second", startSec: slotSec, endSec: 2.0 * slotSec),
+        ]
+        let paceOn = await TimelineAlignedRenderer.render(
+            segments: segments, totalDurationSec: 2.0 * slotSec,
+            voiceID: "mock", engine: engine,
+            options: makeOptions(matchOriginalPace: true)
+        )
+        XCTAssertEqual(paceOn.count, Int(2.0 * slotSec * Double(sampleRate)))
+        // Chunk 2 occupies [1.2 s, 2.0 s] after the push.
+        let tail = Array(paceOn[Int(1.3 * Double(sampleRate))..<Int(1.9 * Double(sampleRate))])
+        XCTAssertGreaterThan(rms(tail), 0.01, "pushed chunk must still produce audio through the tail")
+    }
+
     // MARK: - Helpers
 
     private func makeOptions(matchOriginalPace: Bool) -> SynthesisOptions {

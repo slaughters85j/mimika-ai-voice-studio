@@ -134,6 +134,15 @@ extension MultiSpeakerRevoicer {
                 best = synth
                 bestDropped = report.droppedWordCount
                 bestMax = report.maxOffsetSec
+            } else {
+                // Measured WORSE than (or equal to) the best pass — finer
+                // caps are past the sweet spot: smaller slots mean more
+                // truncation boundaries, so refinement from here only
+                // degrades (observed: drops 1 → 23 → 18 across caps on a
+                // slow voice). Stop burning render + STT time.
+                print(String(format: "[Revoicer.QA] %@ cap=%.1f degraded vs best (%d vs %d dropped) — stopping refinement",
+                             speakerID, cap, report.droppedWordCount, bestDropped))
+                break
             }
             // Done only when offsets are within tolerance AND this pass
             // didn't drop words the first measured pass kept. A finer cap

@@ -13,7 +13,17 @@ measured, and awaiting merge. Next up: WP-VIT-1 (pace-mismatch audio quality).
 
 ## WP-VIT-1 — Pace-mismatch clipping + WSOLA onset artifacts
 
-**Status:** Not started (highest-priority follow-up)
+**Status:** Implemented + user-validated by ear on `revoice-pace-quality`
+("very noticeable change, for the better"; robotic onsets essentially gone).
+Three-part fix: onset guard, WSOLA natural-continuation alignment, elastic
+chaining bounded to +0.35 s — plus QA-loop early-exit when a finer cap
+measures worse than the best pass.
+
+RESIDUAL (accepted, documented): on a voice fundamentally ~1.5–2× slower
+than the original speaker, the chaining budget saturates at +0.35 s and
+overshoots beyond 1.60× still clip (observed up to 3.2×). Bounded chaining
+cannot absorb unbounded pace debt — the eventual answer is the per-voice
+pace-profiling idea below (warn/steer when a chosen voice can't keep up).
 
 Two coupled problems when the chosen TTS voice speaks slower than the original
 speaker:

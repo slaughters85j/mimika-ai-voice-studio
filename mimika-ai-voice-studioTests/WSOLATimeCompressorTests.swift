@@ -186,4 +186,62 @@ final class WSOLATimeCompressorTests: XCTestCase {
         }
         return count
     }
+
+    // MARK: - Onset guard (WP-VIT-1)
+
+    func testOnsetGuard_outputLengthUnchanged() {
+        // The guard shifts WHERE compression happens, never the total
+        // output length — the renderer sizes slots off input/ratio.
+        let samples = makeSineWave(frequency: 220, sampleRate: 24_000, durationSec: 2.0)
+        let guarded = WSOLATimeCompressor.compress(samples, ratio: 1.3, onsetGuardSamples: 4_800)
+        let plain = WSOLATimeCompressor.compress(samples, ratio: 1.3)
+        XCTAssertEqual(guarded.count, plain.count)
+        XCTAssertEqual(guarded.count, Int(Double(samples.count) / 1.3))
+    }
+
+    func testOnsetGuard_onsetPassesThroughUncompressed() {
+        // Inside the guard the walk is 1:1 with no alignment search, so
+        // the output tracks the input sample-for-sample (up to the OLA
+        // window taper right at t=0). Compare a mid-guard region.
+        let samples = makeSineWave(frequency: 220, sampleRate: 24_000, durationSec: 2.0)
+        let guardLen = 4_800  // 200 ms @ 24 kHz
+        let output = WSOLATimeCompressor.compress(samples, ratio: 1.3, onsetGuardSamples: guardLen)
+        // Skip the first synthesis hop (OLA edge taper) and stop one
+        // frame before the guard boundary (the transition frame blends).
+        let checkRange = 512..<(guardLen - 1_024)
+        for i in checkRange where abs(output[i] - samples[i]) > 0.02 {
+            XCTFail("onset sample \(i) diverged: \(output[i]) vs \(samples[i])")
+            break
+        }
+    }
+
+    func testOnsetGuard_zeroGuardMatchesPlainCompression() {
+        let samples = makeSineWave(frequency: 220, sampleRate: 24_000, durationSec: 1.0)
+        let a = WSOLATimeCompressor.compress(samples, ratio: 1.2, onsetGuardSamples: 0)
+        let b = WSOLATimeCompressor.compress(samples, ratio: 1.2)
+        XCTAssertEqual(a, b)
+    }
+
+    func testOnsetGuard_autoShrinksWhenRatioLeavesNoRemainder() {
+        // Guard bigger than the compressible budget (2L − N) must be
+        // shrunk internally, not corrupt the output length. ratio 2.0 →
+        // 2L − N == 0 → guard fully suppressed; output = N/2.
+        let samples = makeSineWave(frequency: 220, sampleRate: 24_000, durationSec: 1.0)
+        let output = WSOLATimeCompressor.compress(samples, ratio: 2.0, onsetGuardSamples: 12_000)
+        XCTAssertEqual(output.count, samples.count / 2)
+        XCTAssertTrue(output.allSatisfy { $0.isFinite })
+    }
+
+    func testOnsetGuard_pitchStillPreservedInRemainder() {
+        // The compressed remainder must still be pitch-preserving:
+        // zero-crossing RATE (crossings per output second) stays at the
+        // input's rate for the whole guarded output.
+        let sampleRate = 24_000
+        let samples = makeSineWave(frequency: 220, sampleRate: sampleRate, durationSec: 2.0)
+        let output = WSOLATimeCompressor.compress(samples, ratio: 1.3, onsetGuardSamples: 4_800)
+        let inputRate = Double(zeroCrossings(samples)) / 2.0
+        let outputRate = Double(zeroCrossings(output)) / (Double(output.count) / Double(sampleRate))
+        XCTAssertEqual(outputRate, inputRate, accuracy: inputRate * 0.20,
+                       "zero-crossing rate must survive guarded compression (pitch preservation)")
+    }
 }
