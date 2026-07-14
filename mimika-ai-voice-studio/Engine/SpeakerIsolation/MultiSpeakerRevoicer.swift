@@ -165,7 +165,9 @@ actor MultiSpeakerRevoicer: MultiSpeakerRevoicing {
     /// MainActor` flag would otherwise force MainActor access on
     /// the constant — and `addTTSOverlay` below is a nonisolated
     /// static helper that reads it.
-    private nonisolated static let ttsSampleRate: Int = 24_000
+    // Internal (not private): the timing-QA sibling file's extension
+    // (MultiSpeakerRevoicer+TimingQA.swift) reads it too.
+    nonisolated static let ttsSampleRate: Int = 24_000
 
     // MARK: - Revoice (bed-based)
 
@@ -223,7 +225,8 @@ actor MultiSpeakerRevoicer: MultiSpeakerRevoicing {
                 Self.zeroOutRanges(
                     left: &vocL, right: &vocR,
                     ranges: assignment.segmentRanges,
-                    sampleRate: bedRate
+                    sampleRate: bedRate,
+                    releaseTailSec: FluidAudioDiarizationProvider.segmentEndPadSec
                 )
                 print("[Revoicer] \(assignment.speakerID) discarded — silenced segmentRanges in vocalsBed")
             case .revoice(let voiceID):
@@ -255,7 +258,8 @@ actor MultiSpeakerRevoicer: MultiSpeakerRevoicing {
                 Self.zeroOutRanges(
                     left: &vocL, right: &vocR,
                     ranges: assignment.segmentRanges,
-                    sampleRate: bedRate
+                    sampleRate: bedRate,
+                    releaseTailSec: FluidAudioDiarizationProvider.segmentEndPadSec
                 )
                 // Convert TTS mono 24 k → bedRate, then upmix to L/R
                 // and ADD into the silenced segmentRanges. Whole-track
@@ -468,34 +472,61 @@ actor MultiSpeakerRevoicer: MultiSpeakerRevoicing {
             throw RevoicerError.writeTempFailed(speakerID: assignment.speakerID, error)
         }
 
-        let segments: [TranscribedSegment]
-        do {
-            segments = try await stt.transcribeSegments(tempURL)
-        } catch {
-            throw RevoicerError.sttFailed(speakerID: assignment.speakerID, error)
-        }
-
-        // Console log every transcribed segment so we can spot
-        // transcription artifacts that aren't in the strip whitelist yet.
-        print("[Revoicer] STT for \(assignment.speakerID) produced \(segments.count) segments:")
-        for seg in segments {
-            print(String(format: "  [%.2f-%.2fs] \"%@\"", seg.startSec, seg.endSec, seg.text))
-        }
-
-        // Hand off to TimelineAlignedRenderer with the chosen voice.
         let speakerID = assignment.speakerID
         var options = SynthesisOptions()
         options.matchOriginalPace = matchOriginalPace
-        let synthesized = await TimelineAlignedRenderer.render(
-            segments: segments,
-            totalDurationSec: totalDurationSec,
-            voiceID: voiceID,
-            engine: engine,
-            options: options,
-            onProgress: { current, total in
-                onProgress?(speakerID, current, total)
+
+        // Word-level timings drive the timing-QA + adaptive re-render
+        // loop (lip-sync precision). Backends without per-token timings
+        // (Apple Speech, test mocks, Parakeet files with no tokenTimings)
+        // return [] → single-pass fallback on the coalesced segments,
+        // unchanged from before. A THROWN error is a real STT failure and
+        // surfaces as one — falling back on it would silently repeat the
+        // full model-load/ASR attempt and misreport the eventual error as
+        // coming from the fallback path.
+        let originalWords: [TimedWord]
+        do {
+            originalWords = try await stt.transcribeWords(tempURL)
+        } catch {
+            throw RevoicerError.sttFailed(speakerID: assignment.speakerID, error)
+        }
+        let synthesized: [Float]
+        if originalWords.isEmpty {
+            let segments: [TranscribedSegment]
+            do {
+                segments = try await stt.transcribeSegments(tempURL)
+            } catch {
+                throw RevoicerError.sttFailed(speakerID: assignment.speakerID, error)
             }
-        )
+            print("[Revoicer] STT for \(speakerID) → \(segments.count) segments (no word timings — QA loop skipped)")
+            // Console log every transcribed segment so we can spot
+            // transcription artifacts that aren't in the strip whitelist
+            // yet.
+            for seg in segments {
+                print(String(format: "[Revoicer]   %@ %.2f-%.2f: %@",
+                             speakerID, seg.startSec, seg.endSec, seg.text))
+            }
+            // Hand off to TimelineAlignedRenderer with the chosen voice.
+            synthesized = await TimelineAlignedRenderer.render(
+                segments: segments,
+                totalDurationSec: totalDurationSec,
+                voiceID: voiceID,
+                engine: engine,
+                options: options,
+                onProgress: { current, total in onProgress?(speakerID, current, total) }
+            )
+        } else {
+            synthesized = await renderWithTimingLoop(
+                originalWords: originalWords,
+                voiceID: voiceID,
+                totalDurationSec: totalDurationSec,
+                engine: engine,
+                options: options,
+                stt: stt,
+                speakerID: speakerID,
+                onProgress: onProgress
+            )
+        }
 
         // Match the synthesized track's loudness to the speaker's
         // original audio. The STT pre-boost above amplified the
@@ -539,6 +570,9 @@ actor MultiSpeakerRevoicer: MultiSpeakerRevoicing {
         }
     }
 
+    // The timing-QA adaptive re-render loop (renderWithTimingLoop +
+    // transcribeRendered) lives in MultiSpeakerRevoicer+TimingQA.swift.
+
     // MARK: - RMS
 
     /// Mean-squared average of samples whose magnitude exceeds a
@@ -574,19 +608,39 @@ actor MultiSpeakerRevoicer: MultiSpeakerRevoicing {
     /// Zero out `ranges` (in seconds) on both `left` and `right` at
     /// `sampleRate`. Used by `.discard` and `.revoice` to silence the
     /// speaker's contribution to the bed before optionally adding TTS.
+    ///
+    /// `releaseTailSec` (default 0 = hard edges, the original behavior)
+    /// ramps the bed back in linearly across the final stretch of each
+    /// range instead of hard-zeroing it. The diarization end-pad extends
+    /// every segment ~0.5 s past the detected speech end to recapture
+    /// VAD-trimmed tails; hard-zeroing that pad mutes background
+    /// music/SFX after every utterance in Audio-Preservation-off mode
+    /// (where the bed is the raw mix). The ramp keeps the suppression
+    /// where a speech tail may linger (early pad ≈ silent) while letting
+    /// the background swell back in instead of dropping out.
     nonisolated static func zeroOutRanges(
         left: inout [Float],
         right: inout [Float],
         ranges: [ClosedRange<Double>],
-        sampleRate: Int
+        sampleRate: Int,
+        releaseTailSec: Double = 0
     ) {
         for range in ranges {
             let startIdx = clampedSampleIndex(range.lowerBound, sampleRate: sampleRate, totalSamples: left.count)
             let endIdx = clampedSampleIndex(range.upperBound, sampleRate: sampleRate, totalSamples: left.count)
             if startIdx >= endIdx { continue }
-            for i in startIdx..<endIdx {
+            let releaseSamples = max(0, min(Int(releaseTailSec * Double(sampleRate)), endIdx - startIdx))
+            let hardEnd = endIdx - releaseSamples
+            for i in startIdx..<hardEnd {
                 left[i] = 0
                 right[i] = 0
+            }
+            if releaseSamples > 0 {
+                for (k, i) in (hardEnd..<endIdx).enumerated() {
+                    let g = Float(k + 1) / Float(releaseSamples + 1)
+                    left[i] *= g
+                    right[i] *= g
+                }
             }
         }
     }

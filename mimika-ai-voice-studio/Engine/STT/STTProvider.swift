@@ -20,4 +20,16 @@ import Foundation
 
 protocol STTProvider: Sendable {
     func transcribeSegments(_ audio: URL) async throws -> [TranscribedSegment]
+
+    /// Word-level timed tokens (pre-coalescing), in the input audio's
+    /// timeline. Backs the re-voice timing-QA + adaptive re-render loop
+    /// (`MultiSpeakerRevoicer.renderWithTimingLoop`). Default: empty —
+    /// backends without per-token timings (Apple Speech, test mocks) opt
+    /// out, and the re-voice path falls back to the single-pass
+    /// coalesced-segment render.
+    func transcribeWords(_ audio: URL) async throws -> [TimedWord]
+}
+
+extension STTProvider {
+    func transcribeWords(_ audio: URL) async throws -> [TimedWord] { [] }
 }

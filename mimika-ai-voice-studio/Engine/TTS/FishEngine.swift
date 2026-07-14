@@ -93,6 +93,12 @@ actor FishEngine: TTSEngineProtocol {
             let cancel = CancellationFlag()
             continuation.onTermination = { _ in cancel.cancel() }
             Task {
+                // Quit-while-speaking gate — same wiring as TTSEngine; see
+                // SynthesisQuiescence in SynthesisCancellation.swift. MLX
+                // generate can't be interrupted mid-chunk, so the drain's
+                // timeout is the backstop here.
+                SynthesisQuiescence.shared.begin(cancel)
+                defer { SynthesisQuiescence.shared.end(cancel) }
                 do {
                     try await self.runSynthesis(text: text, voiceID: voiceID, options: options, continuation: continuation, cancel: cancel)
                 } catch {

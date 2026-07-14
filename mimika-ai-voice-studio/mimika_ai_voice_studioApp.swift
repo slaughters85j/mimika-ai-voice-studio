@@ -25,6 +25,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // close button quits the app (the original single-window behavior).
         !SettingsStore.load().readAloudEnabled
     }
+
+    /// Quit-while-speaking crash gate. `terminate:` ends in `exit()`, which
+    /// runs MPSGraph's C++ static destructors on the main thread; if a Core ML
+    /// prediction is still mid-frame on the cooperative pool at that instant,
+    /// it dereferences the destroyed globals and the process SIGSEGVs (the
+    /// "quit unexpectedly" dialog users saw in 1.5.4). Cancel every in-flight
+    /// synthesis and wait for its current frame to finish before letting
+    /// AppKit proceed. The 2 s drain cap keeps a wedged prediction from
+    /// blocking quit forever — worst case is today's behavior, but rare.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard SynthesisQuiescence.shared.beginShutdown() else { return .terminateNow }
+        Task { @MainActor in
+            await SynthesisQuiescence.shared.drain(timeout: .seconds(2))
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
+    }
 }
 
 @main

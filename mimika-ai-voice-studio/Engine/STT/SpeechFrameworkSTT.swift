@@ -143,10 +143,23 @@ actor SpeechFrameworkSTT: STTProvider {
     ///   the first word-start token surfaces as a single leading
     ///   space on the segment text, which we trim once at the
     ///   segment boundary below.
+    ///   - maxSegmentSec: optional hard cap on a coalesced segment's
+    ///     duration. When set, a long uninterrupted run is split at the
+    ///     next WORD-START token once it would exceed the cap, EVEN with
+    ///     no pause (a capped segment may overrun by the remainder of
+    ///     one word — never split mid-word). Used by the re-voice path:
+    ///     the timeline renderer only
+    ///     pins each segment's START, so a long sentence lets the new
+    ///     voice's word pacing drift from the original the longer it runs
+    ///     (measured at ~0.2 s drift per second of sentence). Capping
+    ///     segment length bounds that intra-segment drift. `nil` (the
+    ///     default) keeps the old behavior for dictation / pause-marker
+    ///     callers, which want natural utterance-length segments.
     nonisolated static func coalesce(
         _ words: [WordSpan],
         utteranceGapSec: Double,
-        separator: String = " "
+        separator: String = " ",
+        maxSegmentSec: Double? = nil
     ) -> [TranscribedSegment] {
         guard !words.isEmpty else { return [] }
         var out: [TranscribedSegment] = []
@@ -156,7 +169,20 @@ actor SpeechFrameworkSTT: STTProvider {
 
         for w in words.dropFirst() {
             let gap = w.timestamp - endSec
-            if gap >= utteranceGapSec {
+            // Split on a natural pause OR when adding this word would push
+            // the segment past `maxSegmentSec` (re-voice drift cap).
+            let exceedsCap = maxSegmentSec.map { (w.timestamp + w.duration) - startSec > $0 } ?? false
+            // A cap split may only land on a WORD boundary. In sub-word
+            // mode (separator == "", Parakeet tokens) word-start tokens
+            // carry a leading space and continuation tokens don't —
+            // splitting before a continuation would sever the word
+            // ("…compli" / "cated…" spoken as separate utterances). In
+            // whole-word mode (separator != "") every span is a word
+            // start. When the crossing token is mid-word, the split
+            // defers to the next word-start token, so a capped segment
+            // can overrun by at most the remainder of one word.
+            let isWordStart = separator != "" || w.substring.hasPrefix(" ")
+            if gap >= utteranceGapSec || (exceedsCap && isWordStart) {
                 out.append(TranscribedSegment(
                     text: buffer.joined(separator: separator)
                         .trimmingCharacters(in: .whitespacesAndNewlines),

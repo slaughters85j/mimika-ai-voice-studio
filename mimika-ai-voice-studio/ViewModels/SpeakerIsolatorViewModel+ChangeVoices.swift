@@ -86,6 +86,17 @@ extension SpeakerIsolatorViewModel {
         let videoAssetSnapshot = self.videoAsset
         let matchOriginalPaceSnapshot = self.matchOriginalPace
 
+        // Flip to a working status SYNCHRONOUSLY — before scheduling the
+        // Task — so this same click immediately (a) flips the footer to
+        // its `status.isWorking` spinner branch (which replaces the
+        // "Change Voices…" button with a spinner + Stop, so it can't be
+        // tapped again) and (b) arms the entry guard `!status.isWorking`
+        // against rapid re-clicks. Previously `status` stayed `.done`
+        // until the pipeline's first `onProgress` fired (seconds away,
+        // after the STT model load), so every tap in that window passed
+        // the guard and spawned a new `inflightTask`, orphaning the prior.
+        setStatus(.preparingRevoice)
+
         inflightTask = Task { @MainActor [weak self] in
             guard let self else { return }
             do {

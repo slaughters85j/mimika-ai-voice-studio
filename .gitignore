@@ -76,3 +76,5 @@ mimika-ai-voice-studioTests/Fixtures/lavasr_phase10/
 *.log
 .env
 .env.local
+
+/tools

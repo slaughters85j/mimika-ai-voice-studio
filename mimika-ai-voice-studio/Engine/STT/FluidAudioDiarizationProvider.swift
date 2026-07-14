@@ -196,7 +196,16 @@ actor FluidAudioDiarizationProvider: DiarizationProvider {
         //    safe to call from within the actor.
         let result: DiarizationResult
         do {
-            print("[FluidAudio.Diarize] starting diarization (\(diarizeSamples.count) samples) — clusteringThreshold=\(String(format: "%.3f", settings.fluidAudioClusteringThreshold)) numClusters=\(settings.numberOfSpeakers.map(String.init) ?? "auto")")
+            print("[FluidAudio.Diarize] starting diarization (\(diarizeSamples.count) samples) — clusteringThreshold=\(String(format: "%.3f", settings.fluidAudioClusteringThreshold)) forcedCount=\(settings.numberOfSpeakers.map(String.init) ?? "auto")")
+            // Start from an empty speaker DB. The cached manager keeps its
+            // `speakerManager` across calls (the SDK is built for enrolled-
+            // speaker streaming) and `performCompleteDiarization` never
+            // resets it — so a same-settings re-run would otherwise
+            // accumulate the previous run's speakers (extra false
+            // positives) AND taint the post-hoc merge below. Each diarize
+            // is an independent complete pass (DiarizedSegment IDs are
+            // explicitly not portable across calls), so clear first.
+            manager.speakerManager.reset()
             result = try manager.performCompleteDiarization(diarizeSamples)
             print("[FluidAudio.Diarize] complete — \(result.segments.count) segments")
         } catch {
@@ -204,20 +213,80 @@ actor FluidAudioDiarizationProvider: DiarizationProvider {
             throw ProviderError.diarizationFailed(error)
         }
 
-        // 5. Map FluidAudio `TimedSpeakerSegment` → project's
-        //    `DiarizedSegment`. FluidAudio already uses string speaker
-        //    IDs (e.g. "1", "2") rather than VBx's integer cluster
-        //    IDs. We normalize to the SPEAKER_NN format the rest of
-        //    the app expects so downstream code (SpeakerIsolator,
-        //    SpeakerTrack ID matching) doesn't need to change.
+        // 5. Post-hoc merge pass. FluidAudio's online clusterer assigns
+        //    each chunk greedily to the nearest existing speaker (or
+        //    mints a new one past the gate) and NEVER reconciles the
+        //    final speakers — so similar voices whose embeddings drift
+        //    across chunks (e.g. two same-gender speakers) fragment into
+        //    phantom extras. We run the SDK's own `findMergeablePairs`
+        //    over the final speaker centroids (`currentEmbedding`) at the
+        //    same clustering gate the user dialed in, and collapse
+        //    speakers that ended up within threshold of each other.
+        //    `mergeSpeaker` only mutates the SDK database, NOT the
+        //    already-emitted segments, so we build the id→canonical map
+        //    ourselves and rewrite the segment IDs in step 6.
+        //    (Model-limited: genuinely-similar voices can still over-split
+        //    or now over-merge — this reduces false positives, it doesn't
+        //    eliminate them.)
+        let canonical: [String: String]
+        if let targetCount = settings.numberOfSpeakers {
+            // Forced count ("Number of Speakers" stepper). FluidAudio's
+            // ONLINE path can't honor a target count itself (numClusters
+            // is dead on it), so we honor it here: agglomeratively merge
+            // the closest final centroids DOWN to exactly N.
+            //
+            // Count only speakers that actually EMITTED segments. The
+            // SDK's speaker DB is a superset: a voice can accumulate
+            // enough aggregate chunk activity to earn a DB row while
+            // every contiguous run stays under the segment minimum — a
+            // zero-segment phantom that would consume one of the N slots
+            // and force two REAL speakers to merge into each other.
+            let segmentSpeakerIDs = Set(result.segments.map(\.speakerId))
+            canonical = Self.mergeToTargetCount(
+                speakerCentroids: manager.speakerManager.getAllSpeakers()
+                    .filter { segmentSpeakerIDs.contains($0.key) }
+                    .mapValues(\.currentEmbedding),
+                target: targetCount
+            )
+        } else {
+            // Auto: merge only speakers whose final centroids fell within
+            // the clustering gate — collapses the phantom splits the
+            // greedy online clusterer leaves behind when one voice's
+            // embeddings drift across chunks (it assigns each chunk to
+            // the nearest speaker and never reconciles at the end).
+            canonical = Self.canonicalSpeakerMap(
+                mergeablePairs: manager.speakerManager.findMergeablePairs()
+            )
+        }
+
+        // 6. Map FluidAudio `TimedSpeakerSegment` → project's
+        //    `DiarizedSegment`, rewriting any merged speaker to its
+        //    canonical raw ID first, then normalizing to the SPEAKER_NN
+        //    format the rest of the app expects (SpeakerIsolator,
+        //    SpeakerTrack ID matching) so downstream code doesn't change.
         let mapped: [DiarizedSegment] = result.segments.map { seg in
-            DiarizedSegment(
-                speakerID: Self.normalizeSpeakerID(seg.speakerId),
+            let rawID = canonical[seg.speakerId] ?? seg.speakerId
+            return DiarizedSegment(
+                speakerID: Self.normalizeSpeakerID(rawID),
                 startSec: Double(seg.startTimeSeconds),
                 endSec: Double(seg.endTimeSeconds)
             )
         }
-        return mapped.sorted { $0.startSec < $1.startSec }
+        if !canonical.isEmpty {
+            let before = Set(result.segments.map(\.speakerId)).count
+            let after = Set(mapped.map(\.speakerID)).count
+            print("[FluidAudio.Diarize] post-hoc merge: \(before) → \(after) speakers (\(canonical.count) ids remapped)")
+        }
+        // 7. End-pad to recapture sentence tails FluidAudio's VAD trims a
+        //    beat early (measured: trailing words dropped from re-voiced
+        //    output). Clamped so the pad never intrudes on other speech
+        //    (next-start clamp + overlap suppression) and never extends
+        //    past the end of the audio.
+        return Self.endPaddedSegments(
+            mapped.sorted { $0.startSec < $1.startSec },
+            padSec: Self.segmentEndPadSec,
+            totalDurationSec: loaded.durationSec
+        )
     }
 
     // MARK: - Manager caching
@@ -251,9 +320,13 @@ actor FluidAudioDiarizationProvider: DiarizationProvider {
     nonisolated static func makeConfig(from settings: DiarizationSettings) -> DiarizerConfig {
         var config = DiarizerConfig.default
         config.clusteringThreshold = settings.fluidAudioClusteringThreshold
-        // FluidAudio's `numClusters` uses a sentinel of -1 to mean
-        // "auto-detect"; we map our optional Int the same way.
-        config.numClusters = settings.numberOfSpeakers ?? -1
+        // NOTE: `numClusters` is intentionally NOT set. FluidAudio's
+        // online `performCompleteDiarization` ignores it (it's read only
+        // by the unused offline KMeans/VBx pipeline). A forced speaker
+        // count is honored app-side by `mergeToTargetCount` in `diarize`,
+        // so the manager doesn't depend on the count — and it's excluded
+        // from `ConfigFingerprint` so changing the count reuses the
+        // cached manager instead of forcing a pointless rebuild.
         return config
     }
 
@@ -270,19 +343,23 @@ actor FluidAudioDiarizationProvider: DiarizationProvider {
         return "SPEAKER_\(raw)"
     }
 
+    // The segment end-pad + post-hoc merge helpers (endPaddedSegments,
+    // canonicalSpeakerMap, mergeToTargetCount, cosineDistance,
+    // weightedAverageEmbedding) live in
+    // FluidAudioDiarizationProvider+Clustering.swift.
+
     // MARK: - Config fingerprint
 
-    /// Cheap O(1) Equatable fingerprint of the two
-    /// `DiarizationSettings` fields we forward into `DiarizerConfig`.
-    /// Used to decide whether a cached `DiarizerManager` is still
-    /// valid for the next `diarize` call or needs rebuilding.
+    /// Cheap O(1) Equatable fingerprint of the only `DiarizationSettings`
+    /// field that actually changes the cached `DiarizerManager` — the
+    /// clustering threshold. The speaker count is deliberately excluded:
+    /// it's honored post-hoc by `mergeToTargetCount` (the online manager
+    /// ignores it), so changing the count must NOT trigger a rebuild.
     private struct ConfigFingerprint: Equatable {
         let clusteringThreshold: Float
-        let numClusters: Int
 
         init(settings: DiarizationSettings) {
             self.clusteringThreshold = settings.fluidAudioClusteringThreshold
-            self.numClusters = settings.numberOfSpeakers ?? -1
         }
     }
 }

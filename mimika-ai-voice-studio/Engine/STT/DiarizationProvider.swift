@@ -82,21 +82,45 @@ nonisolated struct DiarizationSettings: Sendable, Equatable {
         Float(0.9 - sensitivity * 0.6)
     }
 
-    /// Map the normalized 0.0-1.0 sensitivity onto FluidAudio's
-    /// `DiarizerConfig.clusteringThreshold` range. FluidAudio's
-    /// default is 0.7; sensitivity 0.5 returns 0.7 exactly.
-    /// Sensitivity 1.0 → 0.45 (tighter clusters, more speakers);
-    /// sensitivity 0.0 → 0.95 (looser clusters, fewer speakers).
-    /// Same semantics as the pyannote knob — higher sensitivity
-    /// pushes the threshold lower so embeddings have to be closer
-    /// to merge into the same cluster.
+    /// The `DiarizerConfig.clusteringThreshold` to hand FluidAudio for
+    /// the current sensitivity.
     ///
-    /// Unlike SpeakerKit's VBx implementation (where the threshold
-    /// is a soft hint that the variational-Bayes loop overrides),
-    /// FluidAudio applies its threshold directly in the clustering
-    /// step — so the slider has real effect.
+    /// FluidAudio multiplies this by 1.2 internally to get the cosine-
+    /// distance gate its clusterer actually uses
+    /// (`speakerThreshold = clusteringThreshold * 1.2`), so we shape the
+    /// EFFECTIVE gate we want (`effectiveSpeakerGate`) and divide by 1.2
+    /// here. The old map set the raw threshold without that compensation,
+    /// which pushed the merge half of the slider's effective gate past
+    /// ~1.0 — a "never split" ceiling for unit-normalized embeddings —
+    /// so roughly the bottom quarter of the slider travel did nothing.
     var fluidAudioClusteringThreshold: Float {
-        Float(0.95 - sensitivity * 0.5)
+        Self.effectiveSpeakerGate(forSensitivity: sensitivity) / 1.2
+    }
+
+    /// Piecewise-linear map from the 0...1 sensitivity slider to the
+    /// EFFECTIVE cosine-distance gate FluidAudio uses (after its internal
+    /// ×1.2). Two linear segments meet at the stock default so the
+    /// slider's centre stays on FluidAudio's out-of-box behaviour while
+    /// both halves of the travel do real work:
+    ///
+    ///   sensitivity 0.0 (Merge more) → 0.95  strong merge, just under the
+    ///                                         ~1.0 "never split" ceiling
+    ///   sensitivity 0.5 (Default)    → 0.84  FluidAudio stock (0.70 × 1.2)
+    ///   sensitivity 1.0 (Split more) → 0.62  aggressive split
+    ///
+    /// Higher sensitivity ⇒ lower gate ⇒ embeddings must be closer to be
+    /// treated as the same speaker ⇒ more speakers. At the default the
+    /// returned `clusteringThreshold` is 0.84 / 1.2 = 0.70 — identical to
+    /// the previous mapping, so out-of-box behaviour is unchanged; only
+    /// the off-centre travel is reshaped to remove the dead zone.
+    static func effectiveSpeakerGate(forSensitivity sensitivity: Double) -> Float {
+        let s = Float(min(max(sensitivity, 0.0), 1.0))
+        let mergeMax: Float = 0.95   // sensitivity 0.0
+        let center: Float = 0.84     // sensitivity 0.5 — FluidAudio stock gate
+        let splitMin: Float = 0.62   // sensitivity 1.0
+        return s <= 0.5
+            ? mergeMax + (center - mergeMax) * (s / 0.5)
+            : center + (splitMin - center) * ((s - 0.5) / 0.5)
     }
 }
 

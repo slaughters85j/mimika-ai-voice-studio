@@ -17,6 +17,7 @@
   },
   "testTargets" : [
     {
+      "parallelizable" : true,
       "target" : {
         "containerPath" : "container:mimika-ai-voice-studio.xcodeproj",
         "identifier" : "D5ECD2262FB78D5B00C23A9D",

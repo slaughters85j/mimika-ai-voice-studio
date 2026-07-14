@@ -427,6 +427,8 @@ struct SpeakerIsolatorSheet: View {
             return "Splitting speaker tracks…"
         case let .separatingSources(chunk, total, etaSec):
             return SeparationProgressLabel.label(chunk: chunk, total: total, etaSec: etaSec)
+        case .preparingRevoice:
+            return "Preparing to re-voice…"
         case let .revoicing(speakerID, current, total):
             let label = displayNameForSpeaker(speakerID)
             return "Re-voicing \(label): segment \(current) of \(total)…"
@@ -451,6 +453,10 @@ struct SpeakerIsolatorSheet: View {
         // FluidAudioSTT instance across consecutive Change-Voices
         // runs — important because FluidAudio's first transcribe
         // pays a multi-second model-load cost we don't want to repeat.
+        // Segment-length capping for drift control is owned by the
+        // revoicer's timing-QA loop (MultiSpeakerRevoicer.timingQACaps),
+        // which re-coalesces the raw word timings itself — the STT here
+        // just supplies those timings.
         let stt: STTProvider = FluidAudioSTT()
         let cacheKey = "fluidaudio-parakeet-v3"
         viewModel.matchOriginalPace = matchOriginalPace
