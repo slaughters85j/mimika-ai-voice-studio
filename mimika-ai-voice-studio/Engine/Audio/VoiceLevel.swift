@@ -86,15 +86,74 @@ enum VoiceLevel {
         gainFactor(targetDB: resolveTargetDB(forVoice: voiceID))
     }
 
-    /// In-place style gain application with clipping. Returns the input
-    /// unchanged if `gain == 1.0` so the no-op path stays branchless on
-    /// the hot streaming path.
+    /// In-place style gain application. Returns the input unchanged if
+    /// `gain == 1.0` so the no-op path stays branchless on the hot
+    /// streaming path.
+    ///
+    /// WP-VMI-3: overload protection is the shared piecewise
+    /// `AudioSoftClip` (identity below the 0.9 knee, tanh fold above),
+    /// not a brick-wall clamp. Reference WAVs are RMS-normalized with
+    /// peaks soft-limited near full scale, so ANY boost above the
+    /// −16 dB baseline drives some peaks over — the old hard clamp
+    /// flat-topped them (audible crunch); the limiter folds them the
+    /// way the rest of the app's gain stages do. Stateless per-sample,
+    /// so still streaming-safe.
     nonisolated static func applyGain(_ samples: [Float], gain: Float) -> [Float] {
         if gain == 1.0 { return samples }
         var out = samples
         for i in 0..<out.count {
-            out[i] = max(-1.0, min(1.0, out[i] * gain))
+            out[i] = AudioSoftClip.apply(out[i] * gain)
         }
         return out
+    }
+}
+
+// MARK: - ClipHeadroom
+
+/// Histogram-based peak-limiting analysis for the Enhancement Studio's
+/// headroom readout (WP-VMI-3).
+///
+/// Peak-based headroom is degenerate for our material: the enhancer
+/// RMS-normalizes to −16 dB and soft-limits speech peaks up against
+/// full scale, so the measured peak is ~1.0 for EVERY enhanced voice and
+/// "clipping starts above −16" always. What's actually useful is how
+/// MUCH of the signal the limiter touches at a given slider level —
+/// this measures that: the fraction of samples a boost pushes past the
+/// soft-clip knee.
+nonisolated struct ClipHeadroom: Sendable, Equatable {
+
+    /// Magnitude-histogram resolution over [0, 1].
+    static let binCount = 4096
+
+    private let counts: [Int]
+    let totalSamples: Int
+
+    init(samples: [Float]) {
+        var counts = [Int](repeating: 0, count: Self.binCount)
+        for s in samples {
+            let mag = min(abs(s), 1.0)
+            let bin = min(Int(mag * Float(Self.binCount)), Self.binCount - 1)
+            counts[bin] += 1
+        }
+        self.counts = counts
+        self.totalSamples = samples.count
+    }
+
+    /// Fraction of samples whose magnitude exceeds `amplitude`
+    /// (bin-resolution approximation, biased slightly low).
+    func fractionAbove(_ amplitude: Float) -> Double {
+        guard totalSamples > 0, amplitude < 1.0 else { return 0 }
+        let bin = max(0, min(Int(amplitude * Float(Self.binCount)), Self.binCount - 1))
+        var above = 0
+        for i in (bin + 1)..<Self.binCount { above += counts[i] }
+        return Double(above) / Double(totalSamples)
+    }
+
+    /// Fraction of samples the soft-limiter would touch when `gain` is
+    /// applied — i.e. samples driven past the knee. `gain ≤ 1` never
+    /// adds limiting beyond what's already baked into the file.
+    func limitedFraction(atGain gain: Float, knee: Float = 0.9) -> Double {
+        guard gain > 1.0 else { return 0 }
+        return fractionAbove(knee / gain)
     }
 }

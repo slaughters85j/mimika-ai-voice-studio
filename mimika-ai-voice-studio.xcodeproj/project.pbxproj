@@ -28,6 +28,7 @@
 		58B218AEE4A85946AD5386D1 /* ConductorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4455AFA696C04E5F1C41B3BB /* ConductorTests.swift */; };
 		5AE7C0489BE46297DB384FA1 /* AnthropicMessagesClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 357B46FC95DFDCF061168CFD /* AnthropicMessagesClient.swift */; };
 		5FE9F2CEE2037A8600EB3B29 /* JSONExtractorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4582C82E02AAE970C6CEBDD5 /* JSONExtractorTests.swift */; };
+		6023792220AF99715468D5E0 /* VoiceLevelGainTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BF3CABDF09DAD169099B32E /* VoiceLevelGainTests.swift */; };
 		607E2954D488580FFE6407C5 /* PersonaWriterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F7FD647998BDBF0FCC5093A /* PersonaWriterTests.swift */; };
 		63E0C7177894ACCE6628A11E /* EnsembleDataModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8B699F6FF121717FA7540A0 /* EnsembleDataModels.swift */; };
 		677D580326185F4D444FE23A /* EnsembleViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F063B7FB9F736C210A43433 /* EnsembleViewModel.swift */; };
@@ -275,6 +276,7 @@
 		478629569DD37CB57C8DB570 /* EnsemblePersistenceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EnsemblePersistenceTests.swift; sourceTree = "<group>"; };
 		4B3F3E9741D103FD18E981B2 /* EnsembleSettingsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EnsembleSettingsView.swift; sourceTree = "<group>"; };
 		4B6B92722E9401E7184418D8 /* VoiceRecorderView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceRecorderView.swift; sourceTree = "<group>"; };
+		4BF3CABDF09DAD169099B32E /* VoiceLevelGainTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceLevelGainTests.swift; sourceTree = "<group>"; };
 		4C9AE0F121AA4E87B79AAD35 /* MultiSpeakerRevoicer+TimingQA.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MultiSpeakerRevoicer+TimingQA.swift"; sourceTree = "<group>"; };
 		4DD2824F42C62169628B96DE /* EnsembleModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EnsembleModels.swift; sourceTree = "<group>"; };
 		5156D3D95022FB496A27A779 /* LoginItem.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LoginItem.swift; sourceTree = "<group>"; };
@@ -978,6 +980,7 @@
 				D5B7DDB93007F177006FE124 /* SeededGeneratorTests.swift */,
 				2FE23EA2B4A9276C72765F82 /* VoiceImportQueueTests.swift */,
 				7FFBC61F34B3B4FE53889AD5 /* VoiceReferenceExtractorTests.swift */,
+				4BF3CABDF09DAD169099B32E /* VoiceLevelGainTests.swift */,
 			);
 			path = "mimika-ai-voice-studioTests";
 			sourceTree = "<group>";
@@ -1383,6 +1386,7 @@
 				51F494B8D2AA25DB1E3A23B0 /* PersonaProviderTests.swift in Sources */,
 				3D94D0B2063EE9FD1E442766 /* VoiceImportQueueTests.swift in Sources */,
 				9B933C945BB6F908E8268066 /* VoiceReferenceExtractorTests.swift in Sources */,
+				6023792220AF99715468D5E0 /* VoiceLevelGainTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

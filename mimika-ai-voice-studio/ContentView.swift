@@ -627,8 +627,16 @@ struct ContentView: View {
         }
 
         if Task.isCancelled { return }
-        let voiceName = VoiceManager.shared.voice(for: voiceID)?.name ?? "Voice"
-        showVoiceReadyToast(voiceName)
+        // Toast only for encode jobs. An enhanceThenEncode job completes
+        // while the user is still auditioning in the comparison view (its
+        // encode must finish before Accept/Play enable), so toasting there
+        // announced a voice that hadn't been accepted yet. Every FINAL
+        // path — plain import, Accept & Save, skip, reject-re-encode,
+        // orphan adoption — enqueues an .encode job, which toasts.
+        if job.kind == .encode {
+            let voiceName = VoiceManager.shared.voice(for: voiceID)?.name ?? "Voice"
+            showVoiceReadyToast(voiceName)
+        }
         print("[ContentView] import pipeline complete for \(voiceID)")
     }
 

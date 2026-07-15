@@ -93,6 +93,13 @@ struct VoiceManagerView: View {
     @State private var playingOrphanID: String?
     @State private var audioPlayer: AVAudioPlayer?
 
+    // Enhanced-track analysis for the comparison screen (WP-VMI-3):
+    // cached samples drive the gained Play B preview; the magnitude
+    // histogram drives the live peak-limiting readout under the slider.
+    @State private var enhancedSamples: [Float]?
+    @State private var enhancedSampleRate: Int = 48_000
+    @State private var clipAnalysis: ClipHeadroom?
+
     var body: some View {
         ModalContainer(title: modalTitle, onClose: dismiss) {
             VStack(alignment: .leading, spacing: Theme.space4) {
@@ -256,6 +263,8 @@ struct VoiceManagerView: View {
         encodingComplete = false
         importError = nil
         isReEnhanceMode = false
+        enhancedSamples = nil
+        clipAnalysis = nil
     }
 
     private func verifyAndEncodeVoices() async {
@@ -419,6 +428,10 @@ struct VoiceManagerView: View {
                             .font(.system(size: 10))
                             .foregroundStyle(Theme.textSecondary)
                     }
+                    Text("How loud this voice speaks during synthesis. After enhancing you can audition it on Play B and push it as loud as it'll go before clipping — the comparison screen shows the headroom.")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
 
@@ -497,7 +510,9 @@ struct VoiceManagerView: View {
                     HStack {
                         Text("RMS Target Level").font(Theme.fontXS).foregroundStyle(Theme.textSecondary)
                         Spacer()
-                        Text("\(Int(rmsTargetDB)) dB").font(.system(size: 12, design: .monospaced)).foregroundStyle(Theme.textPrimary)
+                        Text("\(Int(rmsTargetDB)) dB")
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundStyle(isHeavilyLimited ? Theme.errorFG : Theme.textPrimary)
                     }
                     Slider(value: $rmsTargetDB, in: -30...(-6), step: 1).tint(Theme.accent)
                     HStack {
@@ -505,6 +520,11 @@ struct VoiceManagerView: View {
                         Spacer()
                         Text("Louder (-6)").font(.system(size: 10)).foregroundStyle(Theme.textSecondary)
                     }
+                    clipHeadroomLabel
+                    Text("Applies to Play B and to synthesis, exactly as it will render (same soft-limiter). Play A stays at the untouched import baseline.")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
 
@@ -603,6 +623,81 @@ struct VoiceManagerView: View {
                 .disabled(!encodingComplete)
             }
         }
+        .onAppear { loadEnhancedAnalysis() }
+    }
+
+    // MARK: - Peak-limiting headroom (WP-VMI-3)
+
+    /// Fraction of the enhanced track the soft-limiter touches at the
+    /// current slider level. Peak-based "clipping starts at X" is
+    /// degenerate here — the enhancer normalizes peaks up against full
+    /// scale, so it read ≈ −16 dB for every voice. The useful metric is
+    /// how much of the signal a boost drives into the limiter.
+    private var limitedFractionNow: Double {
+        clipAnalysis?.limitedFraction(
+            atGain: VoiceLevel.gainFactor(targetDB: rmsTargetDB)
+        ) ?? 0
+    }
+
+    private var isHeavilyLimited: Bool { limitedFractionNow > 0.05 }
+
+    /// Tiered guidance under the slider: clean → light limiting →
+    /// audition-worthy → heavy. Percentages come from the magnitude
+    /// histogram, so the label updates live as the slider moves.
+    @ViewBuilder
+    private var clipHeadroomLabel: some View {
+        if clipAnalysis != nil {
+            let f = limitedFractionNow
+            let pct = f < 0.001 ? "<0.1" : String(format: "%.1f", f * 100)
+            if f == 0 {
+                Text("Clean — the limiter isn't touching anything at this level.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.successFG)
+            } else if f <= 0.01 {
+                Text("Soft-limiting \(pct)% of peaks — usually inaudible.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.successFG)
+            } else if f <= 0.05 {
+                Text("Limiting \(pct)% of peaks — audition Play B for squash.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.warningFG)
+            } else {
+                Text("Heavy limiting (\(pct)% of peaks) — likely audible; back off a few dB.")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Theme.errorFG)
+            }
+        }
+    }
+
+    /// Cache the enhanced WAV's samples (drives the gained Play B preview)
+    /// and its magnitude histogram (drives the limiting readout). Re-runs
+    /// whenever the comparison screen appears; cleared on reset/re-enhance.
+    private func loadEnhancedAnalysis() {
+        guard let voiceID = savedVoiceID else { return }
+        let url = VoiceManager.shared.enhancedWAVURL(for: voiceID)
+        guard FileManager.default.fileExists(atPath: url.path),
+              let loaded = Self.loadMonoSamples(at: url) else {
+            enhancedSamples = nil
+            clipAnalysis = nil
+            return
+        }
+        enhancedSamples = loaded.samples
+        enhancedSampleRate = loaded.sampleRate
+        clipAnalysis = ClipHeadroom(samples: loaded.samples)
+    }
+
+    /// Read a mono WAV fully into memory. Comparison-screen support only
+    /// (reference clips are ≤ 30 s); returns nil on any read failure.
+    private static func loadMonoSamples(at url: URL) -> (samples: [Float], sampleRate: Int)? {
+        guard let file = try? AVAudioFile(forReading: url) else { return nil }
+        let format = file.processingFormat
+        let count = AVAudioFrameCount(file.length)
+        guard count > 0,
+              let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: count),
+              (try? file.read(into: buffer)) != nil,
+              let channel = buffer.floatChannelData?[0] else { return nil }
+        let samples = Array(UnsafeBufferPointer(start: channel, count: Int(buffer.frameLength)))
+        return (samples, Int(format.sampleRate))
     }
 
     // MARK: - Shared components
@@ -1037,6 +1132,8 @@ struct VoiceManagerView: View {
         // value (it stays whatever the voice had before this run).
         importStep = .enhancing
         encodingComplete = false
+        enhancedSamples = nil   // this run writes a fresh enhanced WAV
+        clipAnalysis = nil
         onEnhanceVoice?(voiceID, enableDenoise)
         // Poll: show comparison when enhanced WAV exists, then poll for full encoding
         pollForCompletion(voiceID: voiceID)
@@ -1126,6 +1223,8 @@ struct VoiceManagerView: View {
     private func reEnhance() {
         stopPlayback()
         encodingComplete = false
+        enhancedSamples = nil   // a new enhanced WAV is coming
+        clipAnalysis = nil
         importStep = .enhancementSettings
     }
 
@@ -1149,11 +1248,38 @@ struct VoiceManagerView: View {
         togglePlayback(url: url, isOriginal: true)
     }
 
+    /// Play B renders the enhanced track through the CURRENT slider gain
+    /// with the same hard clamp synthesis uses (`VoiceLevel.applyGain`),
+    /// so the preview — including audible clipping — is exactly what the
+    /// voice will sound like at this level. Play A deliberately stays at
+    /// the untouched import baseline for comparison.
     private func playEnhanced() {
         guard let voiceID = savedVoiceID else { return }
         let url = VoiceManager.shared.enhancedWAVURL(for: voiceID)
         guard FileManager.default.fileExists(atPath: url.path) else { return }
-        togglePlayback(url: url, isOriginal: false)
+
+        let gain = VoiceLevel.gainFactor(targetDB: rmsTargetDB)
+        if gain == 1.0 {
+            togglePlayback(url: url, isOriginal: false)
+            return
+        }
+        if enhancedSamples == nil { loadEnhancedAnalysis() }
+        guard let samples = enhancedSamples else {
+            // Analysis load failed — fall back to the ungained file.
+            togglePlayback(url: url, isOriginal: false)
+            return
+        }
+        let gained = VoiceLevel.applyGain(samples, gain: gain)
+        let previewURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("enhance-preview-\(voiceID).wav")
+        do {
+            try WAVEncoder.write(samples: gained, to: previewURL, sampleRate: enhancedSampleRate)
+        } catch {
+            print("[VoiceManager] gained preview write failed: \(error)")
+            togglePlayback(url: url, isOriginal: false)
+            return
+        }
+        togglePlayback(url: previewURL, isOriginal: false)
     }
 
     /// Preview an un-adopted orphan's WAV so the user can tell which

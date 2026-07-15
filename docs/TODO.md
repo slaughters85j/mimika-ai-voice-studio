@@ -5,11 +5,47 @@ commits; a WP is only **Complete** after user validation.
 
 ## Current Focus
 
-WP-VMI-2 (voice from video) is COMPLETE (user-validated) on
-`improved-custom-voice-import`. Next: a user-reported follow-up bug in the
-original (audio) import flow — details pending from the user. v1.5.5
+WP-VMI-1/2/3 are COMPLETE (user-validated) on
+`improved-custom-voice-import` — PR open for merge to main. v1.5.5
 shipped (released + App Store Connect build cut). Remaining open WPs:
 WP-VIT-3 (in-app editor) and WP-VIT-4 (cleanup).
+
+---
+
+## WP-VMI-3 — Enhancement Studio: premature toast + live-gain Play B
+
+**Status:** COMPLETE (user-validated).
+
+Two user-reported issues from the first enhanced import through the new
+flow:
+
+1. **Premature "ready for synthesis" toast.** The enhance pipeline must
+   encode before the comparison screen enables Accept/Play, and the queue
+   toasted after EVERY job — so the toast fired mid-audition, then again
+   after Accept & Save's re-encode. Fix: only `.encode` jobs toast; every
+   final path (plain import, Accept & Save, skip, reject-re-encode,
+   orphan adoption) ends in one, so exactly one toast, at the right time.
+2. **RMS slider was inaudible in the A/B and mislabeled.** Both files are
+   normalized to −16 dB (import + enhancer — encoder-conditioning
+   invariant, keep), and `rmsTargetDB` is a synthesis-time output gain
+   (P1-N1), so the slider changed nothing on the comparison screen. Per
+   user direction (FCP volume-slider model): **Play A** = untouched
+   import baseline; **Play B** = enhanced track rendered through the
+   CURRENT slider gain via `VoiceLevel.applyGain` — identical DSP to
+   synthesis, so the preview is faithful.
+3. **Peak-based headroom readout was degenerate** (user-caught: "always
+   says −16"). `VoiceEnhancer.rmsNormalize` soft-clips peaks up against
+   full scale, so measured peak ≈ 1.0 for EVERY enhanced voice and
+   "clipping starts above −16 dB" always. Two-part fix:
+   * `VoiceLevel.applyGain` overload stage switched from brick-wall
+     clamp to the shared piecewise `AudioSoftClip` (identity below the
+     0.9 knee, tanh fold above) — boosting now behaves like an analog
+     limiter instead of flat-topping; stateless, streaming-safe;
+     strictly better sound for any voice already configured > −16.
+   * Readout switched from binary peak-clipping to a live magnitude-
+     histogram metric (`ClipHeadroom` in VoiceLevel.swift): % of samples
+     the limiter touches at the current level, tiered clean → light
+     (≤1%) → audition (≤5%) → heavy (red, >5%).
 
 ---
 
