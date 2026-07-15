@@ -19,13 +19,17 @@ struct ContentView: View {
     @State private var voiceChangerVM: VoiceChangerViewModel?
     @State private var speakerIsolatorVM: SpeakerIsolatorViewModel?
 
-    /// In-flight voice-import / re-enhance Task. Stored so we can cancel
-    /// it when the user rejects an enhancement — without cancellation,
-    /// the still-running Fish encode + Pocket-TTS KV bake will load
-    /// the (already-deleted) enhanced WAV into memory and persist
-    /// rejected-audio codes/KV. See `rejectEnhancement` in
-    /// `VoiceManagerView`.
-    @State private var inFlightVoiceImportTask: Task<Void, Never>?
+    /// Serial FIFO queue for voice import / enhance / encode work
+    /// (WP-VMI-1). Jobs for different voices run one at a time in import
+    /// order, so rapid back-to-back imports all complete — the previous
+    /// single-slot Task cancelled the prior voice's encode on every new
+    /// import. Per-voice cancellation covers the reject-enhancement path
+    /// (see `rejectEnhancement` in `VoiceManagerView`): without it, the
+    /// still-running Fish encode + Pocket-TTS KV bake would load the
+    /// (already-deleted) enhanced WAV into memory and persist
+    /// rejected-audio codes/KV. Created in `.onAppear` (the executor
+    /// needs `appState`, which property initializers can't reach).
+    @State private var voiceImportQueue: VoiceImportQueue?
 
     @State private var voices: [BundledVoice] = []
 
@@ -83,6 +87,20 @@ struct ContentView: View {
             // on its `loadingView` fallback. Spin them up here too; the
             // method is idempotent so this is safe on cold launch.
             if case .ready = appState.engineStatus { spinUpViewModels() }
+            if voiceImportQueue == nil {
+                voiceImportQueue = VoiceImportQueue(
+                    executor: { job in await runVoiceImportJob(job) },
+                    onDrain: {
+                        // Unload Fish once per drained batch (loaded only
+                        // for codec encoding) — not once per voice like
+                        // the old per-pipeline unload.
+                        if appState.chatSettings.activeBackend != .fishSpeech {
+                            await appState.fishEngine?.unload()
+                            print("[ContentView] voice-import queue drained — Fish unloaded")
+                        }
+                    }
+                )
+            }
         }
         .onChange(of: appState.engineStatus) { _, newStatus in
             if case .ready = newStatus { spinUpViewModels() }
@@ -179,156 +197,36 @@ struct ContentView: View {
             VoiceManagerView(
                 isPresented: $appState.showsVoiceManager,
                 onEncodeVoice: { voiceID in
-                    // Cancel any previous in-flight import — typically
-                    // a pending enhance Task from a now-rejected
-                    // enhancement run. The new Task picks up the
-                    // latest voice state (no isEnhanced flag, no
-                    // enhanced.wav on disk) and re-encodes cleanly.
-                    inFlightVoiceImportTask?.cancel()
-                    inFlightVoiceImportTask = Task {
-                        defer {
-                            Task { @MainActor in inFlightVoiceImportTask = nil }
-                        }
-                        // Fish codec encode (bootstrap lazily if needed)
-                        if Task.isCancelled { return }
-                        if let fish = appState.fishEngine {
-                            await appState.bootstrapFishIfNeeded()
-                            if Task.isCancelled { return }
-                            do {
-                                try await fish.encodeVoice(voiceID: voiceID)
-                                print("[ContentView] Fish encode complete for \(voiceID)")
-                            } catch {
-                                print("[ContentView] Fish encode failed: \(error)")
-                            }
-                        }
-                        if Task.isCancelled { return }
-                        // Pocket-TTS KV bake
-                        let pttsEncoder = PocketTTSVoiceEncoder.shared
-                        await pttsEncoder.bootstrap()
-                        if Task.isCancelled { return }
-                        let pttsWAV: URL? = {
-                            let voice = VoiceManager.shared.voice(for: voiceID)
-                            if voice?.isEnhanced == true {
-                                let enhanced = VoiceManager.shared.enhancedWAVURL(for: voiceID)
-                                if FileManager.default.fileExists(atPath: enhanced.path) { return enhanced }
-                            }
-                            return VoiceManager.shared.wavURL(for: voiceID)
-                        }()
-                        if let wavURL = pttsWAV {
-                            let kvDir = VoiceManager.shared.codesDir()
-                            let kvURL = kvDir.appendingPathComponent("\(voiceID)_kv.safetensors")
-                            do {
-                                try await pttsEncoder.encodeVoice(wavURL: wavURL, outputURL: kvURL)
-                                VoiceManager.shared.setPocketTTSKVPath(kvURL.path, for: voiceID)
-                                print("[ContentView] Pocket-TTS KV bake complete for \(voiceID)")
-                            } catch {
-                                print("[ContentView] Pocket-TTS KV bake failed: \(error)")
-                            }
-                        }
-
-                        if Task.isCancelled { return }
-                        // Unload Fish if not active
-                        if appState.chatSettings.activeBackend != .fishSpeech {
-                            await appState.fishEngine?.unload()
-                        }
-                        let voiceName = VoiceManager.shared.voice(for: voiceID)?.name ?? "Voice"
-                        showVoiceReadyToast(voiceName)
-                        print("[ContentView] import pipeline complete, memory released")
-                    }
+                    voiceImportQueue?.enqueueEncode(voiceID: voiceID)
                 },
                 onEnhanceVoice: { voiceID, enableDenoise in
-                    // Cancel any previous in-flight import. Two
-                    // realistic cases this matters for:
-                    //   (a) User clicked Enhance twice quickly — drop
-                    //       the first run, the second is what they want.
-                    //   (b) User just rejected a prior enhancement;
-                    //       VoiceManagerView already called
-                    //       onCancelEncode but a residual Task may have
-                    //       slipped through before the cancel — picking
-                    //       up the latest state again is safe.
-                    inFlightVoiceImportTask?.cancel()
-                    inFlightVoiceImportTask = Task {
-                        defer {
-                            Task { @MainActor in inFlightVoiceImportTask = nil }
-                        }
-                        // Step 1: Enhance
-                        if Task.isCancelled { return }
-                        let enhancer = VoiceEnhancer.shared
-                        // Pass the ULUNAS denoiser .mlpackage URL if
-                        // installed; soft-fallback to BWE+LR-merge only
-                        // when nil. The pipeline gates `denoise:` on
-                        // both the URL being present AND the user's
-                        // toggle being on.
-                        let denoiserURL = ModelPaths.lavasrDenoiserMLPackage()
-                        await enhancer.bootstrapIfNeeded(denoiserMLPackageURL: denoiserURL)
-                        if Task.isCancelled { return }
-                        guard let wavURL = VoiceManager.shared.wavURL(for: voiceID) else { return }
-                        let outURL = VoiceManager.shared.enhancedWAVURL(for: voiceID)
-                        do {
-                            try await enhancer.enhance(
-                                inputURL: wavURL,
-                                outputURL: outURL,
-                                denoise: enableDenoise
-                            )
-                            VoiceManager.shared.setEnhanced(for: voiceID)
-                        } catch {
-                            print("[VoiceEnhancer] enhance failed: \(error)")
-                        }
-
-                        if Task.isCancelled { return }
-                        // Step 2: Fish codec encode (bootstrap lazily if needed)
-                        if let fish = appState.fishEngine {
-                            await appState.bootstrapFishIfNeeded()
-                            if Task.isCancelled { return }
-                            do {
-                                try await fish.encodeVoice(voiceID: voiceID)
-                                print("[ContentView] Fish encode complete for \(voiceID)")
-                            } catch {
-                                print("[ContentView] Fish encode failed: \(error)")
-                            }
-                        }
-
-                        if Task.isCancelled { return }
-                        // Step 3: Pocket-TTS KV state bake
-                        let pttsEncoder = PocketTTSVoiceEncoder.shared
-                        await pttsEncoder.bootstrap()
-                        if Task.isCancelled { return }
-                        let pttsWAV: URL? = {
-                            let voice = VoiceManager.shared.voice(for: voiceID)
-                            if voice?.isEnhanced == true {
-                                let enhanced = VoiceManager.shared.enhancedWAVURL(for: voiceID)
-                                if FileManager.default.fileExists(atPath: enhanced.path) { return enhanced }
-                            }
-                            return VoiceManager.shared.wavURL(for: voiceID)
-                        }()
-                        if let wavURL = pttsWAV {
-                            let kvDir = VoiceManager.shared.codesDir()
-                            let kvURL = kvDir.appendingPathComponent("\(voiceID)_kv.safetensors")
-                            do {
-                                try await pttsEncoder.encodeVoice(wavURL: wavURL, outputURL: kvURL)
-                                VoiceManager.shared.setPocketTTSKVPath(kvURL.path, for: voiceID)
-                                print("[ContentView] Pocket-TTS KV bake complete for \(voiceID)")
-                            } catch {
-                                print("[ContentView] Pocket-TTS KV bake failed: \(error)")
-                            }
-                        }
-
-                        if Task.isCancelled { return }
-                        // Unload Fish if it's not the active backend (loaded only for codec encoding)
-                        if appState.chatSettings.activeBackend != .fishSpeech {
-                            await appState.fishEngine?.unload()
-                        }
-                        let voiceName = VoiceManager.shared.voice(for: voiceID)?.name ?? "Voice"
-                        showVoiceReadyToast(voiceName)
-                        print("[ContentView] import pipeline complete, memory released")
-                    }
+                    // Enqueueing supersedes any pending/active job for
+                    // the SAME voice (double-click Enhance, reject-then-
+                    // re-encode) while other voices keep their place.
+                    voiceImportQueue?.enqueueEnhance(voiceID: voiceID, denoise: enableDenoise)
                 },
-                onCancelEncode: { _ in
+                onCancelEncode: { voiceID in
                     // Reject-enhancement path in VoiceManagerView calls
                     // this so we can yank any background Fish/Pocket-TTS
                     // encoding before it persists rejected-audio codes/KV.
-                    inFlightVoiceImportTask?.cancel()
-                    inFlightVoiceImportTask = nil
+                    // Per-voice: other queued imports are unaffected.
+                    voiceImportQueue?.cancel(voiceID: voiceID)
+                },
+                makeIsolatorVM: {
+                    // Voice-from-video (WP-VMI-2): a dedicated isolator VM
+                    // per extraction. Same construction as the Speaker
+                    // Isolator sheet's; nil while the engine is loading
+                    // (activeEngine force-unwraps the pocket engine).
+                    guard appState.engine != nil else { return nil }
+                    let demucsPath = DemucsModelManager.shared
+                        .expectedModelFolderURL(for: .htdemucs)
+                    return SpeakerIsolatorViewModel(
+                        engine: appState.activeEngine,
+                        sourceSeparator: DemucsSourceSeparator(
+                            variant: .htdemucs,
+                            modelFolderURL: demucsPath
+                        )
+                    )
                 }
             )
         }
@@ -651,6 +549,95 @@ struct ContentView: View {
             let type = BundledVoice.voiceType(forID: id)
             return type == .predefined ? BundledVoice(predefined: id) : BundledVoice(custom: id)
         }
+    }
+
+    // MARK: - Voice import pipeline (WP-VMI-1)
+
+    /// Runs ONE voice's import pipeline — the executor for
+    /// `voiceImportQueue`. Enhance jobs run LavaSR first; both kinds then
+    /// share the encode steps (Fish codec encode + Pocket-TTS KV bake).
+    /// Cancellation is cooperative: the queue cancels this Task and the
+    /// `Task.isCancelled` checks between steps stop us BEFORE writing
+    /// rejected-audio artifacts to disk.
+    private func runVoiceImportJob(_ job: VoiceImportQueue.Job) async {
+        let voiceID = job.voiceID
+
+        // Step 1 (enhance jobs only): LavaSR enhancement.
+        if case .enhanceThenEncode(let denoise) = job.kind {
+            if Task.isCancelled { return }
+            let enhancer = VoiceEnhancer.shared
+            // Pass the ULUNAS denoiser .mlpackage URL if installed;
+            // soft-fallback to BWE+LR-merge only when nil. The pipeline
+            // gates `denoise:` on both the URL being present AND the
+            // user's toggle being on.
+            let denoiserURL = ModelPaths.lavasrDenoiserMLPackage()
+            await enhancer.bootstrapIfNeeded(denoiserMLPackageURL: denoiserURL)
+            if Task.isCancelled { return }
+            guard let wavURL = VoiceManager.shared.wavURL(for: voiceID) else { return }
+            let outURL = VoiceManager.shared.enhancedWAVURL(for: voiceID)
+            do {
+                try await enhancer.enhance(
+                    inputURL: wavURL,
+                    outputURL: outURL,
+                    denoise: denoise
+                )
+                VoiceManager.shared.setEnhanced(for: voiceID)
+            } catch {
+                print("[VoiceEnhancer] enhance failed: \(error)")
+            }
+        }
+
+        // Step 2: Fish codec encode (bootstrap lazily if needed).
+        if Task.isCancelled { return }
+        if let fish = appState.fishEngine {
+            await appState.bootstrapFishIfNeeded()
+            if Task.isCancelled { return }
+            do {
+                try await fish.encodeVoice(voiceID: voiceID)
+                print("[ContentView] Fish encode complete for \(voiceID)")
+            } catch {
+                print("[ContentView] Fish encode failed: \(error)")
+            }
+        }
+
+        // Step 3: Pocket-TTS KV bake. Prefers the enhanced WAV when the
+        // voice is flagged enhanced and the file exists.
+        if Task.isCancelled { return }
+        let pttsEncoder = PocketTTSVoiceEncoder.shared
+        await pttsEncoder.bootstrap()
+        if Task.isCancelled { return }
+        let pttsWAV: URL? = {
+            let voice = VoiceManager.shared.voice(for: voiceID)
+            if voice?.isEnhanced == true {
+                let enhanced = VoiceManager.shared.enhancedWAVURL(for: voiceID)
+                if FileManager.default.fileExists(atPath: enhanced.path) { return enhanced }
+            }
+            return VoiceManager.shared.wavURL(for: voiceID)
+        }()
+        if let wavURL = pttsWAV {
+            let kvDir = VoiceManager.shared.codesDir()
+            let kvURL = kvDir.appendingPathComponent("\(voiceID)_kv.safetensors")
+            do {
+                try await pttsEncoder.encodeVoice(wavURL: wavURL, outputURL: kvURL)
+                VoiceManager.shared.setPocketTTSKVPath(kvURL.path, for: voiceID)
+                print("[ContentView] Pocket-TTS KV bake complete for \(voiceID)")
+            } catch {
+                print("[ContentView] Pocket-TTS KV bake failed: \(error)")
+            }
+        }
+
+        if Task.isCancelled { return }
+        // Toast only for encode jobs. An enhanceThenEncode job completes
+        // while the user is still auditioning in the comparison view (its
+        // encode must finish before Accept/Play enable), so toasting there
+        // announced a voice that hadn't been accepted yet. Every FINAL
+        // path — plain import, Accept & Save, skip, reject-re-encode,
+        // orphan adoption — enqueues an .encode job, which toasts.
+        if job.kind == .encode {
+            let voiceName = VoiceManager.shared.voice(for: voiceID)?.name ?? "Voice"
+            showVoiceReadyToast(voiceName)
+        }
+        print("[ContentView] import pipeline complete for \(voiceID)")
     }
 
     // MARK: - Toast

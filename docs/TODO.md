@@ -5,10 +5,132 @@ commits; a WP is only **Complete** after user validation.
 
 ## Current Focus
 
-WP-VIT-1 + WP-VIT-2 are COMPLETE (user-validated) on `revoice-pace-quality` —
-ship as v1.5.5 together with the merged `voice-isolation-tuning` work, then
-cut the release build for App Store Connect. Remaining open WPs: WP-VIT-3
-(in-app editor) and WP-VIT-4 (cleanup).
+WP-VMI-1/2/3 are COMPLETE (user-validated) on
+`improved-custom-voice-import` — PR open for merge to main. v1.5.5
+shipped (released + App Store Connect build cut). Remaining open WPs:
+WP-VIT-3 (in-app editor) and WP-VIT-4 (cleanup).
+
+---
+
+## WP-VMI-3 — Enhancement Studio: premature toast + live-gain Play B
+
+**Status:** COMPLETE (user-validated).
+
+Two user-reported issues from the first enhanced import through the new
+flow:
+
+1. **Premature "ready for synthesis" toast.** The enhance pipeline must
+   encode before the comparison screen enables Accept/Play, and the queue
+   toasted after EVERY job — so the toast fired mid-audition, then again
+   after Accept & Save's re-encode. Fix: only `.encode` jobs toast; every
+   final path (plain import, Accept & Save, skip, reject-re-encode,
+   orphan adoption) ends in one, so exactly one toast, at the right time.
+2. **RMS slider was inaudible in the A/B and mislabeled.** Both files are
+   normalized to −16 dB (import + enhancer — encoder-conditioning
+   invariant, keep), and `rmsTargetDB` is a synthesis-time output gain
+   (P1-N1), so the slider changed nothing on the comparison screen. Per
+   user direction (FCP volume-slider model): **Play A** = untouched
+   import baseline; **Play B** = enhanced track rendered through the
+   CURRENT slider gain via `VoiceLevel.applyGain` — identical DSP to
+   synthesis, so the preview is faithful.
+3. **Peak-based headroom readout was degenerate** (user-caught: "always
+   says −16"). `VoiceEnhancer.rmsNormalize` soft-clips peaks up against
+   full scale, so measured peak ≈ 1.0 for EVERY enhanced voice and
+   "clipping starts above −16 dB" always. Two-part fix:
+   * `VoiceLevel.applyGain` overload stage switched from brick-wall
+     clamp to the shared piecewise `AudioSoftClip` (identity below the
+     0.9 knee, tanh fold above) — boosting now behaves like an analog
+     limiter instead of flat-topping; stateless, streaming-safe;
+     strictly better sound for any voice already configured > −16.
+   * Readout switched from binary peak-clipping to a live magnitude-
+     histogram metric (`ClipHeadroom` in VoiceLevel.swift): % of samples
+     the limiter touches at the current level, tiered clean → light
+     (≤1%) → audition (≤5%) → heavy (red, >5%).
+
+---
+
+## WP-VMI-2 — Voice from video (extract a custom voice via speaker isolation)
+
+**Status:** COMPLETE (user-validated — "that worked really well").
+
+Drop an .mp4/.mov onto the Voice Manager's drop zone (or pick one via
+Click to Upload) and the app diarizes it, shows the detected speakers with
+previews, and lets the user pick one as a new custom voice — no audio
+tooling required. One-shot scope (user-directed, no v2 holdbacks):
+
+- Video routes to a new `.extractVoice` import step hosting
+  `VoiceFromVideoView`, which drives a dedicated `SpeakerIsolatorViewModel`
+  (constructed by ContentView's `makeIsolatorVM` factory) through
+  load → diarize → [separate] → isolate. Audio files keep the direct flow.
+- **Background stripping is always on, no toggle:** the VM runs with
+  `audioPreservationEnabled = true`, so picked speech comes from the
+  HTDemucs vocals stem whenever the model is installed. Phase 7 guardrail
+  honored — the 287 MB model never auto-downloads; when missing, the
+  existing soft-fallback banner (`SeparationStatusBanner`) surfaces the
+  Manage Separation Models sheet and extraction proceeds from the mix.
+- **Number of Speakers stepper + Re-detect** included in the picker step
+  (same merge-down semantics as the full Diarization Settings panel).
+- Picker rows reuse `MiniAudioPlayer` (with the SpeakerRow content-
+  fingerprint `.id` trick so Re-detect can't leave a stale preview).
+- "Use This Voice" → `VoiceReferenceExtractor.extractReference`: exact-zero
+  gap stripping (run-length-gated at 50 ms so lone zero-crossing samples
+  don't fragment segments), 5 ms linear crossfades at joins (hard cuts
+  click and poison the KV bake), 30 s cap (PocketTTSVoiceEncoder uses at
+  most the first 15 s) → temp WAV → the standard Save Voice Preset flow
+  (naming, optional LavaSR, encode queue) unchanged.
+
+Tests: VoiceReferenceExtractorTests (9) — run detection incl. the lone-
+zero-sample case, gap removal, crossfade continuity, caps, degenerate
+inputs, single-segment passthrough.
+
+---
+
+## WP-VMI-1 — Voice Manager import hardening (queue + gates + orphans)
+
+**Status:** COMPLETE (user-validated — rapid adds, recovery section, and
+the taller sheet all confirmed working). Follow-on Voice Manager feature
+work is a separate upcoming WP (user to specify).
+
+User-reported after rapid-adding ~10 voices back-to-back on 2026-07-15:
+"King Fish" / "King Arthur" errored as name collisions on re-import while
+appearing absent from the UI; disk forensics showed both HAD catalog rows —
+King Arthur was left missing its Pocket-TTS KV because **every new import
+cancelled the previous voice's encode** (single-slot
+`inFlightVoiceImportTask` in ContentView with cancel-on-new), and the Voice
+Manager recovery pass had the same flaw (one `onEncodeVoice` per incomplete
+voice in a loop, each cancelling the one before → exactly ONE voice healed
+per app session).
+
+Five-part fix:
+
+1. **Serial FIFO encode queue** (`Engine/TTS/VoiceImportQueue.swift`,
+   `@MainActor @Observable`, executor-injected so mechanics are unit-tested
+   without Core ML). Jobs for different voices run FIFO; enqueueing for a
+   voice with pending/active work supersedes only THAT voice's job (keeps
+   the old double-click-Enhance / reject-then-re-encode semantics);
+   `cancel(voiceID:)` is per-voice. Fish unloads once per drained batch.
+   ContentView's two duplicated pipeline closures collapsed into one
+   `runVoiceImportJob`.
+2. **Recovery heals everything in one pass** — `verifyAndEncodeVoices` now
+   feeds the queue, so ALL incomplete voices re-encode on one Voice Manager
+   open.
+3. **Enhancement-Studio dismissal gate** — closing the sheet mid-
+   enhancing/comparison no longer silently auto-accepts the un-auditioned
+   enhancement; it cancels in-flight work, drops the candidate enhancement,
+   and re-encodes the voice from its ORIGINAL audio (the voice itself stays
+   — it was saved at the naming gate). At the settings step (nothing run
+   yet) close = the existing Cancel semantics.
+4. **WAV-only orphan recovery** — `scanForOrphans` pass 2 surfaces readable
+   UUID-named WAVs with no catalog row and no valid KV ("re-encode" badge);
+   adoption creates the row and queues the encode. Covers the 3 stray WAVs
+   found on disk (leaked by pre-fix failed imports).
+5. **Import failure hygiene** — `importVoice` deletes the copied WAV if
+   convert/normalize throws, so no new row-less WAVs get minted.
+
+RESIDUAL (accepted, documented): quitting the APP mid-enhancement still
+leaves `isEnhanced=true` + the enhanced WAV on disk; the next recovery pass
+encodes from that enhanced audio without an audition. Rare, self-consistent
+result; revisit only if it bites.
 
 ---
 

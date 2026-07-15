@@ -15,6 +15,9 @@ import UniformTypeIdentifiers
 private enum ImportStep: Equatable {
     case dropZone
     case record
+    /// WP-VMI-2: video was dropped — diarize it and let the user pick a
+    /// speaker as the new voice's reference audio (VoiceFromVideoView).
+    case extractVoice
     case savePreset
     case enhancementSettings
     case enhancing
@@ -32,12 +35,22 @@ struct VoiceManagerView: View {
     /// Reject-enhancement path calls this to cancel any in-flight
     /// background Fish encode + Pocket-TTS KV bake that would
     /// otherwise persist rejected-audio codes / KV. Pairs with
-    /// `inFlightVoiceImportTask` in `ContentView`.
+    /// `voiceImportQueue` in `ContentView`.
     var onCancelEncode: ((String) -> Void)?
+    /// WP-VMI-2: builds the Speaker Isolator VM the voice-from-video
+    /// step drives (needs the engine + Demucs separator, which only
+    /// ContentView can supply). Returns nil while the engine is still
+    /// loading — video drops surface a "try again in a moment" note.
+    var makeIsolatorVM: () -> SpeakerIsolatorViewModel? = { nil }
 
     @State private var showImporter = false
     @State private var importStep: ImportStep = .dropZone
     @State private var pendingFileURL: URL?
+    // Voice-from-video state (WP-VMI-2). The VM lives only for the
+    // duration of one extraction flow; discarded on handoff or cancel.
+    @State private var extractVM: SpeakerIsolatorViewModel?
+    @State private var pendingVideoURL: URL?
+    @State private var dropError: String?
     @State private var voiceName = ""
     @State private var voiceDescription = ""
     // Default OFF until the LavaSR audio-quality fixes (ULUNAS denoiser
@@ -66,6 +79,7 @@ struct VoiceManagerView: View {
     @State private var orphans: [OrphanedVoice] = []
     @State private var orphanNames: [String: String] = [:]
     @State private var orphanError: String? = nil
+    @State private var orphanToDelete: OrphanedVoice?
 
     // Surfaces failures from the import flow (name collision, disk
     // I/O, conversion) inline on the Save Voice Preset screen.
@@ -73,10 +87,18 @@ struct VoiceManagerView: View {
     // user saw the Save button do nothing.
     @State private var importError: String? = nil
 
-    // Audio playback for comparison
+    // Audio playback for comparison + orphan preview
     @State private var isPlayingOriginal = false
     @State private var isPlayingEnhanced = false
+    @State private var playingOrphanID: String?
     @State private var audioPlayer: AVAudioPlayer?
+
+    // Enhanced-track analysis for the comparison screen (WP-VMI-3):
+    // cached samples drive the gained Play B preview; the magnitude
+    // histogram drives the live peak-limiting readout under the slider.
+    @State private var enhancedSamples: [Float]?
+    @State private var enhancedSampleRate: Int = 48_000
+    @State private var clipAnalysis: ClipHeadroom?
 
     var body: some View {
         ModalContainer(title: modalTitle, onClose: dismiss) {
@@ -106,6 +128,29 @@ struct VoiceManagerView: View {
                     // Fill the modal's full height so the record step doesn't
                     // shrink the sheet relative to the drop-zone step.
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                case .extractVoice:
+                    if let vm = extractVM, let src = pendingVideoURL {
+                        VoiceFromVideoView(
+                            viewModel: vm,
+                            sourceURL: src,
+                            onUseVoice: { url, suggestedName in
+                                // Hand the extracted reference to the
+                                // standard import flow — from here it's
+                                // the same naming → (optional LavaSR) →
+                                // save → encode-queue path as any WAV.
+                                vm.cancel()
+                                extractVM = nil
+                                pendingVideoURL = nil
+                                pendingFileURL = url
+                                voiceName = suggestedName
+                                voiceDescription = ""
+                                importError = nil
+                                importStep = .savePreset
+                            },
+                            onCancel: { resetImport() }
+                        )
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    }
                 case .savePreset:
                     savePresetView
                 case .enhancementSettings:
@@ -116,18 +161,24 @@ struct VoiceManagerView: View {
                     comparisonView
                 }
             }
-            .frame(maxWidth: 560, maxHeight: 600)
+            // Tall enough that the voices list AND the recovery section
+            // both get full room — at 600 they fought over the leftovers.
+            .frame(maxWidth: 560, maxHeight: 900)
         }
         .fileImporter(
             isPresented: $showImporter,
-            allowedContentTypes: [.wav, .mp3, .aiff, .audio],
+            allowedContentTypes: [.wav, .mp3, .aiff, .audio, .movie, .mpeg4Movie],
             allowsMultipleSelection: false
         ) { result in
             if case .success(let urls) = result, let url = urls.first {
-                pendingFileURL = url
-                voiceName = url.deletingPathExtension().lastPathComponent
-                voiceDescription = ""
-                importStep = .savePreset
+                if Self.isVideoFile(url) {
+                    startVideoExtract(url)
+                } else {
+                    pendingFileURL = url
+                    voiceName = url.deletingPathExtension().lastPathComponent
+                    voiceDescription = ""
+                    importStep = .savePreset
+                }
             }
         }
         .task {
@@ -154,6 +205,7 @@ struct VoiceManagerView: View {
         switch importStep {
         case .dropZone: return "Voice Manager"
         case .record: return "Record Voice"
+        case .extractVoice: return "Extract Voice from Video"
         case .savePreset: return "Save Voice Preset"
         case .enhancementSettings, .enhancing, .comparison: return "Enhancement Studio"
         }
@@ -161,12 +213,48 @@ struct VoiceManagerView: View {
 
     private func dismiss() {
         stopPlayback()
-        if importStep != .dropZone { resetImport() }
-        else { isPresented = false }
+        switch importStep {
+        case .dropZone:
+            isPresented = false
+        case .record, .savePreset, .extractVoice:
+            // Nothing persisted yet — discard the pending file/recording
+            // (and cancel any in-flight diarization for the video step).
+            resetImport()
+        case .enhancementSettings:
+            // Enhancement hasn't run yet. Import flow: same as the Cancel
+            // button (keep the gate-A-saved voice, encode the original).
+            // Re-enhance on an existing voice: nothing to undo.
+            if isReEnhanceMode { resetImport() } else { skipEnhancement() }
+        case .enhancing, .comparison:
+            // WP-VMI-1: closing mid-Enhancement-Studio must NOT silently
+            // auto-accept. The old close handler just reset the UI and let
+            // the in-flight enhance+encode Task run to completion — an
+            // un-auditioned enhancement became the voice. Treat close as
+            // "abandon the enhancement, keep the saved voice with its
+            // ORIGINAL audio".
+            abandonEnhancementFlow()
+        }
+    }
+
+    /// Cancel any in-flight enhance/encode work, drop the candidate
+    /// enhancement, and re-encode the voice from its original WAV. The
+    /// voice itself stays — it was saved at the naming gate (import flow)
+    /// or existed already (re-enhance flow). Used when the user closes
+    /// the sheet mid-enhancement instead of choosing Accept / Reject.
+    private func abandonEnhancementFlow() {
+        guard let voiceID = savedVoiceID else { resetImport(); return }
+        onCancelEncode?(voiceID)
+        VoiceManager.shared.clearEnhancement(for: voiceID)
+        onEncodeVoice?(voiceID)
+        resetImport()
     }
 
     private func resetImport() {
         stopPlayback()
+        extractVM?.cancel()
+        extractVM = nil
+        pendingVideoURL = nil
+        dropError = nil
         importStep = .dropZone
         pendingFileURL = nil
         voiceName = ""
@@ -175,6 +263,8 @@ struct VoiceManagerView: View {
         encodingComplete = false
         importError = nil
         isReEnhanceMode = false
+        enhancedSamples = nil
+        clipAnalysis = nil
     }
 
     private func verifyAndEncodeVoices() async {
@@ -201,7 +291,7 @@ struct VoiceManagerView: View {
                     Image(systemName: "icloud.and.arrow.up")
                         .font(.system(size: 32))
                         .foregroundStyle(Theme.textSecondary)
-                    Text("Drop Audio Here")
+                    Text("Drop Audio or Video Here")
                         .font(Theme.fontSM)
                         .foregroundStyle(Theme.textPrimary)
                     Text("- or -")
@@ -210,6 +300,10 @@ struct VoiceManagerView: View {
                     Text("Click to Upload")
                         .font(Theme.fontSM)
                         .foregroundStyle(Theme.accent)
+                    Text("Drop a video to pull a voice out of any clip — the app detects the speakers and you pick one.")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Theme.textSecondary)
+                        .multilineTextAlignment(.center)
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, Theme.space6)
@@ -221,7 +315,13 @@ struct VoiceManagerView: View {
                 )
             }
             .buttonStyle(.plain)
-            .onDrop(of: [.audio, .fileURL], isTargeted: $isDropTargeted) { handleDrop($0) }
+            .onDrop(of: [.audio, .movie, .mpeg4Movie, .fileURL], isTargeted: $isDropTargeted) { handleDrop($0) }
+
+            if let err = dropError {
+                Text(err)
+                    .font(Theme.fontXS)
+                    .foregroundStyle(Theme.errorFG)
+            }
 
             Button(action: { importStep = .record }) {
                 HStack(spacing: Theme.space2) {
@@ -328,6 +428,10 @@ struct VoiceManagerView: View {
                             .font(.system(size: 10))
                             .foregroundStyle(Theme.textSecondary)
                     }
+                    Text("How loud this voice speaks during synthesis. After enhancing you can audition it on Play B and push it as loud as it'll go before clipping — the comparison screen shows the headroom.")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
 
@@ -406,7 +510,9 @@ struct VoiceManagerView: View {
                     HStack {
                         Text("RMS Target Level").font(Theme.fontXS).foregroundStyle(Theme.textSecondary)
                         Spacer()
-                        Text("\(Int(rmsTargetDB)) dB").font(.system(size: 12, design: .monospaced)).foregroundStyle(Theme.textPrimary)
+                        Text("\(Int(rmsTargetDB)) dB")
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundStyle(isHeavilyLimited ? Theme.errorFG : Theme.textPrimary)
                     }
                     Slider(value: $rmsTargetDB, in: -30...(-6), step: 1).tint(Theme.accent)
                     HStack {
@@ -414,6 +520,11 @@ struct VoiceManagerView: View {
                         Spacer()
                         Text("Louder (-6)").font(.system(size: 10)).foregroundStyle(Theme.textSecondary)
                     }
+                    clipHeadroomLabel
+                    Text("Applies to Play B and to synthesis, exactly as it will render (same soft-limiter). Play A stays at the untouched import baseline.")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
 
@@ -512,6 +623,81 @@ struct VoiceManagerView: View {
                 .disabled(!encodingComplete)
             }
         }
+        .onAppear { loadEnhancedAnalysis() }
+    }
+
+    // MARK: - Peak-limiting headroom (WP-VMI-3)
+
+    /// Fraction of the enhanced track the soft-limiter touches at the
+    /// current slider level. Peak-based "clipping starts at X" is
+    /// degenerate here — the enhancer normalizes peaks up against full
+    /// scale, so it read ≈ −16 dB for every voice. The useful metric is
+    /// how much of the signal a boost drives into the limiter.
+    private var limitedFractionNow: Double {
+        clipAnalysis?.limitedFraction(
+            atGain: VoiceLevel.gainFactor(targetDB: rmsTargetDB)
+        ) ?? 0
+    }
+
+    private var isHeavilyLimited: Bool { limitedFractionNow > 0.05 }
+
+    /// Tiered guidance under the slider: clean → light limiting →
+    /// audition-worthy → heavy. Percentages come from the magnitude
+    /// histogram, so the label updates live as the slider moves.
+    @ViewBuilder
+    private var clipHeadroomLabel: some View {
+        if clipAnalysis != nil {
+            let f = limitedFractionNow
+            let pct = f < 0.001 ? "<0.1" : String(format: "%.1f", f * 100)
+            if f == 0 {
+                Text("Clean — the limiter isn't touching anything at this level.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.successFG)
+            } else if f <= 0.01 {
+                Text("Soft-limiting \(pct)% of peaks — usually inaudible.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.successFG)
+            } else if f <= 0.05 {
+                Text("Limiting \(pct)% of peaks — audition Play B for squash.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.warningFG)
+            } else {
+                Text("Heavy limiting (\(pct)% of peaks) — likely audible; back off a few dB.")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Theme.errorFG)
+            }
+        }
+    }
+
+    /// Cache the enhanced WAV's samples (drives the gained Play B preview)
+    /// and its magnitude histogram (drives the limiting readout). Re-runs
+    /// whenever the comparison screen appears; cleared on reset/re-enhance.
+    private func loadEnhancedAnalysis() {
+        guard let voiceID = savedVoiceID else { return }
+        let url = VoiceManager.shared.enhancedWAVURL(for: voiceID)
+        guard FileManager.default.fileExists(atPath: url.path),
+              let loaded = Self.loadMonoSamples(at: url) else {
+            enhancedSamples = nil
+            clipAnalysis = nil
+            return
+        }
+        enhancedSamples = loaded.samples
+        enhancedSampleRate = loaded.sampleRate
+        clipAnalysis = ClipHeadroom(samples: loaded.samples)
+    }
+
+    /// Read a mono WAV fully into memory. Comparison-screen support only
+    /// (reference clips are ≤ 30 s); returns nil on any read failure.
+    private static func loadMonoSamples(at url: URL) -> (samples: [Float], sampleRate: Int)? {
+        guard let file = try? AVAudioFile(forReading: url) else { return nil }
+        let format = file.processingFormat
+        let count = AVAudioFrameCount(file.length)
+        guard count > 0,
+              let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: count),
+              (try? file.read(into: buffer)) != nil,
+              let channel = buffer.floatChannelData?[0] else { return nil }
+        let samples = Array(UnsafeBufferPointer(start: channel, count: Int(buffer.frameLength)))
+        return (samples, Int(format.sampleRate))
     }
 
     // MARK: - Shared components
@@ -592,7 +778,12 @@ struct VoiceManagerView: View {
                     VStack(spacing: Theme.space1) {
                         ForEach(voices) { voice in voiceRow(voice) }
                     }
-                }.frame(maxHeight: 200)
+                }
+                // minHeight matters: ScrollViews are infinitely
+                // compressible, so when the fixed-height Recover-from-
+                // Disk rows appear the layout squeezed this list to zero
+                // (user-reported: "My Voices no longer displays").
+                .frame(minHeight: 140, maxHeight: 280)
             }
         }
     }
@@ -693,13 +884,20 @@ struct VoiceManagerView: View {
                     .font(Theme.fontXS)
                     .foregroundStyle(Theme.textSecondary)
             }
-            Text("\(orphans.count) voice file\(orphans.count == 1 ? "" : "s") on disk \(orphans.count == 1 ? "is" : "are") missing a catalog row. Name and adopt to restore.")
+            Text("\(orphans.count) voice file\(orphans.count == 1 ? "" : "s") on disk \(orphans.count == 1 ? "is" : "are") missing a catalog row. Preview, name, and adopt to restore.")
                 .font(Theme.fontXS)
                 .foregroundStyle(Theme.textSecondary)
 
-            VStack(spacing: Theme.space1) {
-                ForEach(orphans) { orphan in orphanRow(orphan) }
+            // Bounded + scrollable so a pile of orphans can't crowd the
+            // My Voices list out of the sheet — with a minHeight so the
+            // squeeze can't go the other way either (both sections keep
+            // usable room; the sheet itself is tall enough for both).
+            ScrollView {
+                VStack(spacing: Theme.space1) {
+                    ForEach(orphans) { orphan in orphanRow(orphan) }
+                }
             }
+            .frame(minHeight: 130, maxHeight: 230)
 
             if let err = orphanError {
                 Text(err)
@@ -707,6 +905,29 @@ struct VoiceManagerView: View {
                     .foregroundStyle(Theme.errorFG)
             }
         }
+        // Attached here (not on ModalContainer) so it can't collide with
+        // the voiceToDelete alert already living on the outer view.
+        .alert("Delete Recovered File", isPresented: Binding(
+            get: { orphanToDelete != nil },
+            set: { if !$0 { orphanToDelete = nil } }
+        )) {
+            Button("Cancel", role: .cancel) { orphanToDelete = nil }
+            Button("Delete", role: .destructive) {
+                if let orphan = orphanToDelete {
+                    deleteOrphan(orphan)
+                    orphanToDelete = nil
+                }
+            }
+        } message: {
+            Text("Permanently delete recording \(orphanToDelete.map { String($0.id.prefix(8)) } ?? "")\(orphanToDelete.flatMap { o in orphanMetaLabel(o).isEmpty ? nil : " (\(orphanMetaLabel(o)))" } ?? "") from disk? This cannot be undone.")
+        }
+    }
+
+    private func deleteOrphan(_ orphan: OrphanedVoice) {
+        if playingOrphanID == orphan.id { stopPlayback() }
+        VoiceManager.shared.deleteOrphan(id: orphan.id)
+        orphans.removeAll { $0.id == orphan.id }
+        orphanNames[orphan.id] = nil
     }
 
     private func orphanRow(_ orphan: OrphanedVoice) -> some View {
@@ -714,45 +935,102 @@ struct VoiceManagerView: View {
             get: { orphanNames[orphan.id] ?? "Recovered \(orphan.id.prefix(8))" },
             set: { orphanNames[orphan.id] = $0 }
         )
-        return HStack(spacing: Theme.space2) {
-            // UUID prefix as a small mono-styled tag
-            Text(String(orphan.id.prefix(8)))
-                .font(.system(size: 10, design: .monospaced))
-                .foregroundStyle(Theme.textSecondary)
-                .padding(.horizontal, 6).padding(.vertical, 2)
-                .background(Theme.bgTertiary)
-                .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall))
-
-            // Companion-file indicators
-            HStack(spacing: 2) {
-                if orphan.hasCodes {
-                    indicatorBadge("codes", color: Theme.accent)
+        // Two lines: identification (preview + tag + clip metadata +
+        // badges) above action (name + Adopt). The single-line layout
+        // left the name field a sliver and gave the user nothing to
+        // identify the clip by.
+        return VStack(alignment: .leading, spacing: Theme.space2) {
+            HStack(spacing: Theme.space2) {
+                // Audition the clip — the UUID alone says nothing about
+                // which recording this is.
+                Button(action: { playOrphan(orphan) }) {
+                    Image(systemName: playingOrphanID == orphan.id ? "stop.fill" : "play.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.accent)
+                        .frame(width: 20, height: 20)
+                        .background(Theme.accent.opacity(0.15))
+                        .clipShape(Circle())
                 }
-                if orphan.hasEnhanced {
-                    indicatorBadge("✨", color: Theme.accent)
-                }
-            }
+                .buttonStyle(.plain)
+                .help("Preview this recording")
 
-            TextField("Voice name", text: nameBinding)
-                .textFieldStyle(.plain)
-                .font(Theme.fontSM)
-                .foregroundStyle(Theme.textPrimary)
-                .padding(.horizontal, Theme.space2).padding(.vertical, Theme.space1)
-                .themeInputField()
-
-            Button(action: { adoptOrphan(orphan) }) {
-                Text("Adopt")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, Theme.space3).padding(.vertical, Theme.space1)
-                    .background(Theme.accent)
+                // UUID prefix as a small mono-styled tag
+                Text(String(orphan.id.prefix(8)))
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(Theme.textSecondary)
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(Theme.bgTertiary)
                     .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall))
+
+                Text(orphanMetaLabel(orphan))
+                    .font(Theme.fontXS)
+                    .foregroundStyle(Theme.textSecondary)
+
+                Spacer()
+
+                // Companion-file indicators
+                HStack(spacing: 2) {
+                    if orphan.hasCodes {
+                        indicatorBadge("codes", color: Theme.accent)
+                    }
+                    if orphan.hasEnhanced {
+                        indicatorBadge("✨", color: Theme.accent)
+                    }
+                    if !orphan.hasKV {
+                        // WAV-only orphan (WP-VMI-1): adoption queues a
+                        // re-encode to rebuild the missing codes/KV.
+                        indicatorBadge("re-encode", color: Theme.warningFG)
+                    }
+                }
+
+                // Decline path: permanently remove the files so this
+                // clip stops resurfacing on every scan.
+                Button(action: { orphanToDelete = orphan }) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.errorFG)
+                }
+                .buttonStyle(.plain)
+                .help("Delete this recording from disk")
             }
-            .buttonStyle(.plain)
+
+            HStack(spacing: Theme.space2) {
+                TextField("Voice name", text: nameBinding)
+                    .textFieldStyle(.plain)
+                    .font(Theme.fontSM)
+                    .foregroundStyle(Theme.textPrimary)
+                    .padding(.horizontal, Theme.space2).padding(.vertical, Theme.space1)
+                    .themeInputField()
+
+                Button(action: { adoptOrphan(orphan) }) {
+                    Text("Adopt")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, Theme.space3).padding(.vertical, Theme.space1)
+                        .background(Theme.accent)
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall))
+                }
+                .buttonStyle(.plain)
+            }
         }
         .padding(.horizontal, Theme.space3).padding(.vertical, Theme.space2)
         .background(Theme.bgTertiary.opacity(0.3))
         .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall))
+    }
+
+    /// "0:07 · Jul 15" — clip length + file date, the human-readable
+    /// hints for telling recovered clips apart (the original names were
+    /// lost with their catalog rows; the user re-names on adoption).
+    private func orphanMetaLabel(_ orphan: OrphanedVoice) -> String {
+        var parts: [String] = []
+        if let dur = orphan.durationSec {
+            let total = Int(dur.rounded())
+            parts.append(String(format: "%d:%02d", total / 60, total % 60))
+        }
+        if let created = orphan.createdAt {
+            parts.append(created.formatted(.dateTime.month(.abbreviated).day()))
+        }
+        return parts.joined(separator: " · ")
     }
 
     private func indicatorBadge(_ label: String, color: Color) -> some View {
@@ -773,9 +1051,17 @@ struct VoiceManagerView: View {
     }
 
     private func adoptOrphan(_ orphan: OrphanedVoice) {
+        if playingOrphanID == orphan.id { stopPlayback() }
         let name = orphanNames[orphan.id] ?? "Recovered \(orphan.id.prefix(8))"
         do {
-            try VoiceManager.shared.adoptOrphan(id: orphan.id, name: name)
+            let voice = try VoiceManager.shared.adoptOrphan(id: orphan.id, name: name)
+            // WP-VMI-1: WAV-only orphans (and KV-orphans missing Fish
+            // codes) need their encode artifacts rebuilt — queue it now
+            // rather than leaving the voice "Partial"/"Pending" until the
+            // next Voice Manager open.
+            if voice.cachedCodesPath == nil || voice.pocketTTSKVPath == nil {
+                onEncodeVoice?(voice.id)
+            }
             orphans.removeAll { $0.id == orphan.id }
             orphanNames[orphan.id] = nil
             orphanError = nil
@@ -846,6 +1132,8 @@ struct VoiceManagerView: View {
         // value (it stays whatever the voice had before this run).
         importStep = .enhancing
         encodingComplete = false
+        enhancedSamples = nil   // this run writes a fresh enhanced WAV
+        clipAnalysis = nil
         onEnhanceVoice?(voiceID, enableDenoise)
         // Poll: show comparison when enhanced WAV exists, then poll for full encoding
         pollForCompletion(voiceID: voiceID)
@@ -935,6 +1223,8 @@ struct VoiceManagerView: View {
     private func reEnhance() {
         stopPlayback()
         encodingComplete = false
+        enhancedSamples = nil   // a new enhanced WAV is coming
+        clipAnalysis = nil
         importStep = .enhancementSettings
     }
 
@@ -958,11 +1248,63 @@ struct VoiceManagerView: View {
         togglePlayback(url: url, isOriginal: true)
     }
 
+    /// Play B renders the enhanced track through the CURRENT slider gain
+    /// with the same hard clamp synthesis uses (`VoiceLevel.applyGain`),
+    /// so the preview — including audible clipping — is exactly what the
+    /// voice will sound like at this level. Play A deliberately stays at
+    /// the untouched import baseline for comparison.
     private func playEnhanced() {
         guard let voiceID = savedVoiceID else { return }
         let url = VoiceManager.shared.enhancedWAVURL(for: voiceID)
         guard FileManager.default.fileExists(atPath: url.path) else { return }
-        togglePlayback(url: url, isOriginal: false)
+
+        let gain = VoiceLevel.gainFactor(targetDB: rmsTargetDB)
+        if gain == 1.0 {
+            togglePlayback(url: url, isOriginal: false)
+            return
+        }
+        if enhancedSamples == nil { loadEnhancedAnalysis() }
+        guard let samples = enhancedSamples else {
+            // Analysis load failed — fall back to the ungained file.
+            togglePlayback(url: url, isOriginal: false)
+            return
+        }
+        let gained = VoiceLevel.applyGain(samples, gain: gain)
+        let previewURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("enhance-preview-\(voiceID).wav")
+        do {
+            try WAVEncoder.write(samples: gained, to: previewURL, sampleRate: enhancedSampleRate)
+        } catch {
+            print("[VoiceManager] gained preview write failed: \(error)")
+            togglePlayback(url: url, isOriginal: false)
+            return
+        }
+        togglePlayback(url: previewURL, isOriginal: false)
+    }
+
+    /// Preview an un-adopted orphan's WAV so the user can tell which
+    /// recording it is before naming + adopting. Same 8 s preview cap
+    /// as the comparison players; the identity check on the auto-stop
+    /// keeps an earlier row's timer from cutting off a newer preview.
+    private func playOrphan(_ orphan: OrphanedVoice) {
+        if playingOrphanID == orphan.id {
+            stopPlayback()
+            return
+        }
+        stopPlayback()
+        let url = VoiceManager.shared.orphanWAVURL(id: orphan.id)
+        do {
+            let player = try AVAudioPlayer(contentsOf: url)
+            audioPlayer = player
+            player.play()
+            playingOrphanID = orphan.id
+            let clipDuration = min(player.duration, previewDuration)
+            DispatchQueue.main.asyncAfter(deadline: .now() + clipDuration) {
+                if audioPlayer === player { stopPlayback() }
+            }
+        } catch {
+            print("[VoiceManager] orphan preview failed: \(error)")
+        }
     }
 
     private let previewDuration: TimeInterval = 8.0
@@ -992,12 +1334,25 @@ struct VoiceManagerView: View {
         audioPlayer = nil
         isPlayingOriginal = false
         isPlayingEnhanced = false
+        playingOrphanID = nil
     }
 
     // MARK: - Drop handler
 
     private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
         guard let provider = providers.first else { return false }
+        // Video first (WP-VMI-2): an .mp4/.mov routes into the speaker-
+        // extraction flow. Checked before .audio because AV containers
+        // conform to audiovisual-content, not .audio — but a provider
+        // could plausibly register both.
+        if provider.hasItemConformingToTypeIdentifier(UTType.movie.identifier) {
+            provider.loadItem(forTypeIdentifier: UTType.movie.identifier) { item, _ in
+                if let url = item as? URL {
+                    DispatchQueue.main.async { startVideoExtract(url) }
+                }
+            }
+            return true
+        }
         if provider.hasItemConformingToTypeIdentifier(UTType.audio.identifier) {
             provider.loadItem(forTypeIdentifier: UTType.audio.identifier) { item, _ in
                 if let url = item as? URL {
@@ -1014,14 +1369,50 @@ struct VoiceManagerView: View {
             provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier) { item, _ in
                 if let data = item as? Data, let url = URL(dataRepresentation: data, relativeTo: nil) {
                     DispatchQueue.main.async {
-                        pendingFileURL = url
-                        voiceName = url.deletingPathExtension().lastPathComponent
-                        importStep = .savePreset
+                        if Self.isVideoFile(url) {
+                            startVideoExtract(url)
+                        } else {
+                            pendingFileURL = url
+                            voiceName = url.deletingPathExtension().lastPathComponent
+                            importStep = .savePreset
+                        }
                     }
                 }
             }
             return true
         }
         return false
+    }
+
+    // MARK: - Voice from video (WP-VMI-2)
+
+    /// True for AV containers (.mp4/.mov/.m4v/…) that should route into
+    /// the speaker-extraction flow instead of the direct import. Audio-
+    /// only formats (.m4a included) conform to .audio, not .movie, so
+    /// they keep the existing path.
+    private static func isVideoFile(_ url: URL) -> Bool {
+        guard let type = UTType(filenameExtension: url.pathExtension.lowercased()) else {
+            return false
+        }
+        return type.conforms(to: .movie)
+    }
+
+    /// Kick off diarization on a dropped video with a dedicated isolator
+    /// VM. Audio preservation is forced ON (no toggle): when the HTDemucs
+    /// model is installed the picked voice comes from the vocals stem
+    /// (background stripped); when it's missing the VM soft-falls back
+    /// to the mix and VoiceFromVideoView surfaces the install banner.
+    private func startVideoExtract(_ url: URL) {
+        guard let vm = makeIsolatorVM() else {
+            dropError = "The speech engine is still loading — drop the video again in a moment."
+            return
+        }
+        dropError = nil
+        vm.audioPreservationEnabled = true
+        vm.setInputAudio(url)
+        extractVM = vm
+        pendingVideoURL = url
+        importStep = .extractVoice
+        vm.convertAndIsolate()
     }
 }
