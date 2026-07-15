@@ -91,6 +91,7 @@ mimika-ai-voice-studio/
 │   │   │   ├── SentencePieceTokenizer.swift
 │   │   │   ├── VoiceLoader.swift         (safetensors → MLMultiArray)
 │   │   │   ├── VoiceManager.swift        (saved-voices/ catalog + import + orphan recovery)
+│   │   │   ├── VoiceImportQueue.swift    (serial FIFO import/enhance/encode queue; per-voice cancel)
 │   │   │   ├── ModelPaths.swift          (dual-source resolution: downloaded > bundle > throw)
 │   │   │   ├── BundledMLModel.swift      (4-case catalog: URL + SHA + display strings)
 │   │   │   ├── BundledMLModelManager.swift (@MainActor @Observable; download → verify → compile → install)

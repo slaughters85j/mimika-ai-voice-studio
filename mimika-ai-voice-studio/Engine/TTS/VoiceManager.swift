@@ -46,15 +46,21 @@ struct Voice: Identifiable, Codable, Equatable, Sendable {
 // MARK: - OrphanedVoice
 // Files-on-disk-without-a-catalog-row case (the dual of stale catalog
 // rows handled by `verifyVoiceStates`). Surfaced by `scanForOrphans`
-// so the Voice Manager UI can offer adoption. An orphan only qualifies
-// if both the KV and WAV are present and the KV passes a cheap
-// header-parse — partial / corrupt files are logged and skipped so
-// the user only sees adoptable candidates.
+// so the Voice Manager UI can offer adoption. Two shapes qualify:
+//   * KV + WAV pair whose KV passes a cheap header-parse (the original
+//     case — fully restorable, no re-encode needed)
+//   * WAV-only (WP-VMI-1): a readable `<UUID>.wav` with no catalog row
+//     and no valid KV — typically leaked by a failed/interrupted import.
+//     Adoptable; the adopter queues a re-encode to rebuild codes + KV.
+// Partial / corrupt files are logged and skipped so the user only sees
+// adoptable candidates.
 
 struct OrphanedVoice: Identifiable, Equatable, Sendable {
-    /// UUID extracted from the `<UUID>_kv.safetensors` filename.
+    /// UUID extracted from the `<UUID>_kv.safetensors` / `<UUID>.wav`
+    /// filename.
     let id: String
-    /// Always true (a precondition for being surfaced).
+    /// Whether a valid (header-parseable) KV file is present. False for
+    /// WAV-only orphans, which need a re-encode after adoption.
     let hasKV: Bool
     /// Always true (a precondition for being surfaced).
     let hasWAV: Bool
@@ -63,6 +69,12 @@ struct OrphanedVoice: Identifiable, Equatable, Sendable {
     let hasCodes: Bool
     /// Whether the LavaSR-enhanced WAV is present too.
     let hasEnhanced: Bool
+    /// WAV length in seconds — shown in the recovery row so the user can
+    /// tell clips apart before adopting. `nil` only if the header read
+    /// failed after the scan validated it (shouldn't happen in practice).
+    let durationSec: Double?
+    /// WAV file creation date — second identification hint in the row.
+    let createdAt: Date?
 }
 
 // MARK: - VoiceManager
@@ -141,14 +153,23 @@ final class VoiceManager {
         let id = UUID().uuidString
         let destURL = voicesDir.appendingPathComponent("\(id).wav")
 
-        if sourceURL.pathExtension.lowercased() == "wav", needsConversion(sourceURL) == false {
-            try FileManager.default.copyItem(at: sourceURL, to: destURL)
-        } else {
-            try convertToWAV(source: sourceURL, destination: destURL)
-        }
+        do {
+            if sourceURL.pathExtension.lowercased() == "wav", needsConversion(sourceURL) == false {
+                try FileManager.default.copyItem(at: sourceURL, to: destURL)
+            } else {
+                try convertToWAV(source: sourceURL, destination: destURL)
+            }
 
-        // Normalize volume to -16 dB RMS for consistent encoding input
-        try rmsNormalizeWAV(at: destURL)
+            // Normalize volume to -16 dB RMS for consistent encoding input
+            try rmsNormalizeWAV(at: destURL)
+        } catch {
+            // WP-VMI-1: a convert/normalize failure after the copy used
+            // to leak a row-less WAV into saved-voices/ (invisible to
+            // the old orphan scan, which required a KV file). Clean up
+            // the partial copy before surfacing the error.
+            try? FileManager.default.removeItem(at: destURL)
+            throw error
+        }
 
         let voice = Voice(
             id: id,
@@ -261,11 +282,15 @@ final class VoiceManager {
     // The dual of `verifyVoiceStates`: detect files in saved-voices/
     // that have no catalog row, surface the adoptable ones to the UI.
 
-    /// Scan saved-voices/ for `<UUID>_kv.safetensors` files whose UUID
-    /// is not in the catalog. Surfaces only the ones that:
-    ///   * have a companion `<UUID>.wav`
-    ///   * have a KV file whose safetensors header parses
-    /// Anything else (KV-only, WAV-only, garbled KV) gets logged and
+    /// Scan saved-voices/ for voice files whose UUID is not in the
+    /// catalog. Two passes:
+    ///   1. `<UUID>_kv.safetensors` files with a companion `<UUID>.wav`
+    ///      and a header-parseable KV (the original, fully-restorable
+    ///      case).
+    ///   2. WP-VMI-1: bare `<UUID>.wav` files with no catalog row and no
+    ///      valid KV — leaked by failed/interrupted imports. Surfaced as
+    ///      `hasKV: false`; adoption queues a re-encode.
+    /// Anything else (KV-only, garbled/unreadable files) gets logged and
     /// dropped from the result. Returned IDs are stable — the caller
     /// can match against UI state.
     func scanForOrphans() -> [OrphanedVoice] {
@@ -277,14 +302,18 @@ final class VoiceManager {
         let catalogIDs = Set(voices.map(\.id))
         let kvSuffix = "_kv.safetensors"
         var orphans: [OrphanedVoice] = []
+        var surfacedIDs = Set<String>()
 
+        // Pass 1: KV-keyed orphans (KV + WAV, valid header).
         for url in entries {
             let name = url.lastPathComponent
             guard name.hasSuffix(kvSuffix) else { continue }
             let id = String(name.dropLast(kvSuffix.count))
             if catalogIDs.contains(id) { continue }   // healthy, has catalog row
 
-            // Validate KV header cheaply before surfacing.
+            // Validate KV header cheaply before surfacing. A garbled KV
+            // doesn't disqualify the voice — pass 2 picks the WAV up as
+            // a WAV-only orphan and the re-encode overwrites the KV.
             if !validateSafetensorsHeader(at: url) {
                 print("[VoiceManager] orphan KV unparseable, skipping: \(name)")
                 continue
@@ -299,23 +328,98 @@ final class VoiceManager {
 
             let codesURL = voicesDir.appendingPathComponent("\(id)_codes.npy")
             let enhancedURL = voicesDir.appendingPathComponent("\(id)_enhanced.wav")
+            let meta = wavMeta(at: wavURL)
 
             orphans.append(OrphanedVoice(
                 id: id,
                 hasKV: true,
                 hasWAV: true,
                 hasCodes: fm.fileExists(atPath: codesURL.path),
-                hasEnhanced: fm.fileExists(atPath: enhancedURL.path)
+                hasEnhanced: fm.fileExists(atPath: enhancedURL.path),
+                durationSec: meta.durationSec,
+                createdAt: meta.createdAt
+            ))
+            surfacedIDs.insert(id)
+        }
+
+        // Pass 2 (WP-VMI-1): WAV-only orphans. UUID-named so stray
+        // non-voice audio in the directory can't masquerade as a voice,
+        // and decode-checked so a truncated/corrupt WAV can't mint a
+        // broken catalog row at adoption time.
+        for url in entries {
+            let name = url.lastPathComponent
+            guard name.hasSuffix(".wav"), !name.hasSuffix("_enhanced.wav") else { continue }
+            let id = String(name.dropLast(".wav".count))
+            guard UUID(uuidString: id) != nil else { continue }
+            if catalogIDs.contains(id) || surfacedIDs.contains(id) { continue }
+
+            // The header read doubles as the decode-validation gate — a
+            // truncated/corrupt WAV can't mint a broken catalog row.
+            let meta = wavMeta(at: url)
+            guard meta.durationSec != nil else {
+                print("[VoiceManager] orphan WAV unreadable, skipping: \(name)")
+                continue
+            }
+
+            let codesURL = voicesDir.appendingPathComponent("\(id)_codes.npy")
+            let enhancedURL = voicesDir.appendingPathComponent("\(id)_enhanced.wav")
+
+            orphans.append(OrphanedVoice(
+                id: id,
+                hasKV: false,
+                hasWAV: true,
+                hasCodes: fm.fileExists(atPath: codesURL.path),
+                hasEnhanced: fm.fileExists(atPath: enhancedURL.path),
+                durationSec: meta.durationSec,
+                createdAt: meta.createdAt
             ))
         }
 
         return orphans
     }
 
+    /// Cheap WAV metadata for the recovery UI: clip duration (header
+    /// read, no sample decode) + file creation date. `durationSec` nil
+    /// means the file isn't a readable audio file.
+    private func wavMeta(at url: URL) -> (durationSec: Double?, createdAt: Date?) {
+        let created = (try? FileManager.default
+            .attributesOfItem(atPath: url.path)[.creationDate]) as? Date
+        guard let file = try? AVAudioFile(forReading: url),
+              file.processingFormat.sampleRate > 0 else {
+            return (nil, created)
+        }
+        return (Double(file.length) / file.processingFormat.sampleRate, created)
+    }
+
+    /// URL of an un-adopted orphan's WAV — lets the recovery UI preview
+    /// the clip before the user names + adopts it.
+    func orphanWAVURL(id: String) -> URL {
+        voicesDir.appendingPathComponent("\(id).wav")
+    }
+
+    /// Permanently delete an un-adopted orphan's files (WAV + codes +
+    /// KV + enhanced) so the recovery scan stops surfacing it — the
+    /// decline path for clips the user doesn't want to restore. No-ops
+    /// for IDs that have a catalog row; live voices are deleted via
+    /// `deleteVoice(id:)`.
+    func deleteOrphan(id: String) {
+        guard !voices.contains(where: { $0.id == id }) else { return }
+        let fm = FileManager.default
+        for file in ["\(id).wav", "\(id)_codes.npy", "\(id)_kv.safetensors", "\(id)_enhanced.wav"] {
+            let url = voicesDir.appendingPathComponent(file)
+            if fm.fileExists(atPath: url.path) {
+                try? fm.removeItem(at: url)
+            }
+        }
+        print("[VoiceManager] deleted orphan files for \(id)")
+    }
+
     /// Adopt an orphan: create a catalog row for it under the supplied
     /// display name. The on-disk files are left where they are — only
-    /// metadata changes. Throws if the orphan isn't actually adoptable
-    /// (KV / WAV missing, can't parse) or the name is empty.
+    /// metadata changes. A valid KV file is optional (WP-VMI-1): a
+    /// WAV-only orphan adopts with `pocketTTSKVPath` nil and the caller
+    /// queues a re-encode to rebuild codes + KV. Throws if the WAV is
+    /// missing or the name is empty.
     @discardableResult
     func adoptOrphan(id: String, name: String) throws -> Voice {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -332,12 +436,12 @@ final class VoiceManager {
         let enhancedURL = voicesDir.appendingPathComponent("\(id)_enhanced.wav")
 
         let fm = FileManager.default
-        guard fm.fileExists(atPath: wavURL.path), fm.fileExists(atPath: kvURL.path) else {
+        guard fm.fileExists(atPath: wavURL.path) else {
             throw OrphanAdoptionError.filesMissing
         }
-        guard validateSafetensorsHeader(at: kvURL) else {
-            throw OrphanAdoptionError.kvUnparseable
-        }
+        // A present-but-garbled KV is treated as absent — the re-encode
+        // the caller queues overwrites it with a fresh bake.
+        let hasValidKV = fm.fileExists(atPath: kvURL.path) && validateSafetensorsHeader(at: kvURL)
 
         // Build catalog row. `createdAt` reflects the file's mtime so
         // the adoption preserves chronology when the user is restoring
@@ -355,7 +459,7 @@ final class VoiceManager {
             cachedCodesPath: fm.fileExists(atPath: codesURL.path) ? codesURL.path : nil,
             codesLength: nil,
             isEnhanced: fm.fileExists(atPath: enhancedURL.path),
-            pocketTTSKVPath: kvURL.path,
+            pocketTTSKVPath: hasValidKV ? kvURL.path : nil,
             rmsTargetDB: nil
         )
 
@@ -399,14 +503,12 @@ final class VoiceManager {
         case emptyName
         case alreadyAdopted
         case filesMissing
-        case kvUnparseable
 
         var errorDescription: String? {
             switch self {
             case .emptyName:        return "Please provide a name for the recovered voice."
             case .alreadyAdopted:   return "This voice is already in the catalog."
             case .filesMissing:     return "The voice's files are no longer on disk."
-            case .kvUnparseable:    return "The voice's KV file is corrupt or wrong format."
             }
         }
     }

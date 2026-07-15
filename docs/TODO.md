@@ -5,10 +5,60 @@ commits; a WP is only **Complete** after user validation.
 
 ## Current Focus
 
-WP-VIT-1 + WP-VIT-2 are COMPLETE (user-validated) on `revoice-pace-quality` —
-ship as v1.5.5 together with the merged `voice-isolation-tuning` work, then
-cut the release build for App Store Connect. Remaining open WPs: WP-VIT-3
-(in-app editor) and WP-VIT-4 (cleanup).
+WP-VMI-1 (Voice Manager import hardening) is COMPLETE (user-validated) on
+`improved-custom-voice-import` — next up is the new Voice Manager feature
+the user held back until these fixes landed. v1.5.5 shipped (released +
+App Store Connect build cut). Remaining open WPs: WP-VIT-3 (in-app editor)
+and WP-VIT-4 (cleanup).
+
+---
+
+## WP-VMI-1 — Voice Manager import hardening (queue + gates + orphans)
+
+**Status:** COMPLETE (user-validated — rapid adds, recovery section, and
+the taller sheet all confirmed working). Follow-on Voice Manager feature
+work is a separate upcoming WP (user to specify).
+
+User-reported after rapid-adding ~10 voices back-to-back on 2026-07-15:
+"King Fish" / "King Arthur" errored as name collisions on re-import while
+appearing absent from the UI; disk forensics showed both HAD catalog rows —
+King Arthur was left missing its Pocket-TTS KV because **every new import
+cancelled the previous voice's encode** (single-slot
+`inFlightVoiceImportTask` in ContentView with cancel-on-new), and the Voice
+Manager recovery pass had the same flaw (one `onEncodeVoice` per incomplete
+voice in a loop, each cancelling the one before → exactly ONE voice healed
+per app session).
+
+Five-part fix:
+
+1. **Serial FIFO encode queue** (`Engine/TTS/VoiceImportQueue.swift`,
+   `@MainActor @Observable`, executor-injected so mechanics are unit-tested
+   without Core ML). Jobs for different voices run FIFO; enqueueing for a
+   voice with pending/active work supersedes only THAT voice's job (keeps
+   the old double-click-Enhance / reject-then-re-encode semantics);
+   `cancel(voiceID:)` is per-voice. Fish unloads once per drained batch.
+   ContentView's two duplicated pipeline closures collapsed into one
+   `runVoiceImportJob`.
+2. **Recovery heals everything in one pass** — `verifyAndEncodeVoices` now
+   feeds the queue, so ALL incomplete voices re-encode on one Voice Manager
+   open.
+3. **Enhancement-Studio dismissal gate** — closing the sheet mid-
+   enhancing/comparison no longer silently auto-accepts the un-auditioned
+   enhancement; it cancels in-flight work, drops the candidate enhancement,
+   and re-encodes the voice from its ORIGINAL audio (the voice itself stays
+   — it was saved at the naming gate). At the settings step (nothing run
+   yet) close = the existing Cancel semantics.
+4. **WAV-only orphan recovery** — `scanForOrphans` pass 2 surfaces readable
+   UUID-named WAVs with no catalog row and no valid KV ("re-encode" badge);
+   adoption creates the row and queues the encode. Covers the 3 stray WAVs
+   found on disk (leaked by pre-fix failed imports).
+5. **Import failure hygiene** — `importVoice` deletes the copied WAV if
+   convert/normalize throws, so no new row-less WAVs get minted.
+
+RESIDUAL (accepted, documented): quitting the APP mid-enhancement still
+leaves `isEnhanced=true` + the enhanced WAV on disk; the next recovery pass
+encodes from that enhanced audio without an audition. Rare, self-consistent
+result; revisit only if it bites.
 
 ---
 

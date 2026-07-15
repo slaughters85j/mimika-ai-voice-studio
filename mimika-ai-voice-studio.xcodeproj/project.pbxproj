@@ -18,6 +18,7 @@
 		346371225B294FC499E97264 /* FluidAudioMergeMapTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 137EDCB8C8114F388B0AA24B /* FluidAudioMergeMapTests.swift */; };
 		37D19F12A7E498FA669E37BB /* PersonaContracts.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBAB6B97A4F0AB6AD1876144 /* PersonaContracts.swift */; };
 		3B947C4C702E6599267A96C7 /* SpokenTurnRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B816255BCAB7DCB5A4173F /* SpokenTurnRunner.swift */; };
+		3D94D0B2063EE9FD1E442766 /* VoiceImportQueueTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FE23EA2B4A9276C72765F82 /* VoiceImportQueueTests.swift */; };
 		3DFDA165D3AD47FD892B6C95 /* SynthesisQuiescenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2287130C0374F6BBC43D3CC /* SynthesisQuiescenceTests.swift */; };
 		4726C0A5D9D4E0CFC1848D28 /* JSONExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55A819B4287E427883CE6048 /* JSONExtractor.swift */; };
 		51F494B8D2AA25DB1E3A23B0 /* PersonaProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4A8DB0CB4A379D65F895344 /* PersonaProviderTests.swift */; };
@@ -47,6 +48,7 @@
 		AB17554B5BACBF301B090DD0 /* EnsembleViewModel+Interruption.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8EAA320219AD219F53EF673 /* EnsembleViewModel+Interruption.swift */; };
 		B2D61E5F956C207E61EC2FE7 /* ReadAloudService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13EF12F88537DFCE2B186DF4 /* ReadAloudService.swift */; };
 		BDF03E2F201819BC6671F989 /* EnsembleSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B3F3E9741D103FD18E981B2 /* EnsembleSettingsView.swift */; };
+		C4A53AC34FF216FE97EC21CD /* VoiceImportQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D14CAF3D19B4833533A0003 /* VoiceImportQueue.swift */; };
 		C5B6AA6C38A3FA3E1AA7A537 /* EnsembleViewModel+Export.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22B75B6336F9B9BD064A2D45 /* EnsembleViewModel+Export.swift */; };
 		C6897E6B58F373C6E60A87A5 /* EnsemblePersonaEditorSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9CC17D2ABF0DB738583B68A /* EnsemblePersonaEditorSheet.swift */; };
 		D1CE0591FA2E58F9E18ACD95 /* VoiceRecorderViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14BDDD7B827E5800F6747CE2 /* VoiceRecorderViewModel.swift */; };
@@ -259,6 +261,8 @@
 		22B75B6336F9B9BD064A2D45 /* EnsembleViewModel+Export.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "EnsembleViewModel+Export.swift"; sourceTree = "<group>"; };
 		249331AC0D2C47CABEE10564 /* FluidAudioDiarizationProvider+Clustering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FluidAudioDiarizationProvider+Clustering.swift"; sourceTree = "<group>"; };
 		2BD26F9434166E6F03BF338E /* EnsembleSetupView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EnsembleSetupView.swift; sourceTree = "<group>"; };
+		2D14CAF3D19B4833533A0003 /* VoiceImportQueue.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceImportQueue.swift; sourceTree = "<group>"; };
+		2FE23EA2B4A9276C72765F82 /* VoiceImportQueueTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceImportQueueTests.swift; sourceTree = "<group>"; };
 		326CF9D0C590CC2F94FFF15E /* ReadAloudOnboardingView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ReadAloudOnboardingView.swift; sourceTree = "<group>"; };
 		357B46FC95DFDCF061168CFD /* AnthropicMessagesClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AnthropicMessagesClient.swift; sourceTree = "<group>"; };
 		4455AFA696C04E5F1C41B3BB /* ConductorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ConductorTests.swift; sourceTree = "<group>"; };
@@ -684,6 +688,7 @@
 				D53CE5CC2FD2FADC0071832E /* TTSEngineProtocol.swift */,
 				D53CE5CD2FD2FADC0071832E /* VoiceLoader.swift */,
 				D53CE5CE2FD2FADC0071832E /* VoiceManager.swift */,
+				2D14CAF3D19B4833533A0003 /* VoiceImportQueue.swift */,
 			);
 			path = TTS;
 			sourceTree = "<group>";
@@ -963,6 +968,7 @@
 				84227BFAA70DF679C22B62A8 /* PersonaWriterIntegrationTests.swift */,
 				F4A8DB0CB4A379D65F895344 /* PersonaProviderTests.swift */,
 				D5B7DDB93007F177006FE124 /* SeededGeneratorTests.swift */,
+				2FE23EA2B4A9276C72765F82 /* VoiceImportQueueTests.swift */,
 			);
 			path = "mimika-ai-voice-studioTests";
 			sourceTree = "<group>";
@@ -1303,6 +1309,7 @@
 				E860D94181A218CD8B2C5C6B /* MenuBarContent.swift in Sources */,
 				02678B6169DFFA75BFF7C79E /* ReadAloudOnboardingView.swift in Sources */,
 				71CAE1BB73E4830544DEE602 /* TimingQAEvaluator.swift in Sources */,
+				C4A53AC34FF216FE97EC21CD /* VoiceImportQueue.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1363,6 +1370,7 @@
 				607E2954D488580FFE6407C5 /* PersonaWriterTests.swift in Sources */,
 				898CF712008166ED09428509 /* PersonaWriterIntegrationTests.swift in Sources */,
 				51F494B8D2AA25DB1E3A23B0 /* PersonaProviderTests.swift in Sources */,
+				3D94D0B2063EE9FD1E442766 /* VoiceImportQueueTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

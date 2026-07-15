@@ -66,6 +66,7 @@ struct VoiceManagerView: View {
     @State private var orphans: [OrphanedVoice] = []
     @State private var orphanNames: [String: String] = [:]
     @State private var orphanError: String? = nil
+    @State private var orphanToDelete: OrphanedVoice?
 
     // Surfaces failures from the import flow (name collision, disk
     // I/O, conversion) inline on the Save Voice Preset screen.
@@ -73,9 +74,10 @@ struct VoiceManagerView: View {
     // user saw the Save button do nothing.
     @State private var importError: String? = nil
 
-    // Audio playback for comparison
+    // Audio playback for comparison + orphan preview
     @State private var isPlayingOriginal = false
     @State private var isPlayingEnhanced = false
+    @State private var playingOrphanID: String?
     @State private var audioPlayer: AVAudioPlayer?
 
     var body: some View {
@@ -116,7 +118,9 @@ struct VoiceManagerView: View {
                     comparisonView
                 }
             }
-            .frame(maxWidth: 560, maxHeight: 600)
+            // Tall enough that the voices list AND the recovery section
+            // both get full room — at 600 they fought over the leftovers.
+            .frame(maxWidth: 560, maxHeight: 900)
         }
         .fileImporter(
             isPresented: $showImporter,
@@ -161,8 +165,39 @@ struct VoiceManagerView: View {
 
     private func dismiss() {
         stopPlayback()
-        if importStep != .dropZone { resetImport() }
-        else { isPresented = false }
+        switch importStep {
+        case .dropZone:
+            isPresented = false
+        case .record, .savePreset:
+            // Nothing persisted yet — discard the pending file/recording.
+            resetImport()
+        case .enhancementSettings:
+            // Enhancement hasn't run yet. Import flow: same as the Cancel
+            // button (keep the gate-A-saved voice, encode the original).
+            // Re-enhance on an existing voice: nothing to undo.
+            if isReEnhanceMode { resetImport() } else { skipEnhancement() }
+        case .enhancing, .comparison:
+            // WP-VMI-1: closing mid-Enhancement-Studio must NOT silently
+            // auto-accept. The old close handler just reset the UI and let
+            // the in-flight enhance+encode Task run to completion — an
+            // un-auditioned enhancement became the voice. Treat close as
+            // "abandon the enhancement, keep the saved voice with its
+            // ORIGINAL audio".
+            abandonEnhancementFlow()
+        }
+    }
+
+    /// Cancel any in-flight enhance/encode work, drop the candidate
+    /// enhancement, and re-encode the voice from its original WAV. The
+    /// voice itself stays — it was saved at the naming gate (import flow)
+    /// or existed already (re-enhance flow). Used when the user closes
+    /// the sheet mid-enhancement instead of choosing Accept / Reject.
+    private func abandonEnhancementFlow() {
+        guard let voiceID = savedVoiceID else { resetImport(); return }
+        onCancelEncode?(voiceID)
+        VoiceManager.shared.clearEnhancement(for: voiceID)
+        onEncodeVoice?(voiceID)
+        resetImport()
     }
 
     private func resetImport() {
@@ -592,7 +627,12 @@ struct VoiceManagerView: View {
                     VStack(spacing: Theme.space1) {
                         ForEach(voices) { voice in voiceRow(voice) }
                     }
-                }.frame(maxHeight: 200)
+                }
+                // minHeight matters: ScrollViews are infinitely
+                // compressible, so when the fixed-height Recover-from-
+                // Disk rows appear the layout squeezed this list to zero
+                // (user-reported: "My Voices no longer displays").
+                .frame(minHeight: 140, maxHeight: 280)
             }
         }
     }
@@ -693,13 +733,20 @@ struct VoiceManagerView: View {
                     .font(Theme.fontXS)
                     .foregroundStyle(Theme.textSecondary)
             }
-            Text("\(orphans.count) voice file\(orphans.count == 1 ? "" : "s") on disk \(orphans.count == 1 ? "is" : "are") missing a catalog row. Name and adopt to restore.")
+            Text("\(orphans.count) voice file\(orphans.count == 1 ? "" : "s") on disk \(orphans.count == 1 ? "is" : "are") missing a catalog row. Preview, name, and adopt to restore.")
                 .font(Theme.fontXS)
                 .foregroundStyle(Theme.textSecondary)
 
-            VStack(spacing: Theme.space1) {
-                ForEach(orphans) { orphan in orphanRow(orphan) }
+            // Bounded + scrollable so a pile of orphans can't crowd the
+            // My Voices list out of the sheet — with a minHeight so the
+            // squeeze can't go the other way either (both sections keep
+            // usable room; the sheet itself is tall enough for both).
+            ScrollView {
+                VStack(spacing: Theme.space1) {
+                    ForEach(orphans) { orphan in orphanRow(orphan) }
+                }
             }
+            .frame(minHeight: 130, maxHeight: 230)
 
             if let err = orphanError {
                 Text(err)
@@ -707,6 +754,29 @@ struct VoiceManagerView: View {
                     .foregroundStyle(Theme.errorFG)
             }
         }
+        // Attached here (not on ModalContainer) so it can't collide with
+        // the voiceToDelete alert already living on the outer view.
+        .alert("Delete Recovered File", isPresented: Binding(
+            get: { orphanToDelete != nil },
+            set: { if !$0 { orphanToDelete = nil } }
+        )) {
+            Button("Cancel", role: .cancel) { orphanToDelete = nil }
+            Button("Delete", role: .destructive) {
+                if let orphan = orphanToDelete {
+                    deleteOrphan(orphan)
+                    orphanToDelete = nil
+                }
+            }
+        } message: {
+            Text("Permanently delete recording \(orphanToDelete.map { String($0.id.prefix(8)) } ?? "")\(orphanToDelete.flatMap { o in orphanMetaLabel(o).isEmpty ? nil : " (\(orphanMetaLabel(o)))" } ?? "") from disk? This cannot be undone.")
+        }
+    }
+
+    private func deleteOrphan(_ orphan: OrphanedVoice) {
+        if playingOrphanID == orphan.id { stopPlayback() }
+        VoiceManager.shared.deleteOrphan(id: orphan.id)
+        orphans.removeAll { $0.id == orphan.id }
+        orphanNames[orphan.id] = nil
     }
 
     private func orphanRow(_ orphan: OrphanedVoice) -> some View {
@@ -714,45 +784,102 @@ struct VoiceManagerView: View {
             get: { orphanNames[orphan.id] ?? "Recovered \(orphan.id.prefix(8))" },
             set: { orphanNames[orphan.id] = $0 }
         )
-        return HStack(spacing: Theme.space2) {
-            // UUID prefix as a small mono-styled tag
-            Text(String(orphan.id.prefix(8)))
-                .font(.system(size: 10, design: .monospaced))
-                .foregroundStyle(Theme.textSecondary)
-                .padding(.horizontal, 6).padding(.vertical, 2)
-                .background(Theme.bgTertiary)
-                .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall))
-
-            // Companion-file indicators
-            HStack(spacing: 2) {
-                if orphan.hasCodes {
-                    indicatorBadge("codes", color: Theme.accent)
+        // Two lines: identification (preview + tag + clip metadata +
+        // badges) above action (name + Adopt). The single-line layout
+        // left the name field a sliver and gave the user nothing to
+        // identify the clip by.
+        return VStack(alignment: .leading, spacing: Theme.space2) {
+            HStack(spacing: Theme.space2) {
+                // Audition the clip — the UUID alone says nothing about
+                // which recording this is.
+                Button(action: { playOrphan(orphan) }) {
+                    Image(systemName: playingOrphanID == orphan.id ? "stop.fill" : "play.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.accent)
+                        .frame(width: 20, height: 20)
+                        .background(Theme.accent.opacity(0.15))
+                        .clipShape(Circle())
                 }
-                if orphan.hasEnhanced {
-                    indicatorBadge("✨", color: Theme.accent)
-                }
-            }
+                .buttonStyle(.plain)
+                .help("Preview this recording")
 
-            TextField("Voice name", text: nameBinding)
-                .textFieldStyle(.plain)
-                .font(Theme.fontSM)
-                .foregroundStyle(Theme.textPrimary)
-                .padding(.horizontal, Theme.space2).padding(.vertical, Theme.space1)
-                .themeInputField()
-
-            Button(action: { adoptOrphan(orphan) }) {
-                Text("Adopt")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, Theme.space3).padding(.vertical, Theme.space1)
-                    .background(Theme.accent)
+                // UUID prefix as a small mono-styled tag
+                Text(String(orphan.id.prefix(8)))
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(Theme.textSecondary)
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(Theme.bgTertiary)
                     .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall))
+
+                Text(orphanMetaLabel(orphan))
+                    .font(Theme.fontXS)
+                    .foregroundStyle(Theme.textSecondary)
+
+                Spacer()
+
+                // Companion-file indicators
+                HStack(spacing: 2) {
+                    if orphan.hasCodes {
+                        indicatorBadge("codes", color: Theme.accent)
+                    }
+                    if orphan.hasEnhanced {
+                        indicatorBadge("✨", color: Theme.accent)
+                    }
+                    if !orphan.hasKV {
+                        // WAV-only orphan (WP-VMI-1): adoption queues a
+                        // re-encode to rebuild the missing codes/KV.
+                        indicatorBadge("re-encode", color: Theme.warningFG)
+                    }
+                }
+
+                // Decline path: permanently remove the files so this
+                // clip stops resurfacing on every scan.
+                Button(action: { orphanToDelete = orphan }) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.errorFG)
+                }
+                .buttonStyle(.plain)
+                .help("Delete this recording from disk")
             }
-            .buttonStyle(.plain)
+
+            HStack(spacing: Theme.space2) {
+                TextField("Voice name", text: nameBinding)
+                    .textFieldStyle(.plain)
+                    .font(Theme.fontSM)
+                    .foregroundStyle(Theme.textPrimary)
+                    .padding(.horizontal, Theme.space2).padding(.vertical, Theme.space1)
+                    .themeInputField()
+
+                Button(action: { adoptOrphan(orphan) }) {
+                    Text("Adopt")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, Theme.space3).padding(.vertical, Theme.space1)
+                        .background(Theme.accent)
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall))
+                }
+                .buttonStyle(.plain)
+            }
         }
         .padding(.horizontal, Theme.space3).padding(.vertical, Theme.space2)
         .background(Theme.bgTertiary.opacity(0.3))
         .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall))
+    }
+
+    /// "0:07 · Jul 15" — clip length + file date, the human-readable
+    /// hints for telling recovered clips apart (the original names were
+    /// lost with their catalog rows; the user re-names on adoption).
+    private func orphanMetaLabel(_ orphan: OrphanedVoice) -> String {
+        var parts: [String] = []
+        if let dur = orphan.durationSec {
+            let total = Int(dur.rounded())
+            parts.append(String(format: "%d:%02d", total / 60, total % 60))
+        }
+        if let created = orphan.createdAt {
+            parts.append(created.formatted(.dateTime.month(.abbreviated).day()))
+        }
+        return parts.joined(separator: " · ")
     }
 
     private func indicatorBadge(_ label: String, color: Color) -> some View {
@@ -773,9 +900,17 @@ struct VoiceManagerView: View {
     }
 
     private func adoptOrphan(_ orphan: OrphanedVoice) {
+        if playingOrphanID == orphan.id { stopPlayback() }
         let name = orphanNames[orphan.id] ?? "Recovered \(orphan.id.prefix(8))"
         do {
-            try VoiceManager.shared.adoptOrphan(id: orphan.id, name: name)
+            let voice = try VoiceManager.shared.adoptOrphan(id: orphan.id, name: name)
+            // WP-VMI-1: WAV-only orphans (and KV-orphans missing Fish
+            // codes) need their encode artifacts rebuilt — queue it now
+            // rather than leaving the voice "Partial"/"Pending" until the
+            // next Voice Manager open.
+            if voice.cachedCodesPath == nil || voice.pocketTTSKVPath == nil {
+                onEncodeVoice?(voice.id)
+            }
             orphans.removeAll { $0.id == orphan.id }
             orphanNames[orphan.id] = nil
             orphanError = nil
@@ -965,6 +1100,31 @@ struct VoiceManagerView: View {
         togglePlayback(url: url, isOriginal: false)
     }
 
+    /// Preview an un-adopted orphan's WAV so the user can tell which
+    /// recording it is before naming + adopting. Same 8 s preview cap
+    /// as the comparison players; the identity check on the auto-stop
+    /// keeps an earlier row's timer from cutting off a newer preview.
+    private func playOrphan(_ orphan: OrphanedVoice) {
+        if playingOrphanID == orphan.id {
+            stopPlayback()
+            return
+        }
+        stopPlayback()
+        let url = VoiceManager.shared.orphanWAVURL(id: orphan.id)
+        do {
+            let player = try AVAudioPlayer(contentsOf: url)
+            audioPlayer = player
+            player.play()
+            playingOrphanID = orphan.id
+            let clipDuration = min(player.duration, previewDuration)
+            DispatchQueue.main.asyncAfter(deadline: .now() + clipDuration) {
+                if audioPlayer === player { stopPlayback() }
+            }
+        } catch {
+            print("[VoiceManager] orphan preview failed: \(error)")
+        }
+    }
+
     private let previewDuration: TimeInterval = 8.0
 
     private func togglePlayback(url: URL, isOriginal: Bool) {
@@ -992,6 +1152,7 @@ struct VoiceManagerView: View {
         audioPlayer = nil
         isPlayingOriginal = false
         isPlayingEnhanced = false
+        playingOrphanID = nil
     }
 
     // MARK: - Drop handler
