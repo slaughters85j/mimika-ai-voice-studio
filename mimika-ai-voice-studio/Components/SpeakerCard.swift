@@ -58,6 +58,9 @@ struct SpeakerCard: View {
                 .accessibilityIdentifier("speakerCard.\(cardIndex).insertButton")
                 .help("Insert \\{\(speaker.name)\\} into the script at the cursor")
 
+                // Seed affordance — only visible for imported voices.
+                SeedControl(voiceID: speaker.voiceID, style: .card, disabled: disabled)
+
                 if canRemove {
                     Button(action: onRemove) {
                         Text("×")

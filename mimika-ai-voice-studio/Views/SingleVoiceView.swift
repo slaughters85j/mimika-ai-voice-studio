@@ -48,6 +48,18 @@ struct SingleVoiceView: View {
                                 disabled: viewModel.status.isWorking
                             )
 
+                            // Seed affordance for the selected voice. Self-hides
+                            // for stock voices (imported voices only).
+                            if viewModel.selectedVoiceID.hasPrefix("imported:") {
+                                HStack(spacing: Theme.space2) {
+                                    Text("Seed")
+                                        .font(Theme.fontXS)
+                                        .foregroundStyle(Theme.textSecondary)
+                                    SeedControl(voiceID: viewModel.selectedVoiceID, style: .card, disabled: viewModel.status.isWorking)
+                                    Spacer()
+                                }
+                            }
+
                             // Voice Changer entry-point. Sits in the sidebar
                             // VStack next to the voice picker because it's an
                             // audio-in / audio-out concern, not a text-editor

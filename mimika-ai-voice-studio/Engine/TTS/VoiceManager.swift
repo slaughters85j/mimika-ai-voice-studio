@@ -33,6 +33,14 @@ struct Voice: Identifiable, Codable, Equatable, Sendable {
     /// and Python's `_normalize_audio_rms` default. Decoded lazily so
     /// existing voices.json catalogs upgrade without migration.
     var rmsTargetDB: Float?
+    /// Pinned deterministic synthesis seed. `nil` means unseeded (each
+    /// generation draws a fresh random seed). When set, every synthesis of
+    /// this voice reproduces the same noise trajectory → the same audio for
+    /// the same text. Assigned from a speaker card after the user hears a
+    /// take they like, or edited directly in the Voice Manager. Decoded
+    /// lazily so existing catalogs upgrade without migration. Stock voices
+    /// are never seeded, so this lives only on imported voices.
+    var seed: UInt64?
 }
 
 // MARK: - OrphanedVoice
@@ -66,6 +74,13 @@ final class VoiceManager {
     static let shared = VoiceManager()
 
     private(set) var voices: [Voice] = []
+
+    /// Transient (never persisted) map of voice UUID → the seed used by the
+    /// most recent synthesis of that voice this session. Populated by
+    /// `resolveSeedForSynthesis`; read by the seed UI so an unpinned voice's
+    /// "Assign seed?" action knows which seed produced the take the user
+    /// just heard. Cleared on relaunch — it only reflects the live session.
+    private(set) var lastGeneratedSeed: [String: UInt64] = [:]
 
     private let voicesDir: URL
     private let catalogURL: URL
@@ -440,6 +455,50 @@ final class VoiceManager {
         guard let idx = voices.firstIndex(where: { $0.id == voiceID }) else { return }
         voices[idx].rmsTargetDB = db
         saveCatalog()
+    }
+
+    // MARK: - Seed
+
+    /// The pinned synthesis seed for an imported voice, if any. `voiceID`
+    /// may carry the `imported:` prefix or be a bare UUID — both resolve.
+    func pinnedSeed(for voiceID: String) -> UInt64? {
+        voice(for: strippedVoiceID(voiceID))?.seed
+    }
+
+    /// Persist a pinned seed for an imported voice. `nil` clears it.
+    func setSeed(_ seed: UInt64?, for voiceID: String) {
+        let id = strippedVoiceID(voiceID)
+        guard let idx = voices.firstIndex(where: { $0.id == id }) else { return }
+        voices[idx].seed = seed
+        saveCatalog()
+    }
+
+    /// Clear a pinned seed (convenience for the "Clear Seed" / "Remove" UI).
+    func clearSeed(for voiceID: String) {
+        setSeed(nil, for: voiceID)
+    }
+
+    /// Resolve the seed to drive one synthesis of `voiceID`, with the
+    /// capture side effect that powers the "Assign seed?" flow:
+    ///   * Stock voice (no `imported:` prefix / unknown id) → `nil` — the
+    ///     engine stays stochastic and nothing is captured.
+    ///   * Imported voice, pinned → the pinned seed (also recorded as the
+    ///     last-generated seed so the UI stays consistent).
+    ///   * Imported voice, unpinned → a fresh random seed, recorded so the
+    ///     user can pin it afterward if they like the take.
+    func resolveSeedForSynthesis(voiceID: String) -> UInt64? {
+        guard voiceID.hasPrefix("imported:") else { return nil }
+        let id = strippedVoiceID(voiceID)
+        guard voices.contains(where: { $0.id == id }) else { return nil }
+        let seed = voice(for: id)?.seed ?? UInt64.random(in: .min ... .max)
+        lastGeneratedSeed[id] = seed
+        return seed
+    }
+
+    /// Drop the `imported:` prefix if present so callers can pass either the
+    /// synthesis voiceID or a bare `Voice.id`.
+    private func strippedVoiceID(_ voiceID: String) -> String {
+        voiceID.hasPrefix("imported:") ? String(voiceID.dropFirst("imported:".count)) : voiceID
     }
 
     // MARK: - Transcript

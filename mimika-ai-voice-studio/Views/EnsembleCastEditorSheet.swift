@@ -61,6 +61,8 @@ struct EnsembleCastEditorSheet: View {
                     ForEach(voiceOptions) { opt in Text(opt.name).tag(opt.id) }
                 }
                 .labelsHidden().frame(width: 180)
+                // Seed affordance per speaker. Self-hides for stock voices.
+                SeedControl(voiceID: persona.voiceID, style: .card)
             }
             Picker("", selection: presetBinding(index)) {
                 ForEach(SamplingPreset.allCases, id: \.self) { preset in

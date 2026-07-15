@@ -608,7 +608,7 @@ final class EnsembleViewModel {
             systemPrompt: framedSystemPrompt(persona, grenade: grenade),
             temperature: preset.temperature,
             voiceID: persona.voiceID,
-            options: currentSynthesisOptions(),
+            options: currentSynthesisOptions(for: persona.voiceID),
             speak: voicedPlayback,   // Phase 3: synthesize + play in-voice
             collectSamples: false,   // Phase 6 flips this on for export
             stop: stopSequences(for: persona),
@@ -673,9 +673,10 @@ final class EnsembleViewModel {
         }
     }
 
-    private func currentSynthesisOptions() -> SynthesisOptions {
+    private func currentSynthesisOptions(for voiceID: String) -> SynthesisOptions {
         var options = SynthesisOptions()
         options.chunkTokenBudget = appState.pocketTTSChunkBudget
+        options.seed = VoiceManager.shared.resolveSeedForSynthesis(voiceID: voiceID)
         return options
     }
 
