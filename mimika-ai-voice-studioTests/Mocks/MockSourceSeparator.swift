@@ -43,7 +43,10 @@ final class MockSourceSeparator: SourceSeparator, @unchecked Sendable {
 
     private(set) var separateCallCount: Int = 0
     private(set) var ensureModelsReadyCallCount: Int = 0
-    private(set) var isModelDownloadedCallCount: Int = 0
+    // `nonisolated(unsafe)` so the protocol's `nonisolated isModelDownloaded()`
+    // can bump this counter under the project's default-MainActor isolation.
+    // Safe here: this is a test-only `@unchecked Sendable` mock.
+    nonisolated(unsafe) private(set) var isModelDownloadedCallCount: Int = 0
 
     // MARK: - Init
 

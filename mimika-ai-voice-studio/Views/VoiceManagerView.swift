@@ -612,6 +612,8 @@ struct VoiceManagerView: View {
                     .padding(.horizontal, 6).padding(.vertical, 2)
                     .background(Theme.bgTertiary).clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall))
             }
+            // Per-voice seed editor (assign / edit value / remove).
+            SeedControl(voiceID: "imported:\(voice.id)", style: .manager)
             Button(action: { voiceToDelete = voice }) {
                 Image(systemName: "trash").font(.system(size: 11)).foregroundStyle(Theme.errorFG)
             }.buttonStyle(.plain)

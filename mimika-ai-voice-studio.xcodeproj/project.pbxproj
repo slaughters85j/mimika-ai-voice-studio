@@ -225,6 +225,9 @@
 		D53CE7012FD2FADC0071832E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D53CE6022FD2FADC0071832E /* Assets.xcassets */; };
 		D53CE7052FD2FADC0071832E /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = D53CE6052FD2FADC0071832E /* InfoPlist.strings */; };
 		D5B49AEC3A4C1DADFB8A6F29 /* EnsembleLoopTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C50F4576D8DAB6980750D51 /* EnsembleLoopTests.swift */; };
+		D5B7DDB63007F0E1006FE124 /* SeededGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5B7DDB53007F0E1006FE124 /* SeededGenerator.swift */; };
+		D5B7DDB83007F0FB006FE124 /* SeedControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5B7DDB73007F0FB006FE124 /* SeedControl.swift */; };
+		D5B7DDBA3007F177006FE124 /* SeededGeneratorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5B7DDB93007F177006FE124 /* SeededGeneratorTests.swift */; };
 		D9CB8AC833524EFF73383AD6 /* EnsembleViewModel+Context.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6581221A724E53EAD1AF6FF /* EnsembleViewModel+Context.swift */; };
 		E0F8034B135B4F1CA529959B /* TimingQAEvaluatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5838EA5AC147D58693B01D /* TimingQAEvaluatorTests.swift */; };
 		E860D94181A218CD8B2C5C6B /* MenuBarContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7811C7B05509321C8D2C8261 /* MenuBarContent.swift */; };
@@ -477,6 +480,9 @@
 		D53CE6492FD2FADC0071832E /* mimika_ai_voice_studioUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = mimika_ai_voice_studioUITests.swift; sourceTree = "<group>"; };
 		D53CE64A2FD2FADC0071832E /* mimika_ai_voice_studioUITestsLaunchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = mimika_ai_voice_studioUITestsLaunchTests.swift; sourceTree = "<group>"; };
 		D53CE64B2FD2FADC0071832E /* SingleVoiceUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SingleVoiceUITests.swift; sourceTree = "<group>"; };
+		D5B7DDB53007F0E1006FE124 /* SeededGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SeededGenerator.swift; sourceTree = "<group>"; };
+		D5B7DDB73007F0FB006FE124 /* SeedControl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SeedControl.swift; sourceTree = "<group>"; };
+		D5B7DDB93007F177006FE124 /* SeededGeneratorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SeededGeneratorTests.swift; sourceTree = "<group>"; };
 		D5ECD2182FB78D5A00C23A9D /* mimika-ai-voice-studio.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "mimika-ai-voice-studio.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		D5ECD2272FB78D5B00C23A9D /* mimika-ai-voice-studioTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "mimika-ai-voice-studioTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		D5ECD2312FB78D5B00C23A9D /* mimika-ai-voice-studioUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "mimika-ai-voice-studioUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -565,6 +571,7 @@
 				D53CE58B2FD2FADC0071832E /* SynthesizeButton.swift */,
 				D53CE58C2FD2FADC0071832E /* TextInput.swift */,
 				D53CE58D2FD2FADC0071832E /* VoiceSelector.swift */,
+				D5B7DDB73007F0FB006FE124 /* SeedControl.swift */,
 			);
 			path = Components;
 			sourceTree = "<group>";
@@ -685,6 +692,7 @@
 			isa = PBXGroup;
 			children = (
 				D53CE5D02FD2FADC0071832E /* BackoffPolicy.swift */,
+				D5B7DDB53007F0E1006FE124 /* SeededGenerator.swift */,
 			);
 			path = Utilities;
 			sourceTree = "<group>";
@@ -954,6 +962,7 @@
 				7F7FD647998BDBF0FCC5093A /* PersonaWriterTests.swift */,
 				84227BFAA70DF679C22B62A8 /* PersonaWriterIntegrationTests.swift */,
 				F4A8DB0CB4A379D65F895344 /* PersonaProviderTests.swift */,
+				D5B7DDB93007F177006FE124 /* SeededGeneratorTests.swift */,
 			);
 			path = "mimika-ai-voice-studioTests";
 			sourceTree = "<group>";
@@ -1150,6 +1159,7 @@
 				D53CE6622FD2FADC0071832E /* AudioPreconditioner.swift in Sources */,
 				D53CE6632FD2FADC0071832E /* SpeakerIsolator.swift in Sources */,
 				D53CE6642FD2FADC0071832E /* VoiceLoader.swift in Sources */,
+				D5B7DDB63007F0E1006FE124 /* SeededGenerator.swift in Sources */,
 				D53CE6652FD2FADC0071832E /* DemucsChunker.swift in Sources */,
 				D53CE6662FD2FADC0071832E /* mimika_ai_voice_studioApp.swift in Sources */,
 				D53CE6682FD2FADC0071832E /* VideoMuxer.swift in Sources */,
@@ -1237,6 +1247,7 @@
 				D53CE6D42FD2FADC0071832E /* SingleVoiceViewModel.swift in Sources */,
 				D53CE6D52FD2FADC0071832E /* AACEncoder.swift in Sources */,
 				D53CE6D62FD2FADC0071832E /* MultiTalkViewModel.swift in Sources */,
+				D5B7DDB83007F0FB006FE124 /* SeedControl.swift in Sources */,
 				D53CE6D72FD2FADC0071832E /* HistoryView.swift in Sources */,
 				D53CE6D82FD2FADC0071832E /* ScriptGeneratorModal.swift in Sources */,
 				D53CE6DB2FD2FADC0071832E /* PauseModal.swift in Sources */,
@@ -1345,6 +1356,7 @@
 				052509EC66CB8DA591623EA8 /* EnsemblePersistenceTests.swift in Sources */,
 				690BDAAA0EF8231ACE06EDF9 /* SpokenTurnRunnerTests.swift in Sources */,
 				58B218AEE4A85946AD5386D1 /* ConductorTests.swift in Sources */,
+				D5B7DDBA3007F177006FE124 /* SeededGeneratorTests.swift in Sources */,
 				581200C072E8FDCBE198B8AB /* EnsembleContextTests.swift in Sources */,
 				D5B49AEC3A4C1DADFB8A6F29 /* EnsembleLoopTests.swift in Sources */,
 				5FE9F2CEE2037A8600EB3B29 /* JSONExtractorTests.swift in Sources */,

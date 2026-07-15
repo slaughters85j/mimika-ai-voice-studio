@@ -256,10 +256,10 @@ final class MultiSpeakerRevoicerTests: XCTestCase {
                        "sample 0: fade-in zero × revoiced(0.2) = 0, plus passthrough(0.1) → softClip(0.1)")
 
         // The mock STT was called exactly once (only for the assigned speaker).
-        let sttCallCount = await mockSTT.callCount
+        let sttCallCount = mockSTT.callCount
         XCTAssertEqual(sttCallCount, 1)
         // The mock engine was called for the one segment with voiceID "cosette".
-        let engineCalls = await mockEngine.calls
+        let engineCalls = mockEngine.calls
         XCTAssertEqual(engineCalls.count, 1)
         XCTAssertEqual(engineCalls.first?.voiceID, "cosette")
     }
@@ -269,8 +269,8 @@ final class MultiSpeakerRevoicerTests: XCTestCase {
 // Test-target-local fakes for TTSEngineProtocol + STTProvider so the
 // revoicer's wiring can be exercised without Core ML / Apple Speech.
 
-actor MockSTTProvider: STTProvider {
-    var callCount: Int = 0
+final class MockSTTProvider: STTProvider, @unchecked Sendable {
+    private(set) var callCount: Int = 0
     let segments: [TranscribedSegment]
     let shouldFail: Bool
 
@@ -293,17 +293,20 @@ actor MockSTTProvider: STTProvider {
     }
 }
 
-actor MockTTSEngine: TTSEngineProtocol {
+final class MockTTSEngine: TTSEngineProtocol, @unchecked Sendable {
     struct SynthCall: Sendable {
         let text: String
         let voiceID: String
     }
 
-    var calls: [SynthCall] = []
-    nonisolated let fillValue: Float
-    nonisolated let shouldFail: Bool
+    // `nonisolated(unsafe)` because `synthesize` is a nonisolated protocol
+    // requirement that records the call. Safe: tests read `calls` only after
+    // synthesis completes, single-threaded.
+    nonisolated(unsafe) private(set) var calls: [SynthCall] = []
+    let fillValue: Float
+    let shouldFail: Bool
 
-    init(fillValue: Float = 0.0, shouldFail: Bool = false) {
+    nonisolated init(fillValue: Float = 0.0, shouldFail: Bool = false) {
         self.fillValue = fillValue
         self.shouldFail = shouldFail
     }
@@ -318,7 +321,7 @@ actor MockTTSEngine: TTSEngineProtocol {
     nonisolated func synthesize(text: String, voiceID: String, options: SynthesisOptions) -> AsyncStream<PCMFrame> {
         let shouldFail = self.shouldFail
         let fillValue = self.fillValue
-        Task { await self.recordCall(text: text, voiceID: voiceID) }
+        calls.append(SynthCall(text: text, voiceID: voiceID))
         return AsyncStream { continuation in
             if shouldFail {
                 XCTFail("MockTTSEngine was called unexpectedly")
@@ -333,9 +336,5 @@ actor MockTTSEngine: TTSEngineProtocol {
             continuation.yield(frame)
             continuation.finish()
         }
-    }
-
-    private func recordCall(text: String, voiceID: String) {
-        calls.append(SynthCall(text: text, voiceID: voiceID))
     }
 }

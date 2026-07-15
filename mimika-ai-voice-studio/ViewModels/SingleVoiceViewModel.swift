@@ -40,9 +40,10 @@ final class SingleVoiceViewModel {
     /// Build the per-call options, pulling user-tunable values (chunk
     /// budget) live from AppState so every synthesize call sees the
     /// latest setting without us caching it.
-    private func currentSynthesisOptions() -> SynthesisOptions {
+    private func currentSynthesisOptions(for voiceID: String) -> SynthesisOptions {
         var options = SynthesisOptions()
         options.chunkTokenBudget = appState.pocketTTSChunkBudget
+        options.seed = VoiceManager.shared.resolveSeedForSynthesis(voiceID: voiceID)
         return options
     }
 
@@ -93,7 +94,7 @@ final class SingleVoiceViewModel {
             // frame-by-frame. Built-in voices and saved voices without an
             // override land at gain == 1.0 (early-return inside applyGain).
             let voiceGain = VoiceLevel.gainFactor(forVoice: snapshotVoice)
-            let engineStream = self.engine.synthesize(text: snapshotText, voiceID: snapshotVoice, options: self.currentSynthesisOptions())
+            let engineStream = self.engine.synthesize(text: snapshotText, voiceID: snapshotVoice, options: self.currentSynthesisOptions(for: snapshotVoice))
             for await frame in engineStream {
                 let scaled = PCMFrame(
                     samples: VoiceLevel.applyGain(frame.samples, gain: voiceGain),

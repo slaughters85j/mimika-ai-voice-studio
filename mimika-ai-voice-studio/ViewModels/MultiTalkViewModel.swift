@@ -85,9 +85,10 @@ final class MultiTalkViewModel {
     /// Build the per-call options, pulling user-tunable values (chunk
     /// budget) live from AppState so every synthesize call sees the
     /// latest setting.
-    private func currentSynthesisOptions() -> SynthesisOptions {
+    private func currentSynthesisOptions(for voiceID: String) -> SynthesisOptions {
         var options = SynthesisOptions()
         options.chunkTokenBudget = appState.pocketTTSChunkBudget
+        options.seed = VoiceManager.shared.resolveSeedForSynthesis(voiceID: voiceID)
         return options
     }
 
@@ -382,7 +383,7 @@ final class MultiTalkViewModel {
             switch chunk {
             case let .text(voiceID, _, body):
                 let gain = voiceGain[voiceID] ?? 1.0
-                for await frame in self.engine.synthesize(text: body, voiceID: voiceID, options: self.currentSynthesisOptions()) {
+                for await frame in self.engine.synthesize(text: body, voiceID: voiceID, options: self.currentSynthesisOptions(for: voiceID)) {
                     // Apply per-voice gain BEFORE the fade-in step so the
                     // fade ramp is computed against the already-scaled
                     // samples (otherwise the gain would clobber the fade
@@ -480,7 +481,7 @@ final class MultiTalkViewModel {
                 print("[MultiTalk-Batch] generating chunk \(chunkIndex)/\(textChunkCount): {\(name)} \"\(body.prefix(40))…\"")
                 let segmentStart = collected.count
                 let gain = voiceGain[voiceID] ?? 1.0
-                for await frame in self.engine.synthesize(text: body, voiceID: voiceID, options: self.currentSynthesisOptions()) {
+                for await frame in self.engine.synthesize(text: body, voiceID: voiceID, options: self.currentSynthesisOptions(for: voiceID)) {
                     collected.append(contentsOf: VoiceLevel.applyGain(frame.samples, gain: gain))
                 }
                 // Apply fade-in to the start of this text segment if it

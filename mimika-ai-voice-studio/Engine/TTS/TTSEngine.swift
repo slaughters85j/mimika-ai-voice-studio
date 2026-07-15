@@ -45,6 +45,16 @@ nonisolated struct SynthesisOptions: Sendable {
     /// streaming, multi-talk script mode don't run the gate).
     var matchOriginalPace: Bool = true
 
+    /// Optional deterministic seed for the per-frame noise draw. When set,
+    /// the whole synthesis is driven by a `SeededGenerator(seed:)` so the
+    /// same seed + same text yields identical audio across runs/launches.
+    /// `nil` (the default) preserves the prior stochastic behavior — the
+    /// engine seeds a generator from a fresh random value each call, so
+    /// unseeded voices still vary run-to-run. Only the streaming synthesis
+    /// paths (Single Voice, Multi-Talk, Chat, Ensemble, Read-Aloud) set
+    /// this, and only for imported voices; stock voices leave it nil.
+    var seed: UInt64? = nil
+
     init() {}
 }
 
@@ -248,6 +258,12 @@ actor TTSEngine: TTSEngineProtocol {
             if case .text = $0 { return true } else { return false }
         }) ?? -1
 
+        // One generator drives the entire synthesis so the noise draw is
+        // reproducible under a supplied seed. When no seed is given we seed
+        // from a fresh random value — identical to the old per-frame system
+        // RNG in outcome (stochastic), but funneled through one code path.
+        var rng = SeededGenerator(seed: options.seed ?? UInt64.random(in: .min ... .max))
+
         for (segIdx, segment) in segments.enumerated() {
             if cancel.isCancelled {
                 print("[PocketTTS] cancelled before segment \(segIdx + 1)/\(segments.count)")
@@ -266,7 +282,8 @@ actor TTSEngine: TTSEngineProtocol {
                     cancel: cancel,
                     isLastTextSegment: isLastTextSegment,
                     prevIsPause: prevIsPause,
-                    nextIsPause: nextIsPause
+                    nextIsPause: nextIsPause,
+                    rng: &rng
                 )
             case let .pause(seconds):
                 yieldSilence(seconds: seconds, continuation: continuation, cancel: cancel)
@@ -299,7 +316,8 @@ actor TTSEngine: TTSEngineProtocol {
         cancel: CancellationFlag,
         isLastTextSegment: Bool,
         prevIsPause: Bool,
-        nextIsPause: Bool
+        nextIsPause: Bool,
+        rng: inout SeededGenerator
     ) throws {
         let normalized = TextNormalizer.normalize(text)
         let chunks = splitForTokenLimit(normalized, budget: options.chunkTokenBudget)
@@ -346,7 +364,8 @@ actor TTSEngine: TTSEngineProtocol {
                 options: options,
                 yield: chunkYield,
                 cancel: cancel,
-                isLastChunk: isLastChunk
+                isLastChunk: isLastChunk,
+                rng: &rng
             )
         }
 
@@ -489,7 +508,8 @@ actor TTSEngine: TTSEngineProtocol {
         options: SynthesisOptions,
         yield: (PCMFrame) -> Void,
         cancel: CancellationFlag,
-        isLastChunk: Bool
+        isLastChunk: Bool,
+        rng: inout SeededGenerator
     ) throws {
         // Per-chunk text prep (P0-3): collapse whitespace, capitalize first,
         // ensure terminal punctuation, pad short prompts. Also yields the
@@ -557,7 +577,7 @@ actor TTSEngine: TTSEngineProtocol {
                 break
             }
             let frameOffset = Int32(tPrompt + step)
-            let noise = sampleTruncNormal(count: K.ldim, std: sqrt(chunkOptions.temperature), clamp: chunkOptions.noiseClamp)
+            let noise = sampleTruncNormal(count: K.ldim, std: sqrt(chunkOptions.temperature), clamp: chunkOptions.noiseClamp, using: &rng)
 
             let (nextLatent, eosLogit) = try runCaLMStep(
                 state: calmState,
@@ -897,9 +917,12 @@ actor TTSEngine: TTSEngineProtocol {
     /// Box-Muller for the underlying normal; rejection for the truncation.
     /// When `clamp` is nil, no truncation is applied (matches Python's
     /// `DEFAULT_NOISE_CLAMP = None`).
-    private func sampleTruncNormal(count: Int, std: Float, clamp: Float?) -> [Float] {
+    ///
+    /// Draws from the caller-supplied `SeededGenerator` (threaded from
+    /// `runSynthesis`) so the whole utterance's noise is reproducible under
+    /// a supplied seed. The generator is advanced in-place across frames.
+    private func sampleTruncNormal(count: Int, std: Float, clamp: Float?, using generator: inout SeededGenerator) -> [Float] {
         var out = [Float](); out.reserveCapacity(count)
-        var generator = SystemRandomNumberGenerator()
         while out.count < count {
             // Two independent uniforms in (0, 1] then Box-Muller for two normals
             let u1 = max(.leastNonzeroMagnitude, Float.random(in: 0..<1, using: &generator))

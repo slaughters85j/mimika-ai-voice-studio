@@ -36,6 +36,7 @@ final class ReadAloudController {
         let voice = appState.chatSettings.readAloudVoiceID
         var options = SynthesisOptions()
         options.chunkTokenBudget = appState.pocketTTSChunkBudget
+        options.seed = VoiceManager.shared.resolveSeedForSynthesis(voiceID: voice)
 
         task?.cancel()
         isSpeaking = true

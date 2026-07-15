@@ -83,6 +83,17 @@ struct ChatSettingsView: View {
             .padding(.vertical, Theme.space2)
             .frame(maxWidth: .infinity, alignment: .leading)
             .themeInputField()
+
+            // Seed affordance for the chat voice. Self-hides for stock voices.
+            if workingCopy.ttsVoiceID.hasPrefix("imported:") {
+                HStack(spacing: Theme.space2) {
+                    Text("Seed")
+                        .font(Theme.fontXS)
+                        .foregroundStyle(Theme.textSecondary)
+                    SeedControl(voiceID: workingCopy.ttsVoiceID, style: .card)
+                    Spacer()
+                }
+            }
         }
     }
 

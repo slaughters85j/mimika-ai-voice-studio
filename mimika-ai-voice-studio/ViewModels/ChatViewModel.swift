@@ -102,9 +102,10 @@ final class ChatViewModel {
 
     /// Build the per-call options, pulling user-tunable values (chunk
     /// budget) live from AppState.
-    private func currentSynthesisOptions() -> SynthesisOptions {
+    private func currentSynthesisOptions(for voiceID: String) -> SynthesisOptions {
         var options = SynthesisOptions()
         options.chunkTokenBudget = appState.pocketTTSChunkBudget
+        options.seed = VoiceManager.shared.resolveSeedForSynthesis(voiceID: voiceID)
         return options
     }
 
@@ -223,7 +224,7 @@ final class ChatViewModel {
                     sentence,
                     stripBracketedTags: self.settings.activeBackend == .pocketTTS
                 )
-                let synthStream = self.engine.synthesize(text: speakable, voiceID: voiceID, options: self.currentSynthesisOptions())
+                let synthStream = self.engine.synthesize(text: speakable, voiceID: voiceID, options: self.currentSynthesisOptions(for: voiceID))
 
                 // Play this sentence and await full drain before the next.
                 do {
