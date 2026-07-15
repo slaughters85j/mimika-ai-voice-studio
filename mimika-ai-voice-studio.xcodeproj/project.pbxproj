@@ -40,12 +40,14 @@
 		898CF712008166ED09428509 /* PersonaWriterIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84227BFAA70DF679C22B62A8 /* PersonaWriterIntegrationTests.swift */; };
 		9033479D61A32A041F03B2A4 /* MicrophoneRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 980F894943A89B60283FDCB8 /* MicrophoneRecorder.swift */; };
 		9A28843F630780EC11A80853 /* RecordingQualityAnalyzer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B324F0FD7499845E6EDA68A4 /* RecordingQualityAnalyzer.swift */; };
+		9B933C945BB6F908E8268066 /* VoiceReferenceExtractorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FFBC61F34B3B4FE53889AD5 /* VoiceReferenceExtractorTests.swift */; };
 		9DED98B73CC5CD304F80E552 /* PersonaProviderStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F370BDBB5B4760D10E87A70 /* PersonaProviderStore.swift */; };
 		9E2C22B523E44E579A198A28 /* MultiSpeakerRevoicer+TimingQA.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C9AE0F121AA4E87B79AAD35 /* MultiSpeakerRevoicer+TimingQA.swift */; };
 		A013435DB894EB392B1C4FBA /* EnsembleCastEditorSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = C39989818B12E30B025277F9 /* EnsembleCastEditorSheet.swift */; };
 		A0480CDCD6300E60AEF23D82 /* ReadAloudController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 618C192D0BBEA3F57D42F7AD /* ReadAloudController.swift */; };
 		AA7E25F17754F920B93BCADA /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A97B7D7AA88A3DC60A651FA9 /* KeychainStore.swift */; };
 		AB17554B5BACBF301B090DD0 /* EnsembleViewModel+Interruption.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8EAA320219AD219F53EF673 /* EnsembleViewModel+Interruption.swift */; };
+		B0DD7DFD4D1D7A54CA46AF10 /* VoiceFromVideoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0978D4197DBDB7F8E50E7337 /* VoiceFromVideoView.swift */; };
 		B2D61E5F956C207E61EC2FE7 /* ReadAloudService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13EF12F88537DFCE2B186DF4 /* ReadAloudService.swift */; };
 		BDF03E2F201819BC6671F989 /* EnsembleSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B3F3E9741D103FD18E981B2 /* EnsembleSettingsView.swift */; };
 		C4A53AC34FF216FE97EC21CD /* VoiceImportQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D14CAF3D19B4833533A0003 /* VoiceImportQueue.swift */; };
@@ -231,6 +233,7 @@
 		D5B7DDB83007F0FB006FE124 /* SeedControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5B7DDB73007F0FB006FE124 /* SeedControl.swift */; };
 		D5B7DDBA3007F177006FE124 /* SeededGeneratorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5B7DDB93007F177006FE124 /* SeededGeneratorTests.swift */; };
 		D9CB8AC833524EFF73383AD6 /* EnsembleViewModel+Context.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6581221A724E53EAD1AF6FF /* EnsembleViewModel+Context.swift */; };
+		DBE7147515474E66609D4E71 /* VoiceReferenceExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1597B0B0B63AF9B310542A57 /* VoiceReferenceExtractor.swift */; };
 		E0F8034B135B4F1CA529959B /* TimingQAEvaluatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5838EA5AC147D58693B01D /* TimingQAEvaluatorTests.swift */; };
 		E860D94181A218CD8B2C5C6B /* MenuBarContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7811C7B05509321C8D2C8261 /* MenuBarContent.swift */; };
 		F32CB45378CA5EE418905F43 /* EnsembleViewModel+Director.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE64C94E90821F9C8BEE43DA /* EnsembleViewModel+Director.swift */; };
@@ -255,9 +258,11 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		0978D4197DBDB7F8E50E7337 /* VoiceFromVideoView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceFromVideoView.swift; sourceTree = "<group>"; };
 		137EDCB8C8114F388B0AA24B /* FluidAudioMergeMapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FluidAudioMergeMapTests.swift; sourceTree = "<group>"; };
 		13EF12F88537DFCE2B186DF4 /* ReadAloudService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ReadAloudService.swift; sourceTree = "<group>"; };
 		14BDDD7B827E5800F6747CE2 /* VoiceRecorderViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceRecorderViewModel.swift; sourceTree = "<group>"; };
+		1597B0B0B63AF9B310542A57 /* VoiceReferenceExtractor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceReferenceExtractor.swift; sourceTree = "<group>"; };
 		22B75B6336F9B9BD064A2D45 /* EnsembleViewModel+Export.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "EnsembleViewModel+Export.swift"; sourceTree = "<group>"; };
 		249331AC0D2C47CABEE10564 /* FluidAudioDiarizationProvider+Clustering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FluidAudioDiarizationProvider+Clustering.swift"; sourceTree = "<group>"; };
 		2BD26F9434166E6F03BF338E /* EnsembleSetupView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EnsembleSetupView.swift; sourceTree = "<group>"; };
@@ -280,6 +285,7 @@
 		6F370BDBB5B4760D10E87A70 /* PersonaProviderStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PersonaProviderStore.swift; sourceTree = "<group>"; };
 		7811C7B05509321C8D2C8261 /* MenuBarContent.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MenuBarContent.swift; sourceTree = "<group>"; };
 		7F7FD647998BDBF0FCC5093A /* PersonaWriterTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PersonaWriterTests.swift; sourceTree = "<group>"; };
+		7FFBC61F34B3B4FE53889AD5 /* VoiceReferenceExtractorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceReferenceExtractorTests.swift; sourceTree = "<group>"; };
 		825023E203638AEB5972C3D1 /* EnsembleContextTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EnsembleContextTests.swift; sourceTree = "<group>"; };
 		84227BFAA70DF679C22B62A8 /* PersonaWriterIntegrationTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PersonaWriterIntegrationTests.swift; sourceTree = "<group>"; };
 		8C50F4576D8DAB6980750D51 /* EnsembleLoopTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EnsembleLoopTests.swift; sourceTree = "<group>"; };
@@ -594,6 +600,7 @@
 				980F894943A89B60283FDCB8 /* MicrophoneRecorder.swift */,
 				B324F0FD7499845E6EDA68A4 /* RecordingQualityAnalyzer.swift */,
 				E17DCFE328FCDD49B674FE73 /* TimingQAEvaluator.swift */,
+				1597B0B0B63AF9B310542A57 /* VoiceReferenceExtractor.swift */,
 			);
 			path = Audio;
 			sourceTree = "<group>";
@@ -836,6 +843,7 @@
 				E9CC17D2ABF0DB738583B68A /* EnsemblePersonaEditorSheet.swift */,
 				7811C7B05509321C8D2C8261 /* MenuBarContent.swift */,
 				326CF9D0C590CC2F94FFF15E /* ReadAloudOnboardingView.swift */,
+				0978D4197DBDB7F8E50E7337 /* VoiceFromVideoView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -969,6 +977,7 @@
 				F4A8DB0CB4A379D65F895344 /* PersonaProviderTests.swift */,
 				D5B7DDB93007F177006FE124 /* SeededGeneratorTests.swift */,
 				2FE23EA2B4A9276C72765F82 /* VoiceImportQueueTests.swift */,
+				7FFBC61F34B3B4FE53889AD5 /* VoiceReferenceExtractorTests.swift */,
 			);
 			path = "mimika-ai-voice-studioTests";
 			sourceTree = "<group>";
@@ -1310,6 +1319,8 @@
 				02678B6169DFFA75BFF7C79E /* ReadAloudOnboardingView.swift in Sources */,
 				71CAE1BB73E4830544DEE602 /* TimingQAEvaluator.swift in Sources */,
 				C4A53AC34FF216FE97EC21CD /* VoiceImportQueue.swift in Sources */,
+				DBE7147515474E66609D4E71 /* VoiceReferenceExtractor.swift in Sources */,
+				B0DD7DFD4D1D7A54CA46AF10 /* VoiceFromVideoView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1371,6 +1382,7 @@
 				898CF712008166ED09428509 /* PersonaWriterIntegrationTests.swift in Sources */,
 				51F494B8D2AA25DB1E3A23B0 /* PersonaProviderTests.swift in Sources */,
 				3D94D0B2063EE9FD1E442766 /* VoiceImportQueueTests.swift in Sources */,
+				9B933C945BB6F908E8268066 /* VoiceReferenceExtractorTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

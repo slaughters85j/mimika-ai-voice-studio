@@ -15,6 +15,9 @@ import UniformTypeIdentifiers
 private enum ImportStep: Equatable {
     case dropZone
     case record
+    /// WP-VMI-2: video was dropped — diarize it and let the user pick a
+    /// speaker as the new voice's reference audio (VoiceFromVideoView).
+    case extractVoice
     case savePreset
     case enhancementSettings
     case enhancing
@@ -32,12 +35,22 @@ struct VoiceManagerView: View {
     /// Reject-enhancement path calls this to cancel any in-flight
     /// background Fish encode + Pocket-TTS KV bake that would
     /// otherwise persist rejected-audio codes / KV. Pairs with
-    /// `inFlightVoiceImportTask` in `ContentView`.
+    /// `voiceImportQueue` in `ContentView`.
     var onCancelEncode: ((String) -> Void)?
+    /// WP-VMI-2: builds the Speaker Isolator VM the voice-from-video
+    /// step drives (needs the engine + Demucs separator, which only
+    /// ContentView can supply). Returns nil while the engine is still
+    /// loading — video drops surface a "try again in a moment" note.
+    var makeIsolatorVM: () -> SpeakerIsolatorViewModel? = { nil }
 
     @State private var showImporter = false
     @State private var importStep: ImportStep = .dropZone
     @State private var pendingFileURL: URL?
+    // Voice-from-video state (WP-VMI-2). The VM lives only for the
+    // duration of one extraction flow; discarded on handoff or cancel.
+    @State private var extractVM: SpeakerIsolatorViewModel?
+    @State private var pendingVideoURL: URL?
+    @State private var dropError: String?
     @State private var voiceName = ""
     @State private var voiceDescription = ""
     // Default OFF until the LavaSR audio-quality fixes (ULUNAS denoiser
@@ -108,6 +121,29 @@ struct VoiceManagerView: View {
                     // Fill the modal's full height so the record step doesn't
                     // shrink the sheet relative to the drop-zone step.
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                case .extractVoice:
+                    if let vm = extractVM, let src = pendingVideoURL {
+                        VoiceFromVideoView(
+                            viewModel: vm,
+                            sourceURL: src,
+                            onUseVoice: { url, suggestedName in
+                                // Hand the extracted reference to the
+                                // standard import flow — from here it's
+                                // the same naming → (optional LavaSR) →
+                                // save → encode-queue path as any WAV.
+                                vm.cancel()
+                                extractVM = nil
+                                pendingVideoURL = nil
+                                pendingFileURL = url
+                                voiceName = suggestedName
+                                voiceDescription = ""
+                                importError = nil
+                                importStep = .savePreset
+                            },
+                            onCancel: { resetImport() }
+                        )
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    }
                 case .savePreset:
                     savePresetView
                 case .enhancementSettings:
@@ -124,14 +160,18 @@ struct VoiceManagerView: View {
         }
         .fileImporter(
             isPresented: $showImporter,
-            allowedContentTypes: [.wav, .mp3, .aiff, .audio],
+            allowedContentTypes: [.wav, .mp3, .aiff, .audio, .movie, .mpeg4Movie],
             allowsMultipleSelection: false
         ) { result in
             if case .success(let urls) = result, let url = urls.first {
-                pendingFileURL = url
-                voiceName = url.deletingPathExtension().lastPathComponent
-                voiceDescription = ""
-                importStep = .savePreset
+                if Self.isVideoFile(url) {
+                    startVideoExtract(url)
+                } else {
+                    pendingFileURL = url
+                    voiceName = url.deletingPathExtension().lastPathComponent
+                    voiceDescription = ""
+                    importStep = .savePreset
+                }
             }
         }
         .task {
@@ -158,6 +198,7 @@ struct VoiceManagerView: View {
         switch importStep {
         case .dropZone: return "Voice Manager"
         case .record: return "Record Voice"
+        case .extractVoice: return "Extract Voice from Video"
         case .savePreset: return "Save Voice Preset"
         case .enhancementSettings, .enhancing, .comparison: return "Enhancement Studio"
         }
@@ -168,8 +209,9 @@ struct VoiceManagerView: View {
         switch importStep {
         case .dropZone:
             isPresented = false
-        case .record, .savePreset:
-            // Nothing persisted yet — discard the pending file/recording.
+        case .record, .savePreset, .extractVoice:
+            // Nothing persisted yet — discard the pending file/recording
+            // (and cancel any in-flight diarization for the video step).
             resetImport()
         case .enhancementSettings:
             // Enhancement hasn't run yet. Import flow: same as the Cancel
@@ -202,6 +244,10 @@ struct VoiceManagerView: View {
 
     private func resetImport() {
         stopPlayback()
+        extractVM?.cancel()
+        extractVM = nil
+        pendingVideoURL = nil
+        dropError = nil
         importStep = .dropZone
         pendingFileURL = nil
         voiceName = ""
@@ -236,7 +282,7 @@ struct VoiceManagerView: View {
                     Image(systemName: "icloud.and.arrow.up")
                         .font(.system(size: 32))
                         .foregroundStyle(Theme.textSecondary)
-                    Text("Drop Audio Here")
+                    Text("Drop Audio or Video Here")
                         .font(Theme.fontSM)
                         .foregroundStyle(Theme.textPrimary)
                     Text("- or -")
@@ -245,6 +291,10 @@ struct VoiceManagerView: View {
                     Text("Click to Upload")
                         .font(Theme.fontSM)
                         .foregroundStyle(Theme.accent)
+                    Text("Drop a video to pull a voice out of any clip — the app detects the speakers and you pick one.")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Theme.textSecondary)
+                        .multilineTextAlignment(.center)
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, Theme.space6)
@@ -256,7 +306,13 @@ struct VoiceManagerView: View {
                 )
             }
             .buttonStyle(.plain)
-            .onDrop(of: [.audio, .fileURL], isTargeted: $isDropTargeted) { handleDrop($0) }
+            .onDrop(of: [.audio, .movie, .mpeg4Movie, .fileURL], isTargeted: $isDropTargeted) { handleDrop($0) }
+
+            if let err = dropError {
+                Text(err)
+                    .font(Theme.fontXS)
+                    .foregroundStyle(Theme.errorFG)
+            }
 
             Button(action: { importStep = .record }) {
                 HStack(spacing: Theme.space2) {
@@ -1159,6 +1215,18 @@ struct VoiceManagerView: View {
 
     private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
         guard let provider = providers.first else { return false }
+        // Video first (WP-VMI-2): an .mp4/.mov routes into the speaker-
+        // extraction flow. Checked before .audio because AV containers
+        // conform to audiovisual-content, not .audio — but a provider
+        // could plausibly register both.
+        if provider.hasItemConformingToTypeIdentifier(UTType.movie.identifier) {
+            provider.loadItem(forTypeIdentifier: UTType.movie.identifier) { item, _ in
+                if let url = item as? URL {
+                    DispatchQueue.main.async { startVideoExtract(url) }
+                }
+            }
+            return true
+        }
         if provider.hasItemConformingToTypeIdentifier(UTType.audio.identifier) {
             provider.loadItem(forTypeIdentifier: UTType.audio.identifier) { item, _ in
                 if let url = item as? URL {
@@ -1175,14 +1243,50 @@ struct VoiceManagerView: View {
             provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier) { item, _ in
                 if let data = item as? Data, let url = URL(dataRepresentation: data, relativeTo: nil) {
                     DispatchQueue.main.async {
-                        pendingFileURL = url
-                        voiceName = url.deletingPathExtension().lastPathComponent
-                        importStep = .savePreset
+                        if Self.isVideoFile(url) {
+                            startVideoExtract(url)
+                        } else {
+                            pendingFileURL = url
+                            voiceName = url.deletingPathExtension().lastPathComponent
+                            importStep = .savePreset
+                        }
                     }
                 }
             }
             return true
         }
         return false
+    }
+
+    // MARK: - Voice from video (WP-VMI-2)
+
+    /// True for AV containers (.mp4/.mov/.m4v/…) that should route into
+    /// the speaker-extraction flow instead of the direct import. Audio-
+    /// only formats (.m4a included) conform to .audio, not .movie, so
+    /// they keep the existing path.
+    private static func isVideoFile(_ url: URL) -> Bool {
+        guard let type = UTType(filenameExtension: url.pathExtension.lowercased()) else {
+            return false
+        }
+        return type.conforms(to: .movie)
+    }
+
+    /// Kick off diarization on a dropped video with a dedicated isolator
+    /// VM. Audio preservation is forced ON (no toggle): when the HTDemucs
+    /// model is installed the picked voice comes from the vocals stem
+    /// (background stripped); when it's missing the VM soft-falls back
+    /// to the mix and VoiceFromVideoView surfaces the install banner.
+    private func startVideoExtract(_ url: URL) {
+        guard let vm = makeIsolatorVM() else {
+            dropError = "The speech engine is still loading — drop the video again in a moment."
+            return
+        }
+        dropError = nil
+        vm.audioPreservationEnabled = true
+        vm.setInputAudio(url)
+        extractVM = vm
+        pendingVideoURL = url
+        importStep = .extractVoice
+        vm.convertAndIsolate()
     }
 }

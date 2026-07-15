@@ -5,11 +5,47 @@ commits; a WP is only **Complete** after user validation.
 
 ## Current Focus
 
-WP-VMI-1 (Voice Manager import hardening) is COMPLETE (user-validated) on
-`improved-custom-voice-import` — next up is the new Voice Manager feature
-the user held back until these fixes landed. v1.5.5 shipped (released +
-App Store Connect build cut). Remaining open WPs: WP-VIT-3 (in-app editor)
-and WP-VIT-4 (cleanup).
+WP-VMI-2 (voice from video) is COMPLETE (user-validated) on
+`improved-custom-voice-import`. Next: a user-reported follow-up bug in the
+original (audio) import flow — details pending from the user. v1.5.5
+shipped (released + App Store Connect build cut). Remaining open WPs:
+WP-VIT-3 (in-app editor) and WP-VIT-4 (cleanup).
+
+---
+
+## WP-VMI-2 — Voice from video (extract a custom voice via speaker isolation)
+
+**Status:** COMPLETE (user-validated — "that worked really well").
+
+Drop an .mp4/.mov onto the Voice Manager's drop zone (or pick one via
+Click to Upload) and the app diarizes it, shows the detected speakers with
+previews, and lets the user pick one as a new custom voice — no audio
+tooling required. One-shot scope (user-directed, no v2 holdbacks):
+
+- Video routes to a new `.extractVoice` import step hosting
+  `VoiceFromVideoView`, which drives a dedicated `SpeakerIsolatorViewModel`
+  (constructed by ContentView's `makeIsolatorVM` factory) through
+  load → diarize → [separate] → isolate. Audio files keep the direct flow.
+- **Background stripping is always on, no toggle:** the VM runs with
+  `audioPreservationEnabled = true`, so picked speech comes from the
+  HTDemucs vocals stem whenever the model is installed. Phase 7 guardrail
+  honored — the 287 MB model never auto-downloads; when missing, the
+  existing soft-fallback banner (`SeparationStatusBanner`) surfaces the
+  Manage Separation Models sheet and extraction proceeds from the mix.
+- **Number of Speakers stepper + Re-detect** included in the picker step
+  (same merge-down semantics as the full Diarization Settings panel).
+- Picker rows reuse `MiniAudioPlayer` (with the SpeakerRow content-
+  fingerprint `.id` trick so Re-detect can't leave a stale preview).
+- "Use This Voice" → `VoiceReferenceExtractor.extractReference`: exact-zero
+  gap stripping (run-length-gated at 50 ms so lone zero-crossing samples
+  don't fragment segments), 5 ms linear crossfades at joins (hard cuts
+  click and poison the KV bake), 30 s cap (PocketTTSVoiceEncoder uses at
+  most the first 15 s) → temp WAV → the standard Save Voice Preset flow
+  (naming, optional LavaSR, encode queue) unchanged.
+
+Tests: VoiceReferenceExtractorTests (9) — run detection incl. the lone-
+zero-sample case, gap removal, crossfade continuity, caps, degenerate
+inputs, single-segment passthrough.
 
 ---
 

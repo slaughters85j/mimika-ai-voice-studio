@@ -211,6 +211,22 @@ struct ContentView: View {
                     // encoding before it persists rejected-audio codes/KV.
                     // Per-voice: other queued imports are unaffected.
                     voiceImportQueue?.cancel(voiceID: voiceID)
+                },
+                makeIsolatorVM: {
+                    // Voice-from-video (WP-VMI-2): a dedicated isolator VM
+                    // per extraction. Same construction as the Speaker
+                    // Isolator sheet's; nil while the engine is loading
+                    // (activeEngine force-unwraps the pocket engine).
+                    guard appState.engine != nil else { return nil }
+                    let demucsPath = DemucsModelManager.shared
+                        .expectedModelFolderURL(for: .htdemucs)
+                    return SpeakerIsolatorViewModel(
+                        engine: appState.activeEngine,
+                        sourceSeparator: DemucsSourceSeparator(
+                            variant: .htdemucs,
+                            modelFolderURL: demucsPath
+                        )
+                    )
                 }
             )
         }
