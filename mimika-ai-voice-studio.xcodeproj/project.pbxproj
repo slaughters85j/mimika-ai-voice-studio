@@ -20,6 +20,7 @@
 		3B947C4C702E6599267A96C7 /* SpokenTurnRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B816255BCAB7DCB5A4173F /* SpokenTurnRunner.swift */; };
 		3D94D0B2063EE9FD1E442766 /* VoiceImportQueueTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FE23EA2B4A9276C72765F82 /* VoiceImportQueueTests.swift */; };
 		3DFDA165D3AD47FD892B6C95 /* SynthesisQuiescenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2287130C0374F6BBC43D3CC /* SynthesisQuiescenceTests.swift */; };
+		45DE81AD8DF645A2A1768900 /* EnsembleViewModel+PersonaEdit.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2ADB677568344C7900E266C /* EnsembleViewModel+PersonaEdit.swift */; };
 		4726C0A5D9D4E0CFC1848D28 /* JSONExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55A819B4287E427883CE6048 /* JSONExtractor.swift */; };
 		51F494B8D2AA25DB1E3A23B0 /* PersonaProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4A8DB0CB4A379D65F895344 /* PersonaProviderTests.swift */; };
 		5541B2D0AA6F43724ABD380C /* EnsembleSurfaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDBCAE0FB784C0AF344F9A30 /* EnsembleSurfaceView.swift */; };
@@ -36,7 +37,9 @@
 		6A314EED446FDAD5C0C74A87 /* EnsembleStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A883F854A5733B5667175CB9 /* EnsembleStore.swift */; };
 		6D3F9D1982689A0AD1288331 /* LoginItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5156D3D95022FB496A27A779 /* LoginItem.swift */; };
 		71CAE1BB73E4830544DEE602 /* TimingQAEvaluator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E17DCFE328FCDD49B674FE73 /* TimingQAEvaluator.swift */; };
+		780BDDD6BFD04218955EFB02 /* MultiTalkBackendSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE3D617C12DF4B7E8175338A /* MultiTalkBackendSyncTests.swift */; };
 		791312E1662ACD556A094935 /* PersonaWriterProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA57A04680A7A9C7EE53AED1 /* PersonaWriterProvider.swift */; };
+		81CF5D6A0CE94A3CB65AAD71 /* MultiTalkViewModel+BackendSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2412089BD2E4126ADE03040 /* MultiTalkViewModel+BackendSync.swift */; };
 		8987AE9737BFC5235FBFCB76 /* EnsembleModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DD2824F42C62169628B96DE /* EnsembleModels.swift */; };
 		898CF712008166ED09428509 /* PersonaWriterIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84227BFAA70DF679C22B62A8 /* PersonaWriterIntegrationTests.swift */; };
 		9033479D61A32A041F03B2A4 /* MicrophoneRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 980F894943A89B60283FDCB8 /* MicrophoneRecorder.swift */; };
@@ -294,6 +297,7 @@
 		9140AC48D1DDEDF29BA38333 /* LocalLLMClientTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LocalLLMClientTests.swift; sourceTree = "<group>"; };
 		980F894943A89B60283FDCB8 /* MicrophoneRecorder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MicrophoneRecorder.swift; sourceTree = "<group>"; };
 		9F063B7FB9F736C210A43433 /* EnsembleViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EnsembleViewModel.swift; sourceTree = "<group>"; };
+		A2412089BD2E4126ADE03040 /* MultiTalkViewModel+BackendSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MultiTalkViewModel+BackendSync.swift"; sourceTree = "<group>"; };
 		A883F854A5733B5667175CB9 /* EnsembleStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EnsembleStore.swift; sourceTree = "<group>"; };
 		A97B7D7AA88A3DC60A651FA9 /* KeychainStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
 		AD88380CD0677E849D049018 /* DirectorPrompt.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DirectorPrompt.swift; sourceTree = "<group>"; };
@@ -507,8 +511,10 @@
 		E464314A8241A9CB95AC93CF /* Conductor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Conductor.swift; sourceTree = "<group>"; };
 		E6581221A724E53EAD1AF6FF /* EnsembleViewModel+Context.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "EnsembleViewModel+Context.swift"; sourceTree = "<group>"; };
 		E9CC17D2ABF0DB738583B68A /* EnsemblePersonaEditorSheet.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EnsemblePersonaEditorSheet.swift; sourceTree = "<group>"; };
+		F2ADB677568344C7900E266C /* EnsembleViewModel+PersonaEdit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "EnsembleViewModel+PersonaEdit.swift"; sourceTree = "<group>"; };
 		F4A8DB0CB4A379D65F895344 /* PersonaProviderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PersonaProviderTests.swift; sourceTree = "<group>"; };
 		FA57A04680A7A9C7EE53AED1 /* PersonaWriterProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PersonaWriterProvider.swift; sourceTree = "<group>"; };
+		FE3D617C12DF4B7E8175338A /* MultiTalkBackendSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultiTalkBackendSyncTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -790,6 +796,7 @@
 				D53CE5E32FD2FADC0071832E /* ChatViewModel+Dictation.swift */,
 				D53CE5E42FD2FADC0071832E /* HistoryViewModel.swift */,
 				D53CE5E52FD2FADC0071832E /* MultiTalkViewModel.swift */,
+				A2412089BD2E4126ADE03040 /* MultiTalkViewModel+BackendSync.swift */,
 				D53CE5E62FD2FADC0071832E /* SingleVoiceViewModel.swift */,
 				D53CE5E72FD2FADC0071832E /* SpeakerIsolatorPipeline.swift */,
 				D53CE5E82FD2FADC0071832E /* SpeakerIsolatorViewModel.swift */,
@@ -800,6 +807,7 @@
 				14BDDD7B827E5800F6747CE2 /* VoiceRecorderViewModel.swift */,
 				E3B816255BCAB7DCB5A4173F /* SpokenTurnRunner.swift */,
 				9F063B7FB9F736C210A43433 /* EnsembleViewModel.swift */,
+				F2ADB677568344C7900E266C /* EnsembleViewModel+PersonaEdit.swift */,
 				E6581221A724E53EAD1AF6FF /* EnsembleViewModel+Context.swift */,
 				D8EAA320219AD219F53EF673 /* EnsembleViewModel+Interruption.swift */,
 				22B75B6336F9B9BD064A2D45 /* EnsembleViewModel+Export.swift */,
@@ -955,6 +963,7 @@
 				137EDCB8C8114F388B0AA24B /* FluidAudioMergeMapTests.swift */,
 				6376C1B133A1450D856F766D /* RevoicePrecisionTests.swift */,
 				5E5838EA5AC147D58693B01D /* TimingQAEvaluatorTests.swift */,
+				FE3D617C12DF4B7E8175338A /* MultiTalkBackendSyncTests.swift */,
 				D53CE6392FD2FADC0071832E /* SilencePreservingScriptBuilderTests.swift */,
 				D53CE63A2FD2FADC0071832E /* SourceSeparatorProtocolTests.swift */,
 				D53CE63B2FD2FADC0071832E /* SpeakerIsolatorTests.swift */,
@@ -1265,6 +1274,7 @@
 				D53CE6D42FD2FADC0071832E /* SingleVoiceViewModel.swift in Sources */,
 				D53CE6D52FD2FADC0071832E /* AACEncoder.swift in Sources */,
 				D53CE6D62FD2FADC0071832E /* MultiTalkViewModel.swift in Sources */,
+				81CF5D6A0CE94A3CB65AAD71 /* MultiTalkViewModel+BackendSync.swift in Sources */,
 				D5B7DDB83007F0FB006FE124 /* SeedControl.swift in Sources */,
 				D53CE6D72FD2FADC0071832E /* HistoryView.swift in Sources */,
 				D53CE6D82FD2FADC0071832E /* ScriptGeneratorModal.swift in Sources */,
@@ -1298,6 +1308,7 @@
 				3B947C4C702E6599267A96C7 /* SpokenTurnRunner.swift in Sources */,
 				1C49B7C9EA40FE27EA70173C /* Conductor.swift in Sources */,
 				677D580326185F4D444FE23A /* EnsembleViewModel.swift in Sources */,
+				45DE81AD8DF645A2A1768900 /* EnsembleViewModel+PersonaEdit.swift in Sources */,
 				D9CB8AC833524EFF73383AD6 /* EnsembleViewModel+Context.swift in Sources */,
 				5541B2D0AA6F43724ABD380C /* EnsembleSurfaceView.swift in Sources */,
 				37D19F12A7E498FA669E37BB /* PersonaContracts.swift in Sources */,
@@ -1365,6 +1376,7 @@
 				346371225B294FC499E97264 /* FluidAudioMergeMapTests.swift in Sources */,
 				1523E447CEA843EFA1FE7E1D /* RevoicePrecisionTests.swift in Sources */,
 				E0F8034B135B4F1CA529959B /* TimingQAEvaluatorTests.swift in Sources */,
+				780BDDD6BFD04218955EFB02 /* MultiTalkBackendSyncTests.swift in Sources */,
 				D53CE6DD2FD2FADC0071832E /* HistoryStoreTests.swift in Sources */,
 				D53CE6DF2FD2FADC0071832E /* VoiceEnhancerSoftClipTests.swift in Sources */,
 				D53CE6E22FD2FADC0071832E /* LavaSRFastLRMergeTests.swift in Sources */,

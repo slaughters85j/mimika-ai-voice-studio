@@ -64,6 +64,11 @@ final class EnsembleCast {
     /// is exposed separately so it can differ from the speaker model.
     var writerModel: String
     var conductorModel: String
+    /// The human peer's display name at save time — restored on cast load
+    /// so the Multi-Talk export's name-matched user-voice lookup keeps
+    /// working after a relaunch. Additive with a default so existing rows
+    /// migrate cleanly.
+    var userPeerName: String = ""
     var createdAt: Date
     var updatedAt: Date
 

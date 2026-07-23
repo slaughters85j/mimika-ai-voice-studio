@@ -32,8 +32,15 @@ struct EnsembleSetupView: View {
     @State private var showsPromptManager = false
     @State private var editTarget: PersonaEditTarget?
 
-    /// Identifiable wrapper so a persona index can drive a `.sheet(item:)`.
-    private struct PersonaEditTarget: Identifiable { let id: Int }
+    /// Identifiable wrapper driving the persona-editor `.sheet(item:)`.
+    /// Carries a SNAPSHOT of the persona's editable fields so the sheet
+    /// needs no index guard and no live array bindings (the write-back is
+    /// bounds-checked once, on close).
+    private struct PersonaEditTarget: Identifiable {
+        let id: Int
+        let name: String
+        let prompt: String
+    }
 
     init(viewModel: EnsembleViewModel, voices: [BundledVoice], appState: AppState, onDone: @escaping () -> Void) {
         self.viewModel = viewModel
@@ -44,7 +51,7 @@ struct EnsembleSetupView: View {
     }
 
     var body: some View {
-        ModalContainer(title: "New Ensemble Cast", onClose: onDone, fillsSheet: true) {
+        ModalContainer(title: "New Ensemble Cast", onClose: onDone) {
             VStack(alignment: .leading, spacing: Theme.space4) {
                 switch step {
                 case .count:   countStep
@@ -63,7 +70,19 @@ struct EnsembleSetupView: View {
                 PromptManagerSheet(isPresented: $showsPromptManager, scope: .ensemble)
             }
             .sheet(item: $editTarget) { target in
-                EnsemblePersonaEditorSheet(writer: writer, index: target.id) { editTarget = nil }
+                EnsemblePersonaEditorSheet(
+                    initialName: target.name,
+                    initialPrompt: target.prompt
+                ) { name, prompt in
+                    // Bounds-checked write-back: if the writer rebuilt a
+                    // smaller cast while the sheet was up, the edit is
+                    // dropped rather than trapping on a stale index.
+                    if writer.personas.indices.contains(target.id) {
+                        writer.personas[target.id].name = name
+                        writer.personas[target.id].personaPrompt = prompt
+                    }
+                    editTarget = nil
+                }
             }
         }
     }
@@ -209,7 +228,13 @@ struct EnsembleSetupView: View {
                                     Text(persona.voice).font(Theme.fontXS).foregroundStyle(Theme.textSecondary)
                                 }
                                 Spacer()
-                                Button(action: { editTarget = PersonaEditTarget(id: index) }) {
+                                Button(action: {
+                                    editTarget = PersonaEditTarget(
+                                        id: index,
+                                        name: persona.name,
+                                        prompt: persona.personaPrompt
+                                    )
+                                }) {
                                     Image(systemName: "pencil")
                                         .font(.system(size: 12))
                                         .foregroundStyle(Theme.accent)

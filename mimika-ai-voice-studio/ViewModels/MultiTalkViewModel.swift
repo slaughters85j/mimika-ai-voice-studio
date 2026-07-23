@@ -60,14 +60,31 @@ final class MultiTalkViewModel {
     var voiceNameResolver: ((String) -> String?)?
 
     // MARK: - Outputs
-    var status: SynthesisStatus = .idle
+    var status: SynthesisStatus = .idle {
+        didSet {
+            // A backend switch that arrived mid-synthesis parked itself
+            // here (mutating script/cards under a running parse desyncs
+            // display from audio) — apply it as soon as the run ends.
+            if !status.isWorking, let backend = pendingBackendSync {
+                pendingBackendSync = nil
+                syncToBackend(backend)
+            }
+        }
+    }
+
+    /// Backend reconciliation deferred because a synthesis was running —
+    /// see `syncToBackend` in MultiTalkViewModel+BackendSync.swift.
+    var pendingBackendSync: TTSBackendType?
     var lastResultSamples: [Float]? = nil
     var lastError: String? = nil
 
     // MARK: - Deps
     private var engine: any TTSEngineProtocol
     private let player: StreamingPlayer
-    private let appState: AppState
+    /// Internal (not private): the backend-sync sibling file's extension
+    /// (MultiTalkViewModel+BackendSync.swift) reads the persisted tag
+    /// display mode through it.
+    let appState: AppState
     private var modelContext: ModelContext?
     private var currentTask: Task<Void, Never>?
 
@@ -80,6 +97,26 @@ final class MultiTalkViewModel {
         self.engine = engine
         self.player = player
         self.appState = appState
+
+        // Default voice-name resolver — VM-owned so backend reconciliation
+        // works even before the Multi-Talk tab has ever appeared (the view
+        // used to install this in .onAppear, which left the resolver nil
+        // for backend switches made from other tabs). `engine` here is the
+        // Pocket engine at construction time, whose catalog names the
+        // stock voices; setEngine later swapping to Fish doesn't matter —
+        // stock IDs and names are static.
+        let stockNames = Dictionary(uniqueKeysWithValues:
+            engine.availableVoiceIDs().map { ($0, BundledVoice(predefined: $0).name) })
+        self.voiceNameResolver = { voiceID in
+            // Fish's built-in voice — matches the picker's label.
+            if voiceID == "fish-default" { return "Default Voice" }
+            if let stock = stockNames[voiceID] { return stock }
+            if voiceID.hasPrefix("imported:") {
+                return VoiceManager.shared.voice(for: String(voiceID.dropFirst("imported:".count)))?.name
+            }
+            // Fish saved-voice IDs are the RAW VoiceManager UUID.
+            return VoiceManager.shared.voice(for: voiceID)?.name
+        }
     }
 
     /// Build the per-call options, pulling user-tunable values (chunk
@@ -125,20 +162,60 @@ final class MultiTalkViewModel {
 
     func setModelContext(_ ctx: ModelContext) { self.modelContext = ctx }
 
-    func applyReuse(script: String, speakers: [SpeakerRef]) {
-        self.script = script
-        self.speakers = speakers.enumerated().map { (i, ref) in
-            MultiTalkSpeaker(name: ref.name, voiceID: ref.voiceID)
+    func applyReuse(script: String, speakers refs: [SpeakerRef], normalizeSpeakers: Bool) {
+        // Card names ARE the speaker identities. Two origins:
+        //   * normalizeSpeakers == false (History reuse): the saved card
+        //     names ("Alice", "Andy") restore VERBATIM — reuse gives back
+        //     exactly the setup the user built, and re-synthesis saves
+        //     the same names again.
+        //   * normalizeSpeakers == true (Ensemble episodes, Solo-chat
+        //     transcripts — sources without user-authored cards): cards
+        //     arrive as generic "Speaker N" and tags canonicalize to
+        //     match; the persona↔voice assignment carries the identity.
+        //
+        // Either way, tags are rewritten TO the card labels through the
+        // same canonicalizer: ref-name tags map to their card's label,
+        // and voice-name-form tags (a script saved in Voice-names mode)
+        // map via each ref's resolved PRE-remap voice name — so they
+        // land on a card instead of stranding after a cross-backend
+        // remap. Only names resolved by exactly one ref qualify. Tags
+        // matching nothing survive as-is.
+        let labels: [String] = refs.enumerated().map { (i, ref) in
+            let trimmed = ref.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            return (normalizeSpeakers || trimmed.isEmpty) ? "Speaker \(i + 1)" : trimmed
+        }
+        var aliasCounts: [String: Int] = [:]
+        for ref in refs {
+            if let vn = voiceNameResolver?(ref.voiceID) { aliasCounts[vn, default: 0] += 1 }
+        }
+        var aliases: [String: Int] = [:]
+        for (i, ref) in refs.enumerated() {
+            if let vn = voiceNameResolver?(ref.voiceID), aliasCounts[vn] == 1 { aliases[vn] = i }
+        }
+        self.script = Self.canonicalizedScript(script, refs: refs, voiceNameAliases: aliases, labels: labels)
+        self.speakers = zip(labels, refs).map { label, ref in
+            MultiTalkSpeaker(name: label, voiceID: ref.voiceID)
         }
         if self.speakers.isEmpty {
             self.speakers = [MultiTalkSpeaker(name: "Speaker 1", voiceID: BundledVoice.default.id)]
         }
+        // Land on the active backend's voice-ID scheme (an Ensemble
+        // export carries Pocket IDs even when Fish is active), then put
+        // the tags in the form the Script Display toggle promises.
+        remapSpeakerVoices(to: appState.chatSettings.activeBackend)
+        syncScriptTagsToDisplayMode()
     }
 
     // MARK: - Speaker editing
     func addSpeaker() {
         let n = speakers.count + 1
-        speakers.append(MultiTalkSpeaker(name: "Speaker \(n)", voiceID: BundledVoice.default.id))
+        // Backend-aware default: a Pocket stock ID under Fish would
+        // render the new card's picker as "Unavailable Voice" and
+        // silently synthesize with a different voice than shown.
+        let vid = appState.chatSettings.activeBackend == .fishSpeech
+            ? "fish-default"
+            : BundledVoice.default.id
+        speakers.append(MultiTalkSpeaker(name: "Speaker \(n)", voiceID: vid))
     }
 
     func removeSpeaker(at idx: Int) {
@@ -191,6 +268,14 @@ final class MultiTalkViewModel {
             }
         }
 
+        // Rewriting a tag INTO a shared (or blank) name is irreversible —
+        // two speakers' tags become one and can never be told apart again.
+        // Both directions therefore only rewrite via names carried by
+        // exactly ONE speaker (helpers in MultiTalkViewModel+BackendSync);
+        // everything else keeps its current tag form until fixed.
+        let uniqueVoiceNames = uniquelyResolvedVoiceNames()
+        let uniqueLabels = uniqueSpeakerLabels()
+
         let pattern = #"\{([^{}]+)\}"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return }
         let ns = script as NSString
@@ -205,9 +290,12 @@ final class MultiTalkViewModel {
             let replacement: String
             switch newMode {
             case .speakerLabel:
-                replacement = speaker.name
+                let label = speaker.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard uniqueLabels.contains(label) else { continue }
+                replacement = label
             case .voiceName:
-                guard let vn = voiceNameResolver?(speaker.voiceID) else { continue }
+                guard let vn = voiceNameResolver?(speaker.voiceID),
+                      uniqueVoiceNames.contains(vn) else { continue }
                 replacement = vn
             }
             if replacement == name { continue }   // already in the right form
@@ -232,19 +320,10 @@ final class MultiTalkViewModel {
         let newTrimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !oldTrimmed.isEmpty, !newTrimmed.isEmpty, oldTrimmed != newTrimmed else { return }
 
-        // `oldName` is user input, so any regex metachar in it has to
-        // be escaped before we splice it into the pattern. Same for
-        // the replacement template (newTrimmed could include `$`).
-        let pattern = #"\{\s*"# + NSRegularExpression.escapedPattern(for: oldTrimmed) + #"\s*\}"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return }
-        let template = "{" + NSRegularExpression.escapedTemplate(for: newTrimmed) + "}"
-
-        let ns = script as NSString
-        let result = regex.stringByReplacingMatches(
-            in: script,
-            range: NSRange(location: 0, length: ns.length),
-            withTemplate: template
-        )
+        // Delegates to the shared escaped-regex tag rewriter in
+        // MultiTalkViewModel+BackendSync.swift (`oldName` is user input,
+        // so metachars must be escaped — replaceTags handles both sides).
+        let result = Self.replaceTags(in: script, name: oldTrimmed, with: newTrimmed)
         if result != script { script = result }
     }
 
@@ -288,6 +367,12 @@ final class MultiTalkViewModel {
         speakers = names.enumerated().map { i, name in
             MultiTalkSpeaker(name: name, voiceID: voiceIDs[i % voiceIDs.count])
         }
+        // Generated cards keep the AI's character names as labels (they
+        // match the generated script's tags), but the round-robin voices
+        // are Pocket bundled IDs — remap for Fish and honor the current
+        // Script Display mode.
+        remapSpeakerVoices(to: appState.chatSettings.activeBackend)
+        syncScriptTagsToDisplayMode()
     }
 
     // MARK: - Synthesis

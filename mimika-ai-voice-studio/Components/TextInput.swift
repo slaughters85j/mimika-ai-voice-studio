@@ -130,10 +130,20 @@ struct TextInput: View {
             .themeInputField()
 
             // Footer
-            HStack {
+            HStack(spacing: Theme.space3) {
                 Text("\(wordCount) words")
                     .font(Theme.fontXS)
                     .foregroundStyle(Theme.textSecondary)
+                // Discoverability hint — the editor's NSTextView already has
+                // usesFindBar enabled (MacTextEditor), and the standard macOS
+                // find bar (with replace) opens on ⌘F when the editor has
+                // focus. Hidden while the editor is read-only (during
+                // synthesis) — Replace silently no-ops there.
+                if !disabled {
+                    Text("⌘F to find & replace")
+                        .font(Theme.fontXS)
+                        .foregroundStyle(Theme.textSecondary.opacity(0.7))
+                }
                 Spacer()
                 Text("\(text.count) chars")
                     .font(Theme.fontXS)

@@ -18,9 +18,12 @@ import SwiftUI
 struct ModalContainer<Content: View>: View {
     let title: String
     let onClose: () -> Void
-    /// When true, fill the host `.sheet` instead of drawing an inset, dimmed,
-    /// centered card (the sheet supplies the window chrome).
-    var fillsSheet: Bool = false
+    /// When true (the DEFAULT — almost every ModalContainer is hosted in a
+    /// `.sheet`), fill the host sheet edge-to-edge and let it supply the
+    /// window chrome. Pass `false` only for true ZStack overlays layered
+    /// over a page (PauseModal, ScriptGeneratorModal) — inside a `.sheet`,
+    /// overlay mode's scrim + inset render as a black frame around the card.
+    var fillsSheet: Bool = true
     @ViewBuilder var content: Content
 
     var body: some View {

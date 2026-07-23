@@ -618,6 +618,14 @@ final class VoiceManager {
         voices.first { $0.id == id }
     }
 
+    /// Saved voices usable on the Pocket-TTS backend (have a baked KV
+    /// file). The single source of the "Pocket-capable" predicate —
+    /// pickers, the Ensemble exporter, and the backend remap consume
+    /// this instead of re-filtering `voices` at each site.
+    var pocketCapableVoices: [Voice] {
+        voices.filter { $0.pocketTTSKVPath != nil }
+    }
+
     func wavURL(for voiceID: String) -> URL? {
         guard let voice = voice(for: voiceID) else { return nil }
         let url = URL(fileURLWithPath: voice.wavPath)

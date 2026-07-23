@@ -15,7 +15,7 @@ struct PauseModal: View {
     private let presets: [Double] = [0.5, 1.0, 2.0, 3.0, 5.0]
 
     var body: some View {
-        ModalContainer(title: "Insert Pause", onClose: dismiss) {
+        ModalContainer(title: "Insert Pause", onClose: dismiss, fillsSheet: false) {
             VStack(alignment: .leading, spacing: Theme.space4) {
                 Text("Insert a silent pause into the script. The synthesizer treats `[Xs]` markers as silence of X seconds.")
                     .font(Theme.fontSM)

@@ -170,18 +170,42 @@ struct MultiTalkView: View {
             // voice), the rename clobbers the wrong lines.
             let mode = appState.multiTalkTagDisplayMode
             let oldByID = Dictionary(uniqueKeysWithValues: oldSpeakers.map { ($0.id, $0) })
+            var voiceRepickOccurred = false
             for new in newSpeakers {
                 guard let old = oldByID[new.id] else { continue }
+                if old.voiceID != new.voiceID { voiceRepickOccurred = true }
                 if mode == .speakerLabel, old.name != new.name {
                     viewModel.renameSpeakerTags(from: old.name, to: new.name)
                 }
                 if mode == .voiceName, old.voiceID != new.voiceID,
                    let oldVN = viewModel.voiceNameResolver?(old.voiceID),
                    let newVN = viewModel.voiceNameResolver?(new.voiceID),
-                   oldVN != newVN
+                   oldVN != newVN,
+                   // Collision guard: renaming INTO a name another
+                   // speaker resolves to merges two speakers' tags
+                   // irreversibly, and renaming FROM a shared name drags
+                   // the other speaker's lines along. Skip either case —
+                   // the tags keep their current form (recoverable) and
+                   // applyTagMode's uniqueness guard stays authoritative.
+                   !newSpeakers.contains(where: { other in
+                       other.id != new.id &&
+                       [oldVN, newVN].contains(viewModel.voiceNameResolver?(other.voiceID) ?? "")
+                   })
                 {
                     viewModel.renameSpeakerTags(from: oldVN, to: newVN)
                 }
+            }
+            // A voice re-pick is also the moment to reconcile tags that
+            // were ALREADY out of sync with the display mode (a script
+            // stranded in {Speaker N} form while "Voice names" is
+            // selected after a backend switch). Voice-names mode ONLY:
+            // in Speaker-labels mode a script can only be "out of sync"
+            // through deliberate mixed-form typing (which the parser
+            // supports), and rewriting it here would yank the user's
+            // typed tags — and the editor's undo state — out from under
+            // them on an unrelated card's re-pick.
+            if voiceRepickOccurred, mode == .voiceName {
+                viewModel.syncScriptTagsToDisplayMode()
             }
         }
         .onAppear {
@@ -191,22 +215,14 @@ struct MultiTalkView: View {
             // transform AND by the parser's voice-name lookup so tags
             // like `{Beverly Crusher Normal}` are recognized in
             // addition to `{Speaker 1}` labels.
-            let bundledByID = Dictionary(uniqueKeysWithValues: voices.map { ($0.id, $0.name) })
-            viewModel.voiceNameResolver = { voiceID in
-                if let bundled = bundledByID[voiceID] { return bundled }
-                if voiceID.hasPrefix("imported:") {
-                    let uuid = String(voiceID.dropFirst("imported:".count))
-                    return VoiceManager.shared.voice(for: uuid)?.name
-                }
-                return nil
-            }
-            if case let .multi(script, speakers) = pendingReuse {
-                if chatSettings.activeBackend == .fishSpeech {
-                    let fishSpeakers = speakers.map { SpeakerRef(name: $0.name, voiceID: "fish-default") }
-                    viewModel.applyReuse(script: script, speakers: fishSpeakers)
-                } else {
-                    viewModel.applyReuse(script: script, speakers: speakers)
-                }
+            // voiceNameResolver is VM-owned (installed in
+            // MultiTalkViewModel.init) so backend reconciliation works
+            // even before this tab first appears — nothing to set here.
+            if case let .multi(script, speakers, normalize) = pendingReuse {
+                // applyReuse canonicalizes tags per the payload's origin,
+                // remaps voice IDs to the active backend, and syncs the
+                // display mode itself — no backend special-casing here.
+                viewModel.applyReuse(script: script, speakers: speakers, normalizeSpeakers: normalize)
                 pendingReuse = nil
             }
         }
@@ -343,11 +359,18 @@ struct MultiTalkView: View {
                         disabled: viewModel.status.isWorking,
                         onInsertToScript: { name in
                             // Honor the current tag mode: in .voiceName,
-                            // insert the assigned voice's display name
-                            // rather than the speaker's card label.
+                            // insert the assigned voice's display name —
+                            // but ONLY when that name uniquely identifies
+                            // this speaker. A shared name would insert an
+                            // ambiguous tag the parser resolves last-wins
+                            // (wrong voice speaks) and the uniqueness
+                            // guard can never rewrite. Fall back to the
+                            // card label, which is always unambiguous
+                            // for insertion.
                             let tagName: String
                             if appState.multiTalkTagDisplayMode == .voiceName,
-                               let vn = viewModel.voiceNameResolver?(viewModel.speakers[idx].voiceID) {
+                               let vn = viewModel.voiceNameResolver?(viewModel.speakers[idx].voiceID),
+                               viewModel.uniquelyResolvedVoiceNames().contains(vn) {
                                 tagName = vn
                             } else {
                                 tagName = name

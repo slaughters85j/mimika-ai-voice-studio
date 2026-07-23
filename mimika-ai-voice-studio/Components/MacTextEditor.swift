@@ -55,13 +55,18 @@ struct MacTextEditor: NSViewRepresentable {
         Coordinator(text: $text, bridge: bridge)
     }
 
+    /// The one editor font — applied at creation AND re-applied after every
+    /// programmatic `tv.string` reset, which wipes the storage's attributes
+    /// back to the system default (smaller) font.
+    static let editorFont = NSFont.systemFont(ofSize: 14)
+
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = NSTextView.scrollableTextView()
         let tv = scroll.documentView as! NSTextView
         tv.delegate = context.coordinator
         tv.isRichText = false
         tv.allowsUndo = true
-        tv.font = .systemFont(ofSize: 14)
+        tv.font = Self.editorFont
         tv.textColor = NSColor(Theme.textPrimary)
         tv.insertionPointColor = NSColor(Theme.accent)
         tv.drawsBackground = false
@@ -103,8 +108,13 @@ struct MacTextEditor: NSViewRepresentable {
         context.coordinator.textView = tv
         context.coordinator.tagColors = tagColors
         bridge?.coordinator = context.coordinator
-        // Initial text content
-        if tv.string != text { tv.string = text }
+        // Initial text content — same attribute reset as updateNSView's
+        // external-set branch, so re-apply color + font here too.
+        if tv.string != text {
+            tv.string = text
+            tv.textColor = NSColor(Theme.textPrimary)
+            tv.font = Self.editorFont
+        }
         context.coordinator.applyTagHighlights()
         return scroll
     }
@@ -114,10 +124,15 @@ struct MacTextEditor: NSViewRepresentable {
         tv.isEditable = isEditable
         if tv.string != text {
             // External text change (e.g. .applyReuse from history, AI script
-            // generation). Setting tv.string resets the NSTextStorage's
-            // attributes to system defaults (black text). Re-apply our color.
+            // generation, Format Script). Setting tv.string resets the
+            // NSTextStorage's attributes to system defaults — black text AND
+            // the smaller default font. Re-apply BOTH: color-only left the
+            // rewritten document a size down from newly-typed text (which
+            // keeps the configured typing font), mixing font sizes.
             tv.string = text
             tv.textColor = NSColor(Theme.textPrimary)
+            tv.font = Self.editorFont
+            context.coordinator.needsHighlight = true
         }
         // Re-wire the bridge in case the view recreated the bridge instance.
         bridge?.coordinator = context.coordinator
@@ -138,6 +153,20 @@ struct MacTextEditor: NSViewRepresentable {
         /// representable's `tagColors` prop via updateNSView.
         var tagColors: [String: NSColor]?
 
+        /// Dirty flag for the highlight pass. `updateNSView` calls
+        /// `applyTagHighlights` on EVERY SwiftUI update cycle, and an
+        /// unguarded pass resets the foreground color of the ENTIRE
+        /// document (full-range addAttribute + regex walk + TextKit
+        /// invalidation) each time — on a long imported script that
+        /// compounds into visible seconds of main-thread stall just
+        /// switching onto the tab. The flag is set by the two paths that
+        /// actually change the text (typing via textDidChange, external
+        /// set in updateNSView); the color map is compared directly (it
+        /// is a handful of entries — unlike the text, whose comparison
+        /// would itself bridge-copy the whole NSTextStorage every tick).
+        var needsHighlight = true
+        private var lastHighlightedColors: [String: NSColor]?
+
         init(text: Binding<String>, bridge: TextEditorBridge?) {
             self._text = text
             super.init()
@@ -149,6 +178,7 @@ struct MacTextEditor: NSViewRepresentable {
             guard let tv = notification.object as? NSTextView else { return }
             // Push the new content back into the SwiftUI binding.
             if text != tv.string { text = tv.string }
+            needsHighlight = true
             applyTagHighlights()
         }
 
@@ -161,6 +191,13 @@ struct MacTextEditor: NSViewRepresentable {
         // plain.
         func applyTagHighlights() {
             guard let tv = textView, let storage = tv.textStorage else { return }
+            // No-op when nothing changed since the last pass (see
+            // `needsHighlight` above for why this matters).
+            if !needsHighlight, tagColors == lastHighlightedColors {
+                return
+            }
+            needsHighlight = false
+            lastHighlightedColors = tagColors
             let fullRange = NSRange(location: 0, length: storage.length)
             let defaultColor = NSColor(Theme.textPrimary)
 

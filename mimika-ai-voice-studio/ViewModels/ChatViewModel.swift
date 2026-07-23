@@ -294,7 +294,7 @@ final class ChatViewModel {
             SpeakerRef(name: "Speaker 1", voiceID: altVoice),
             SpeakerRef(name: "Speaker 2", voiceID: voiceID)
         ]
-        return .multi(script: script, speakers: speakers)
+        return .multi(script: script, speakers: speakers, normalizeSpeakers: true)
     }
 
     // MARK: - Transcript formatting

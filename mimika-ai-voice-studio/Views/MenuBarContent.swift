@@ -16,6 +16,10 @@ struct MenuBarContent: View {
 
     var body: some View {
         Picker("Read-aloud voice", selection: voiceBinding) {
+            VoicePickerFallback.unavailableTag(
+                selection: appState.chatSettings.readAloudVoiceID,
+                isKnown: voiceOptions.contains { $0.id == appState.chatSettings.readAloudVoiceID }
+            )
             ForEach(voiceOptions, id: \.id) { opt in
                 Text(opt.name).tag(opt.id)
             }

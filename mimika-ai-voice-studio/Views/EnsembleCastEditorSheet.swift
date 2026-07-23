@@ -15,6 +15,31 @@ struct EnsembleCastEditorSheet: View {
     let voices: [BundledVoice]
     var onClose: () -> Void
 
+    @State private var editTarget: PersonaEditTarget?
+
+    /// Identifiable wrapper driving the persona-editor `.sheet(item:)`.
+    /// Carries a SNAPSHOT of the persona's editable fields so the sheet
+    /// needs no index guard and no live array bindings (the write-back is
+    /// bounds-checked in the VM setters, on close).
+    private struct PersonaEditTarget: Identifiable {
+        let id: Int
+        let name: String
+        let prompt: String
+    }
+
+    /// Persona name + script stay editable until the conversation has
+    /// actually produced turns — covering a freshly reused setup AND a
+    /// failed start (`.error` with zero turns: nothing happened yet, so
+    /// there is nothing to protect). Once turns exist, the personas are
+    /// part of the episode's history and the affordance disables.
+    private var canEditPersonas: Bool {
+        guard viewModel.turns.isEmpty else { return false }
+        switch viewModel.runState {
+        case .idle, .error: return true
+        default: return false
+        }
+    }
+
     var body: some View {
         ModalContainer(title: "Cast & Settings", onClose: onClose) {
             VStack(alignment: .leading, spacing: Theme.space3) {
@@ -30,6 +55,21 @@ struct EnsembleCastEditorSheet: View {
                 HStack { Spacer(); doneButton }
             }
             .frame(minWidth: 460, minHeight: 440)
+        }
+        .sheet(item: $editTarget) { target in
+            EnsemblePersonaEditorSheet(
+                initialName: target.name,
+                initialPrompt: target.prompt
+            ) { name, prompt in
+                // The editor worked on local copies; land them in the
+                // live cast and persist to the saved cast ONCE, on close.
+                // The VM setters bounds-check, so a cast rebuilt while
+                // the sheet was up drops the edit instead of trapping.
+                viewModel.setPersonaName(at: target.id, name: name)
+                viewModel.setPersonaPrompt(at: target.id, prompt: prompt)
+                viewModel.commitPersonaEdit(at: target.id)
+                editTarget = nil
+            }
         }
     }
 
@@ -56,6 +96,23 @@ struct EnsembleCastEditorSheet: View {
             HStack(spacing: Theme.space2) {
                 Circle().fill(Theme.speakerColor(at: index)).frame(width: 8, height: 8)
                 Text(persona.name).font(Theme.fontSMBold).foregroundStyle(Theme.textPrimary)
+                Button {
+                    editTarget = PersonaEditTarget(
+                        id: index,
+                        name: persona.name,
+                        prompt: persona.systemPrompt
+                    )
+                } label: {
+                    Image(systemName: "pencil")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(canEditPersonas ? Theme.accent : Theme.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .disabled(!canEditPersonas)
+                .help(canEditPersonas
+                      ? "Edit this persona's name and script"
+                      : "Personas lock once the conversation has turns — use New Cast or Reuse Last to start fresh and edit again")
+                .accessibilityIdentifier("ensemble.castEditor.editPersona.\(index)")
                 Spacer()
                 Picker("", selection: voiceBinding(index)) {
                     ForEach(voiceOptions) { opt in Text(opt.name).tag(opt.id) }
@@ -102,6 +159,7 @@ struct EnsembleCastEditorSheet: View {
             set: { viewModel.updatePersonaPreset(at: index, preset: $0) }
         )
     }
+
 
     private func presetCaption(_ preset: SamplingPreset) -> String {
         "temp \(preset.temperature) · top-p \(preset.topP) · top-k \(preset.topK)"

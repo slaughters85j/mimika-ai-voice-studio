@@ -41,7 +41,12 @@ enum AppTab: String, CaseIterable, Identifiable, Hashable {
 
 enum PendingReuse: Equatable, Sendable {
     case single(text: String, voiceID: String)
-    case multi(script: String, speakers: [SpeakerRef])
+    /// `normalizeSpeakers` — true for sources WITHOUT user-authored
+    /// speaker cards (Ensemble episodes, Solo-chat transcripts): cards
+    /// arrive as generic "Speaker N" and tags canonicalize to match.
+    /// False for History reuse: the saved card names ARE the user's
+    /// speaker identities and restore verbatim.
+    case multi(script: String, speakers: [SpeakerRef], normalizeSpeakers: Bool)
 }
 
 struct SpeakerRef: Equatable, Sendable, Hashable {
