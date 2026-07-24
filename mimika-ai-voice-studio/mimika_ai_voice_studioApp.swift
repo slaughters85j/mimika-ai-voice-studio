@@ -138,6 +138,17 @@ struct mimika_ai_voice_studioApp: App {
                         .keyboardShortcut("e", modifiers: .command)
                 }
             }
+            // Help-menu entry: user-initiated path to the App Store
+            // listing's Ratings & Reviews section (HIG asks for a
+            // manual affordance alongside the automatic post-synthesis
+            // prompt). Links to the plain product page on purpose —
+            // see ReviewPromptGate.productPageURL for why
+            // action=write-review must NOT be used on macOS.
+            CommandGroup(after: .help) {
+                Button("Rate Mimika on the App Store…") {
+                    NSWorkspace.shared.open(ReviewPromptGate.productPageURL)
+                }
+            }
         }
 
         // Menu-bar item — shown only while Read Aloud is enabled. Voice picker +

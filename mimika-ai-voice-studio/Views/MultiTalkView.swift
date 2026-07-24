@@ -226,6 +226,7 @@ struct MultiTalkView: View {
                 pendingReuse = nil
             }
         }
+        .reviewPromptOnCompletion(status: viewModel.status)
     }
 
     // MARK: - Display panel (tag mode picker + speaker colors toggle)

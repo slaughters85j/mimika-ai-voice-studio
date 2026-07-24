@@ -152,5 +152,6 @@ struct SingleVoiceView: View {
                 pendingReuse = nil
             }
         }
+        .reviewPromptOnCompletion(status: viewModel.status)
     }
 }
