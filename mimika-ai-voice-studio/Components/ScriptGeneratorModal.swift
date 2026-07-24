@@ -29,7 +29,7 @@ struct ScriptGeneratorModal: View {
     @State private var showsPromptManager = false
 
     var body: some View {
-        ModalContainer(title: modalTitle, onClose: dismiss) {
+        ModalContainer(title: modalTitle, onClose: dismiss, fillsSheet: false) {
             VStack(alignment: .leading, spacing: Theme.space4) {
                 connectionRow
                 promptField

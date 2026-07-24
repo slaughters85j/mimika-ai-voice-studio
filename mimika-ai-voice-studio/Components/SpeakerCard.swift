@@ -86,6 +86,11 @@ struct SpeakerCard: View {
                             .filter { $0.type == .predefined }
                             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
                         Picker("", selection: $speaker.voiceID) {
+                            VoicePickerFallback.unavailableTag(
+                                selection: speaker.voiceID,
+                                isKnown: builtInVoices.contains { $0.id == speaker.voiceID }
+                                    || importedVoices.contains { "imported:\($0.id)" == speaker.voiceID }
+                            )
                             Section("Built-in") {
                                 ForEach(builtInVoices, id: \.id) { v in
                                     Text(v.name).tag(v.id)
@@ -102,6 +107,11 @@ struct SpeakerCard: View {
                     } else {
                         let fishVoices = VoiceManager.shared.voices
                         Picker("", selection: $speaker.voiceID) {
+                            VoicePickerFallback.unavailableTag(
+                                selection: speaker.voiceID,
+                                isKnown: speaker.voiceID == "fish-default"
+                                    || fishVoices.contains { $0.id == speaker.voiceID }
+                            )
                             Text("Default Voice").tag("fish-default")
                             if !fishVoices.isEmpty {
                                 Section("My Voices") {

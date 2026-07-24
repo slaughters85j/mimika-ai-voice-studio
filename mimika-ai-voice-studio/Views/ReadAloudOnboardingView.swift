@@ -15,7 +15,7 @@ struct ReadAloudOnboardingView: View {
     let onClose: () -> Void
 
     var body: some View {
-        ModalContainer(title: "Read Aloud is ready", onClose: onClose, fillsSheet: true) {
+        ModalContainer(title: "Read Aloud is ready", onClose: onClose) {
             VStack(alignment: .leading, spacing: Theme.space4) {
                 header
                 Divider().background(Theme.borderColor)

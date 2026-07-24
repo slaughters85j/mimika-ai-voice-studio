@@ -123,6 +123,11 @@ struct ContentView: View {
             } else if let firstVoice = voices.first {
                 singleVM?.selectedVoiceID = firstVoice.id
             }
+            // Multi-Talk: one VM call owns the whole reconciliation
+            // (tag-protection ordering, remap, display-mode sync, and
+            // the defer-while-synthesizing rule) — see syncToBackend in
+            // MultiTalkViewModel+BackendSync.swift.
+            multiVM?.syncToBackend(newBackend)
             let engine = appState.activeEngine
             singleVM?.setEngine(engine)
             multiVM?.setEngine(engine)
@@ -527,6 +532,11 @@ struct ContentView: View {
         // If the persisted backend is Fish, bootstrap it and swap engines.
         if appState.chatSettings.activeBackend == .fishSpeech {
             singleVM?.selectedVoiceID = "fish-default"
+            // Cold start lands the default speaker cards on Pocket IDs;
+            // reconcile so the Fish pickers don't render blank. (The
+            // tag-protection fallback self-gates on the script actually
+            // containing tags, so an empty cold-start script is safe.)
+            multiVM?.syncToBackend(.fishSpeech)
             Task {
                 await appState.bootstrapFishIfNeeded()
                 let active = appState.activeEngine

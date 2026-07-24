@@ -305,6 +305,10 @@ struct AppSettingsView: View {
                 HStack {
                     Text("Voice").font(Theme.fontXS).foregroundStyle(Theme.textSecondary).frame(width: 90, alignment: .leading)
                     Picker("", selection: $workingCopy.readAloudVoiceID) {
+                        VoicePickerFallback.unavailableTag(
+                            selection: workingCopy.readAloudVoiceID,
+                            isKnown: readAloudVoiceOptions.contains { $0.id == workingCopy.readAloudVoiceID }
+                        )
                         ForEach(readAloudVoiceOptions, id: \.id) { opt in
                             Text(opt.name).tag(opt.id)
                         }

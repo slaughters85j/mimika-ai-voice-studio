@@ -68,7 +68,7 @@ final class HistoryViewModel {
             let refs = item.speakers
                 .sorted(by: { $0.sortOrder < $1.sortOrder })
                 .map { SpeakerRef(name: $0.name, voiceID: $0.voiceID) }
-            return .multi(script: script, speakers: refs)
+            return .multi(script: script, speakers: refs, normalizeSpeakers: false)
         }
     }
 }

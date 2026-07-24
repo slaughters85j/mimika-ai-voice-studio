@@ -8,6 +8,23 @@
 
 import SwiftUI
 
+// MARK: - Shared orphaned-selection fallback
+
+/// One tag row for a Picker whose current selection matches no real item —
+/// a deleted saved voice, or the one-frame window during a backend switch
+/// before the remap lands. A Picker whose selection has no associated tag
+/// logs "invalid … undefined results" and renders blank; this gives the
+/// stale ID a visible, real tag until it's remapped or re-picked. Used by
+/// every voice picker in the app.
+enum VoicePickerFallback {
+    @ViewBuilder
+    static func unavailableTag(selection: String, isKnown: Bool) -> some View {
+        if !isKnown {
+            Text("Unavailable Voice").tag(selection)
+        }
+    }
+}
+
 struct VoiceSelector: View {
     @Binding var selectedVoiceID: String
     let voices: [BundledVoice]
@@ -40,6 +57,11 @@ struct VoiceSelector: View {
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
 
         return Picker("", selection: $selectedVoiceID) {
+            VoicePickerFallback.unavailableTag(
+                selection: selectedVoiceID,
+                isKnown: builtInVoices.contains { $0.id == selectedVoiceID }
+                    || importedVoices.contains { "imported:\($0.id)" == selectedVoiceID }
+            )
             Section("Built-in") {
                 ForEach(builtInVoices, id: \.id) { v in
                     Text(v.name).tag(v.id)
@@ -70,6 +92,11 @@ struct VoiceSelector: View {
 
         return VStack(alignment: .leading, spacing: Theme.space2) {
             Picker("", selection: $selectedVoiceID) {
+                VoicePickerFallback.unavailableTag(
+                    selection: selectedVoiceID,
+                    isKnown: selectedVoiceID == "fish-default"
+                        || fishVoices.contains { $0.id == selectedVoiceID }
+                )
                 Text("Default Voice").tag("fish-default")
                 if !fishVoices.isEmpty {
                     Section("My Voices") {

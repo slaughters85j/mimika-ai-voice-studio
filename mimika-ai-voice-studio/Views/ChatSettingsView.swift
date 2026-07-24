@@ -64,6 +64,11 @@ struct ChatSettingsView: View {
                 .foregroundStyle(Theme.textPrimary)
 
             Picker("", selection: $workingCopy.ttsVoiceID) {
+                VoicePickerFallback.unavailableTag(
+                    selection: workingCopy.ttsVoiceID,
+                    isKnown: builtInVoices.contains { $0.id == workingCopy.ttsVoiceID }
+                        || importedVoices.contains { "imported:\($0.id)" == workingCopy.ttsVoiceID }
+                )
                 Section("Built-in") {
                     ForEach(builtInVoices, id: \.id) { v in
                         Text(v.name).tag(v.id)

@@ -76,10 +76,25 @@ extension EnsembleViewModel {
             // The user needs their OWN voice in the re-voiced export, not a cast
             // member's. Sharing a voiceID makes the user's voice NAME equal that
             // cast member's speaker label, which corrupts Multi-Talk's tag rewrite
-            // (changing one relabels the other). Pick the first stock voice the
-            // cast isn't already using.
+            // (changing one relabels the other).
+            //
+            // Prefer a saved voice named after the user's peer (a "Fox
+            // Mulder" voice for the Fox Mulder peer) — an arbitrary stock
+            // fallback makes the user's lines sound like a stranger.
+            // Pocket capability is only required when Pocket is the active
+            // backend: Multi-Talk's applyReuse remap degrades cross-backend
+            // IDs safely, so a Fish-only clone is a valid match under Fish.
+            // Fall back to the first stock voice the cast isn't using.
             let castVoiceIDs = Set(cast.map(\.voiceID))
-            let userVoice = BundledVoice.stockIDs.sorted().first { !castVoiceIDs.contains($0) }
+            let requirePocketKV = appState.chatSettings.activeBackend == .pocketTTS
+            let userVoice = VoiceManager.shared.voices
+                .first {
+                    (!requirePocketKV || $0.pocketTTSKVPath != nil)
+                        && $0.name.caseInsensitiveCompare(userPeer.name) == .orderedSame
+                        && !castVoiceIDs.contains("imported:\($0.id)")
+                }
+                .map { "imported:\($0.id)" }
+                ?? BundledVoice.stockIDs.sorted().first { !castVoiceIDs.contains($0) }
                 ?? cast.first?.voiceID ?? "cosette"
             refs.append(SpeakerRef(name: userLabel, voiceID: userVoice))
         }
@@ -98,7 +113,7 @@ extension EnsembleViewModel {
             stripBrackets: appState.chatSettings.activeBackend == .pocketTTS
         )
         guard !script.isEmpty else { return }
-        appState.queueReuse(.multi(script: script, speakers: labels.speakers))
+        appState.queueReuse(.multi(script: script, speakers: labels.speakers, normalizeSpeakers: true))
     }
 
     /// Save the episode so it appears in History (+ the Ensemble session store).

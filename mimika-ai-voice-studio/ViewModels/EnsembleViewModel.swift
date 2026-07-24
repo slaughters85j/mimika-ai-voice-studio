@@ -271,6 +271,7 @@ final class EnsembleViewModel {
         guard let ctx = appState.modelContext else { return }
         let name = scene.isEmpty ? "Ensemble" : scene
         let castModel = EnsembleStore.create(ctx, name: name, scene: scene, mood: mood)
+        castModel.userPeerName = userPeer.name
         currentCastID = castModel.id
         for (i, entry) in confirmed.enumerated() {
             EnsembleStore.addPersona(
@@ -307,6 +308,14 @@ final class EnsembleViewModel {
         currentCastID = saved.id
         scene = saved.scene
         mood = saved.mood
+        // Restore the human peer's identity — without this the export's
+        // name-matched voice lookup hunts for the default "You" and can
+        // never fire on the reuse-after-relaunch flow. The "You" default
+        // itself is skipped so modelName keeps its neutral "Guest".
+        if !saved.userPeerName.isEmpty, saved.userPeerName != "You" {
+            userPeer.name = saved.userPeerName
+            userPeer.modelName = saved.userPeerName
+        }
         turns = []
         rollingSummary = ""
         summarizedUpTo = 0
@@ -376,12 +385,19 @@ final class EnsembleViewModel {
         persistPersonaEdit(at: index)
     }
 
-    private func persistPersonaEdit(at index: Int) {
+    // setPersonaName / setPersonaPrompt / commitPersonaEdit live in
+    // EnsembleViewModel+PersonaEdit.swift (file-size guideline).
+
+    // Internal (not private): the persona-edit sibling file's
+    // `commitPersonaEdit` funnels into it.
+    func persistPersonaEdit(at index: Int) {
         guard let ctx = appState.modelContext, let saved = currentSavedCast(ctx) else { return }
         let personas = saved.sortedPersonas
         guard personas.indices.contains(index) else { return }
         personas[index].voiceID = cast[index].voiceID
         personas[index].samplingPreset = cast[index].samplingPreset
+        personas[index].name = cast[index].name
+        personas[index].personaPrompt = cast[index].systemPrompt
         EnsembleStore.update(ctx, cast: saved)
     }
 
