@@ -175,7 +175,9 @@ final class ChatViewModel {
 
         // 1) LLM streaming task — pulls tokens, runs the sentence detector,
         //    appends content to the assistant message, enqueues sentences.
-        llmTask = Task { [weak self, settings] in
+        //    Settings are read live via self (makeClient() at task start);
+        //    only the system prompt is snapshotted above.
+        llmTask = Task { [weak self] in
             guard let self else { return }
             let detector = SentenceDetector()
             let stream = self.makeClient().streamChat(
