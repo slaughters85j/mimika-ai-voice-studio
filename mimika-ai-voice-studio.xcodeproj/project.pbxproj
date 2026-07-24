@@ -36,12 +36,12 @@
 		690BDAAA0EF8231ACE06EDF9 /* SpokenTurnRunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE3EB17D7310F494BCF81B70 /* SpokenTurnRunnerTests.swift */; };
 		6A314EED446FDAD5C0C74A87 /* EnsembleStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A883F854A5733B5667175CB9 /* EnsembleStore.swift */; };
 		6D3F9D1982689A0AD1288331 /* LoginItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5156D3D95022FB496A27A779 /* LoginItem.swift */; };
-		76D9101949B34564AA0FBCE8 /* ReviewPromptGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6646785C0EA4F74AAA1028B /* ReviewPromptGate.swift */; };
 		71CAE1BB73E4830544DEE602 /* TimingQAEvaluator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E17DCFE328FCDD49B674FE73 /* TimingQAEvaluator.swift */; };
+		76D9101949B34564AA0FBCE8 /* ReviewPromptGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6646785C0EA4F74AAA1028B /* ReviewPromptGate.swift */; };
 		780BDDD6BFD04218955EFB02 /* MultiTalkBackendSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE3D617C12DF4B7E8175338A /* MultiTalkBackendSyncTests.swift */; };
-		836066D264F54A9BB3C5011E /* ReviewPromptGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F22A17754554F82BE663FDD /* ReviewPromptGateTests.swift */; };
 		791312E1662ACD556A094935 /* PersonaWriterProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA57A04680A7A9C7EE53AED1 /* PersonaWriterProvider.swift */; };
 		81CF5D6A0CE94A3CB65AAD71 /* MultiTalkViewModel+BackendSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2412089BD2E4126ADE03040 /* MultiTalkViewModel+BackendSync.swift */; };
+		836066D264F54A9BB3C5011E /* ReviewPromptGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F22A17754554F82BE663FDD /* ReviewPromptGateTests.swift */; };
 		8987AE9737BFC5235FBFCB76 /* EnsembleModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DD2824F42C62169628B96DE /* EnsembleModels.swift */; };
 		898CF712008166ED09428509 /* PersonaWriterIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84227BFAA70DF679C22B62A8 /* PersonaWriterIntegrationTests.swift */; };
 		9033479D61A32A041F03B2A4 /* MicrophoneRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 980F894943A89B60283FDCB8 /* MicrophoneRecorder.swift */; };
@@ -276,6 +276,7 @@
 		2FE23EA2B4A9276C72765F82 /* VoiceImportQueueTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VoiceImportQueueTests.swift; sourceTree = "<group>"; };
 		326CF9D0C590CC2F94FFF15E /* ReadAloudOnboardingView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ReadAloudOnboardingView.swift; sourceTree = "<group>"; };
 		357B46FC95DFDCF061168CFD /* AnthropicMessagesClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AnthropicMessagesClient.swift; sourceTree = "<group>"; };
+		3F22A17754554F82BE663FDD /* ReviewPromptGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewPromptGateTests.swift; sourceTree = "<group>"; };
 		4455AFA696C04E5F1C41B3BB /* ConductorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ConductorTests.swift; sourceTree = "<group>"; };
 		4582C82E02AAE970C6CEBDD5 /* JSONExtractorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JSONExtractorTests.swift; sourceTree = "<group>"; };
 		478629569DD37CB57C8DB570 /* EnsemblePersistenceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EnsemblePersistenceTests.swift; sourceTree = "<group>"; };
@@ -285,7 +286,6 @@
 		4C9AE0F121AA4E87B79AAD35 /* MultiSpeakerRevoicer+TimingQA.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MultiSpeakerRevoicer+TimingQA.swift"; sourceTree = "<group>"; };
 		4DD2824F42C62169628B96DE /* EnsembleModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EnsembleModels.swift; sourceTree = "<group>"; };
 		5156D3D95022FB496A27A779 /* LoginItem.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LoginItem.swift; sourceTree = "<group>"; };
-		A6646785C0EA4F74AAA1028B /* ReviewPromptGate.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ReviewPromptGate.swift; sourceTree = "<group>"; };
 		55A819B4287E427883CE6048 /* JSONExtractor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = JSONExtractor.swift; sourceTree = "<group>"; };
 		5E5838EA5AC147D58693B01D /* TimingQAEvaluatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimingQAEvaluatorTests.swift; sourceTree = "<group>"; };
 		618C192D0BBEA3F57D42F7AD /* ReadAloudController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ReadAloudController.swift; sourceTree = "<group>"; };
@@ -301,6 +301,7 @@
 		980F894943A89B60283FDCB8 /* MicrophoneRecorder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MicrophoneRecorder.swift; sourceTree = "<group>"; };
 		9F063B7FB9F736C210A43433 /* EnsembleViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EnsembleViewModel.swift; sourceTree = "<group>"; };
 		A2412089BD2E4126ADE03040 /* MultiTalkViewModel+BackendSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MultiTalkViewModel+BackendSync.swift"; sourceTree = "<group>"; };
+		A6646785C0EA4F74AAA1028B /* ReviewPromptGate.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ReviewPromptGate.swift; sourceTree = "<group>"; };
 		A883F854A5733B5667175CB9 /* EnsembleStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EnsembleStore.swift; sourceTree = "<group>"; };
 		A97B7D7AA88A3DC60A651FA9 /* KeychainStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
 		AD88380CD0677E849D049018 /* DirectorPrompt.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DirectorPrompt.swift; sourceTree = "<group>"; };
@@ -518,7 +519,6 @@
 		F4A8DB0CB4A379D65F895344 /* PersonaProviderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PersonaProviderTests.swift; sourceTree = "<group>"; };
 		FA57A04680A7A9C7EE53AED1 /* PersonaWriterProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PersonaWriterProvider.swift; sourceTree = "<group>"; };
 		FE3D617C12DF4B7E8175338A /* MultiTalkBackendSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultiTalkBackendSyncTests.swift; sourceTree = "<group>"; };
-		3F22A17754554F82BE663FDD /* ReviewPromptGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewPromptGateTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1584,7 +1584,7 @@
 				CODE_SIGN_ENTITLEMENTS = "mimika-ai-voice-studio/mimika-ai-voice-studio.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 9;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = KNK7DF7Q76;
 				ENABLE_APP_SANDBOX = YES;
@@ -1637,7 +1637,7 @@
 				CODE_SIGN_ENTITLEMENTS = "mimika-ai-voice-studio/mimika-ai-voice-studio.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 9;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = KNK7DF7Q76;
 				ENABLE_APP_SANDBOX = YES;
