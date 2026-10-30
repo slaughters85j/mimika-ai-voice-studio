@@ -61,6 +61,22 @@ document credits each one and lists their license terms.
 - **Used in:** Voice-enhancement bandwidth-extension model
   (the "LavaSR Enhancement" pipeline).
 
+### LavaSR
+
+- **Source:** https://github.com/ysharma3501/LavaSR
+- **License:** Apache-2.0
+- **Used in:** The voice-enhancement pipeline: denoise, 48 kHz
+  bandwidth extension, and the Linkwitz-Riley-style low/high merge
+  (`Engine/LavaSR/`, ported from the Python package).
+
+### ULUNAS denoiser (LavaSR's denoising model)
+
+- **Source:** `denoiser.bin` from https://huggingface.co/YatharthS/LavaSR
+- **License:** MIT
+- **Used in:** Converted to Core ML and run by
+  `Engine/LavaSR/LavaSRDenoiser.swift` as the first stage of voice
+  enhancement. Downloaded at runtime with the other models.
+
 ## Swift packages and frameworks
 
 ### FluidAudio

@@ -851,4 +851,19 @@ final class TextNormalizerTests: XCTestCase {
             [.pause(seconds: 1.0), .pause(seconds: 2.0)]
         )
     }
+
+    // MARK: - Pronunciation fixes vs abbreviations (MAVS-21)
+
+    func test_pronunciationFix_appliesToExpandedAbbreviation() {
+        // "Capt." expands to "Captain", which must then pick up the Captain → Kaptin fix.
+        XCTAssertEqual(TextNormalizer.normalize("Capt. Smith"), "Kaptin Smith")
+    }
+
+    func test_pronunciationFix_appliesToSpelledOutWord() {
+        XCTAssertEqual(TextNormalizer.normalize("Captain Smith"), "Kaptin Smith")
+    }
+
+    func test_listItem_capitalizesOrdinal() {
+        XCTAssertEqual(TextNormalizer.normalize("1. Apples"), "First, Apples")
+    }
 }

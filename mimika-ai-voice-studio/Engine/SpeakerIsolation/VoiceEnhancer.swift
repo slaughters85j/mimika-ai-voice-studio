@@ -4,11 +4,11 @@
 //
 //  @Observable SwiftUI-facing shell for the LavaSR voice-enhancement pipeline. Owns lifecycle (idle → loading → ready → enhancing → idle) and file IO; the actual audio math lives in `Engine/LavaSR/`:
 //
-//      LavaSRPipeline       — top-level coordinator
+//      LavaSRPipeline       — top-level coordinator: denoise → 48 kHz BWE → LR-merge
+//      LavaSRDenoiser       — Core ML ULUNAS denoiser (the front half)
 //      LavaSREnhancerBWE    — Vocos BWE model (the back half)
 //      LavaSRISTFTHead      — custom ISTFT head matching Python Vocos
-//
-//  Phase 10 / Commit 1 — slimmed from 391 → ~120 lines by extracting the MLX model classes into `Engine/LavaSR/`. Behavior is unchanged: today the pipeline still runs BWE-only at 44.1 kHz. Commits 2+ build out the missing denoise + LR-merge stages without touching this file.
+//      LavaSRFastLRMerge    — low/high band merge of the input and the BWE output
 
 @preconcurrency import AVFoundation
 import Foundation

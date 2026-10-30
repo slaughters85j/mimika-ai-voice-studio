@@ -53,6 +53,7 @@ struct EnsembleSurfaceView: View {
             viewModel.startHealthChecks()
             viewModel.autoLoadLastCastIfFresh()
         }
+        .onDisappear { viewModel.stopHealthChecks() }
         .onChange(of: viewModel.pendingGrenade) { _, armed in
             if armed { triggerGrenadeShake(pulses: 4) }
         }

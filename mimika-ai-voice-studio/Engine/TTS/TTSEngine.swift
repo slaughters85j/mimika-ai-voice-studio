@@ -5,6 +5,7 @@
 
 import CoreML
 import Foundation
+import os
 
 // MARK: - PCMFrame
 /// 80 ms of mono PCM @ 24 kHz (1920 samples). The unit Mimi emits per autoregressive step. Phase 1's StreamingPlayer will consume these directly.
@@ -84,6 +85,11 @@ private nonisolated enum K {
 
     /// Diagnostic: log per-step `eos_logit` trajectory for every AR chunk to the console. Format mirrors the conversion project's `probe_eos_apples_to_apples.py` table so traces can be pasted straight into the agent's analysis pipeline. Off by default (verbose — hundreds of lines per synthesize call); flip true when investigating EOS/tail issues against captured user audio.
     static let eosTraceEnabled = false
+
+    /// Persisted chunk timings (`print` is discarded outside Xcode). Pairs with StreamingPlayer's "Playback" category to tell a slow Core ML prediction apart from a stalled audio device after a long idle on macOS 27.
+    static let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.slaughters85j.pocket-tts-macos", category: "Synthesis")
+    /// A prompt phase or first CaLM step slower than this is logged as an error. Warm runs take ~100 ms and ~25 ms respectively.
+    static let slowPredictionMs = 2_000.0
 }
 
 // MARK: - TTSEngine
@@ -464,6 +470,7 @@ actor TTSEngine: TTSEngineProtocol {
         var consecutiveAboveThreshold = 0
         let loopStart = CFAbsoluteTimeGetCurrent()
         var produced = 0
+        var firstStepMs = 0.0
 
         for step in 0..<frameBudget {
             if cancel.isCancelled {
@@ -479,6 +486,7 @@ actor TTSEngine: TTSEngineProtocol {
                 offset: frameOffset,
                 noise: noise
             )
+            if step == 0 { firstStepMs = (CFAbsoluteTimeGetCurrent() - loopStart) * 1000 }
 
             // Update the consecutive-above-threshold counter; a single dip resets it. Translates the model's noisy logit into a stable "EOS detected" decision.
             if eosLogit > K.eosLogitThreshold {
@@ -539,6 +547,12 @@ actor TTSEngine: TTSEngineProtocol {
         let fps = elapsed > 0 ? Double(produced) / elapsed : 0
         let rtf = elapsed > 0 ? audioSec / elapsed : 0
         print("[PocketTTS] AR loop: \(produced) frames, \(String(format: "%.2f", audioSec))s audio in \(String(format: "%.2f", elapsed))s (\(String(format: "%.1f", fps)) fps, \(String(format: "%.1f", rtf))x real-time)")
+        let timing = "prompt \(Int(promptMs)) ms, first step \(Int(firstStepMs)) ms, \(produced) frames at \(String(format: "%.1f", fps)) fps"
+        if promptMs > K.slowPredictionMs || firstStepMs > K.slowPredictionMs {
+            K.log.error("chunk: SLOW prediction — \(timing, privacy: .public)")
+        } else {
+            K.log.notice("chunk: \(timing, privacy: .public)")
+        }
     }
 
     // MARK: - Imported voice loading

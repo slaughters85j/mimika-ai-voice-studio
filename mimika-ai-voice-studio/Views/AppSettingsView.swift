@@ -38,8 +38,11 @@ struct AppSettingsView: View {
     @State private var suppressModelAutoLoad = false
     @State private var probeState: ProbeState = .idle
     @State private var personaConfig = PersonaProviderStore.load()
-    @State private var anthropicKey = PersonaProviderStore.anthropicAPIKey()
-    @State private var anthropicProbe: ProbeState = .idle
+    /// Claude key edits staged for Done (MAVS-52). The saved key itself is never loaded into the UI — only its hint.
+    @State private var newAnthropicKey = ""
+    @State private var newAnthropicKeyVerified = false
+    @State private var removeSavedAnthropicKey = false
+    private let savedAnthropicKeyHint = PersonaProviderStore.keyHint(PersonaProviderStore.anthropicAPIKey())
 
     init(
         isPresented: Binding<Bool>,
@@ -92,7 +95,13 @@ struct AppSettingsView: View {
                             endpoint: workingBaseURL
                         )
                         Divider().background(Theme.borderColor)
-                        personaWriterSection
+                        ClaudeSettingsSection(
+                            config: $personaConfig,
+                            newKey: $newAnthropicKey,
+                            removeSavedKey: $removeSavedAnthropicKey,
+                            newKeyVerified: $newAnthropicKeyVerified,
+                            savedKeyHint: savedAnthropicKeyHint
+                        )
                         Divider().background(Theme.borderColor)
                         pocketTTSTuningSection
                         Divider().background(Theme.borderColor)
@@ -360,94 +369,6 @@ struct AppSettingsView: View {
         .accessibilityIdentifier("appSettings.lmStudioDownload")
     }
 
-    private var personaWriterSection: some View {
-        VStack(alignment: .leading, spacing: Theme.space3) {
-            Text("Ensemble Persona Writer").font(Theme.fontSMBold).foregroundStyle(Theme.textPrimary)
-            Text("Who writes the cast when you create an Ensemble. Local uses the endpoint above; Claude uses the Anthropic API with structured outputs for more reliable, on-spec casts. Synthesis always stays on-device.")
-                .font(Theme.fontXS)
-                .foregroundStyle(Theme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            HStack {
-                Text("Provider").font(Theme.fontXS).foregroundStyle(Theme.textSecondary).frame(width: 90, alignment: .leading)
-                Picker("", selection: $personaConfig.kind) {
-                    ForEach(PersonaProviderKind.allCases, id: \.self) { Text($0.displayName).tag($0) }
-                }
-                .pickerStyle(.menu).labelsHidden().frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityIdentifier("appSettings.personaProvider")
-            }
-
-            if personaConfig.kind == .anthropic {
-                HStack {
-                    Text("API Key").font(Theme.fontXS).foregroundStyle(Theme.textSecondary).frame(width: 90, alignment: .leading)
-                    SecureField("sk-ant-…", text: $anthropicKey)
-                        .textFieldStyle(.plain)
-                        .padding(.horizontal, Theme.space3).padding(.vertical, Theme.space2)
-                        .themeInputField()
-                        .accessibilityIdentifier("appSettings.anthropicKey")
-                    anthropicProbeDot
-                }
-                .task(id: anthropicKey + "|" + personaConfig.anthropicModel) {
-                    await probeAnthropicKey()
-                }
-                HStack {
-                    Text("Model").font(Theme.fontXS).foregroundStyle(Theme.textSecondary).frame(width: 90, alignment: .leading)
-                    Picker("", selection: $personaConfig.anthropicModel) {
-                        ForEach(PersonaProviderStore.anthropicModels, id: \.self) { Text($0).tag($0) }
-                    }
-                    .pickerStyle(.menu).labelsHidden().frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityIdentifier("appSettings.anthropicModel")
-                }
-                Text("Stored in your Keychain — get a key at console.anthropic.com. Haiku is fastest/cheapest; Opus is most capable.")
-                    .font(Theme.fontXS)
-                    .foregroundStyle(Theme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var anthropicProbeDot: some View {
-        switch anthropicProbe {
-        case .idle:
-            EmptyView()
-        case .probing:
-            ProgressView().controlSize(.mini)
-        case .ok:
-            HStack(spacing: Theme.space1) {
-                Circle().fill(Theme.successFG).frame(width: 8, height: 8)
-                Text("valid").font(Theme.fontXS).foregroundStyle(Theme.successFG)
-            }
-            .help("API key valid")
-            .accessibilityIdentifier("appSettings.anthropicKeyOK")
-        case let .fail(reason):
-            HStack(spacing: Theme.space1) {
-                Circle().fill(Theme.errorFG).frame(width: 8, height: 8)
-                Text(reason).font(Theme.fontXS).foregroundStyle(Theme.errorFG)
-            }
-        }
-    }
-
-    /// Validate the entered Anthropic key against /v1/models (debounced). The key isn't saved until Done — this probes the in-field value live.
-    private func probeAnthropicKey() async {
-        guard personaConfig.kind == .anthropic else { anthropicProbe = .idle; return }
-        let key = anthropicKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !key.isEmpty else { anthropicProbe = .idle; return }
-        anthropicProbe = .probing
-        try? await Task.sleep(for: .milliseconds(600))   // debounce typing
-        if Task.isCancelled { return }
-        do {
-            let models = try await AnthropicMessagesClient(apiKey: key).listModels()
-            if !models.isEmpty, !models.contains(personaConfig.anthropicModel) {
-                anthropicProbe = .fail("model unavailable")
-            } else {
-                anthropicProbe = .ok("valid")
-            }
-        } catch {
-            anthropicProbe = .fail("invalid key")
-        }
-    }
-
     private var pocketTTSTuningSection: some View {
         VStack(alignment: .leading, spacing: Theme.space3) {
             Text("Synthesis Tuning")
@@ -576,7 +497,12 @@ struct AppSettingsView: View {
         onSave(workingCopy, workingBaseURL)
         chunkBudget = workingChunkBudget
         PersonaProviderStore.save(personaConfig)
-        PersonaProviderStore.setAnthropicAPIKey(anthropicKey)
+        // A pasted key is stored only once it has passed the check against the chosen model; an unverified one is dropped, never saved.
+        if newAnthropicKeyVerified {
+            PersonaProviderStore.setAnthropicAPIKey(newAnthropicKey)
+        } else if removeSavedAnthropicKey {
+            PersonaProviderStore.removeAnthropicAPIKey()
+        }
         isPresented = false
     }
 

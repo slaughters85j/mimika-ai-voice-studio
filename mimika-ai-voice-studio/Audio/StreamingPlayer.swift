@@ -9,6 +9,7 @@
 import CoreAudio
 #endif
 import Foundation
+import os
 import Synchronization
 
 // MARK: - StreamingPlayer
@@ -50,6 +51,23 @@ actor StreamingPlayer {
     private var drainCompletedEarly = false
     private(set) var isStopped = false
     private(set) var isMuted = false
+    private var isPaused = false
+
+    // MARK: - Stalled-output watchdog (MAVS-7)
+    // On macOS 27 the first utterance after launch or a long idle could hang forever: `isRunning` reported true while the output hardware pulled nothing, so no buffer ever played back, the drain callback never fired, and `play()` never returned — taking the shared Read Aloud path down with it. The user's manual Stop → Start cleared it because Stop tears the engine down. The watchdog does that teardown automatically when the render clock is not advancing, then re-queues the utterance from the top.
+
+    /// Persisted to the unified log (`.notice` and above survive), unlike `print`, so the next stall leaves evidence: `log show --predicate 'subsystem == "com.slaughters85j.pocket-tts-macos" AND category == "Playback"'`.
+    nonisolated static let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.slaughters85j.pocket-tts-macos", category: "Playback")
+    /// How long after the engine starts the watchdog checks the output render clock.
+    nonisolated static let stallCheckDelay: Duration = .seconds(1)
+    /// Window over which the render clock must advance to count as alive. One hardware IO cycle is ~10 ms, so 250 ms is far past any normal jitter.
+    nonisolated static let stallSampleWindow: Duration = .milliseconds(250)
+    /// Buffers the current `play()` has scheduled, in order, with whether each carries the drain callback — so a stalled engine can be restarted and the utterance re-queued from the top.
+    private var scheduledThisPlay: [(buffer: AVAudioPCMBuffer, isDrainTail: Bool)] = []
+    /// Bumped on every recovery. Stopping the player node flushes its queue and fires pending completion handlers; a drain callback from a flushed generation must not be mistaken for the real end of playback.
+    private var drainGeneration = 0
+    /// True between tearing the engine down and re-queueing. Frames that arrive in that window (the `play()` loop keeps running across the recovery's awaits) are only recorded, so the replay schedules each buffer exactly once.
+    private var isRecovering = false
 
     /// Serial queue for blocking AVAudioEngine lifecycle calls (start / stop / pause / setDeviceID). The queue carries NO fixed QoS, so each work item runs at the QoS of whatever submits it:
     ///
@@ -117,17 +135,28 @@ actor StreamingPlayer {
     func play(stream: AsyncStream<PCMFrame>) async throws {
         // Reset per-call state.
         isStopped = false
+        isPaused = false
         drainContinuation = nil
         drainCompletedEarly = false
         isStreaming = true
         pendingReroute = false
-        defer { isStreaming = false }
+        scheduledThisPlay = []
+        defer { isStreaming = false; scheduledThisPlay = [] }
 
         // Install route observers once, then make sure this utterance plays on whatever output is the current system default (cheap no-op when it hasn't changed since last time).
         configureOutputRouting()
         await applyCurrentDefaultOutputDevice()
 
+        let playStart = ContinuousClock.now
+        Self.log.notice("play: start, engine wasRunning=\(self.engine.isRunning)")
         try await startEngineAndPlayer()
+
+        let watchdog = Task { [weak self] in
+            try? await Task.sleep(for: Self.stallCheckDelay)
+            guard !Task.isCancelled else { return }
+            await self?.recoverIfOutputStalled()
+        }
+        defer { watchdog.cancel() }
 
         var sawFinalFlag = false
 
@@ -141,18 +170,14 @@ actor StreamingPlayer {
             let rms = (sumSq / Float(frame.samples.count)).squareRoot()
             currentAmplitude.atomic.store(min(rms * 4.0, 1.0), ordering: .relaxed)
 
-            if frame.isFinal {
-                sawFinalFlag = true
-                scheduleWithDrainCallback(buf)
-            } else {
-                playerNode.scheduleBuffer(buf, completionCallbackType: .dataPlayedBack, completionHandler: nil)
-            }
+            if frame.isFinal { sawFinalFlag = true }
+            schedule(buf, isDrainTail: frame.isFinal)
         }
 
         // Stream ended without the engine ever raising `isFinal`. Schedule a single-sample sentinel buffer at the tail so the drain callback still fires. (Same outcome the Electron player gets when the HTTP stream just closes.)
         if !sawFinalFlag {
             let sentinel = try makeBuffer(samples: [0.0])
-            scheduleWithDrainCallback(sentinel)
+            schedule(sentinel, isDrainTail: true)
         }
 
         // Wait for the tail buffer to fully play. Race-safe:
@@ -169,6 +194,7 @@ actor StreamingPlayer {
             }
         }
         currentAmplitude.atomic.store(0, ordering: .relaxed)
+        Self.log.notice("play: drained in \(String(describing: ContinuousClock.now - playStart), privacy: .public)")
 
         // A route change that arrived mid-utterance was deferred; apply it now that the drain is complete, so the next utterance lands on the right device.
         if pendingReroute {
@@ -194,6 +220,7 @@ actor StreamingPlayer {
 
     /// Suspends playback. Scheduled buffers are retained; `resume()` restarts. Matches the Electron streaming-wav-player.ts pause semantics.
     func pause() async {
+        isPaused = true
         let eng = engine
         await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
             controlQueue.async(qos: .default, flags: .enforceQoS) {
@@ -204,6 +231,7 @@ actor StreamingPlayer {
     }
 
     func resume() async throws {
+        isPaused = false
         // Install route observers once, re-bind to the current default output in case it changed while paused, then restart on the control queue.
         configureOutputRouting()
         await applyCurrentDefaultOutputDevice()
@@ -281,14 +309,67 @@ actor StreamingPlayer {
 
     // MARK: - Private helpers
 
-    /// Schedule the given buffer and attach the drain completion callback. The callback hops back into the actor to coordinate with `play()`'s continuation.
-    private func scheduleWithDrainCallback(_ buf: AVAudioPCMBuffer) {
+    /// Schedule one buffer and remember it for watchdog re-queueing. Only the drain tail carries a completion callback, which hops back into the actor to coordinate with `play()`'s continuation; it is tagged with the current `drainGeneration` so a queue flushed by recovery can't end playback early.
+    private func schedule(_ buf: AVAudioPCMBuffer, isDrainTail: Bool) {
+        scheduledThisPlay.append((buf, isDrainTail))
+        guard !isRecovering else { return }
+        guard isDrainTail else {
+            playerNode.scheduleBuffer(buf, completionCallbackType: .dataPlayedBack, completionHandler: nil)
+            return
+        }
+        let generation = drainGeneration
         playerNode.scheduleBuffer(buf, completionCallbackType: .dataPlayedBack) { [weak self] _ in
-            Task { await self?.signalDrainComplete() }
+            Task { await self?.signalDrainComplete(generation: generation) }
         }
     }
 
-    private func signalDrainComplete() {
+    /// Output-node render position, or nil when the engine is not rendering. It advances every hardware IO cycle whether or not the player has audio queued, so a frozen value means the device is not pulling.
+    private var outputRenderSampleTime: AVAudioFramePosition? {
+        guard let t = engine.outputNode.lastRenderTime, t.isSampleTimeValid else { return nil }
+        return t.sampleTime
+    }
+
+    /// Two render-clock reads `stallSampleWindow` apart; if the clock did not move, tear the engine down and bring it back exactly as the user's Stop → Start did, then re-queue everything this utterance had scheduled.
+    private func recoverIfOutputStalled() async {
+        guard isStreaming, !isStopped, !isPaused else { return }
+        let before = outputRenderSampleTime
+        try? await Task.sleep(for: Self.stallSampleWindow)
+        guard isStreaming, !isStopped, !isPaused else { return }
+        let after = outputRenderSampleTime
+        if let before, let after, after > before { return }
+
+        Self.log.error("play: output stalled (render \(String(describing: before), privacy: .public) → \(String(describing: after), privacy: .public), engine isRunning=\(self.engine.isRunning)); restarting engine and re-queueing \(self.scheduledThisPlay.count) buffers")
+        await restartEngineAndRequeue()
+    }
+
+    /// The recovery itself, split from detection so tests can drive it on a healthy engine mid-utterance: the utterance must still play to its end and `play()` must still return exactly once.
+    func restartEngineAndRequeue() async {
+        guard isStreaming, !isStopped else { return }
+        drainGeneration += 1
+        drainCompletedEarly = false
+        isRecovering = true
+        defer { isRecovering = false }
+        stopEngineAndPlayer()
+        #if os(macOS)
+        boundDeviceID = 0
+        #endif
+        await applyCurrentDefaultOutputDevice()
+        do {
+            try await startEngineAndPlayer()
+        } catch {
+            Self.log.error("play: engine restart after stall failed: \(String(describing: error), privacy: .public)")
+            return
+        }
+        guard !isStopped else { return }
+        isRecovering = false
+        let replay = scheduledThisPlay
+        scheduledThisPlay = []
+        for item in replay { schedule(item.buffer, isDrainTail: item.isDrainTail) }
+        Self.log.notice("play: recovered from stalled output")
+    }
+
+    private func signalDrainComplete(generation: Int) {
+        guard generation == drainGeneration else { return }
         if let cont = drainContinuation {
             drainContinuation = nil
             if isStopped {

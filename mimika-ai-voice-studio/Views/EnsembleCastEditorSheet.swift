@@ -70,7 +70,8 @@ struct EnsembleCastEditorSheet: View {
                     doneButton
                 }
             }
-            .frame(minWidth: 460, minHeight: 400)
+            // 560, not 460: a speaker row (name, edit/remove, the fixed 180 pt voice picker, seed) and the four-segment preset picker are wider than 460 less the container's padding. A ScrollView centers content wider than itself, so the old width clipped every section on both edges. Same fix as the Multi-Talk voice-map sheet.
+            .frame(minWidth: 560, minHeight: 400)
         }
         .onAppear {
             draftUserPeerName = viewModel.userPeer.name == "You" ? "" : viewModel.userPeer.name
@@ -238,14 +239,7 @@ struct EnsembleCastEditorSheet: View {
                 // Seed affordance per speaker. Self-hides for stock voices.
                 SeedControl(voiceID: persona.voiceID, style: .card)
             }
-            Picker("", selection: presetBinding(index)) {
-                ForEach(SamplingPreset.allCases, id: \.self) { preset in
-                    Text(preset.displayName).tag(preset)
-                }
-            }
-            .pickerStyle(.segmented).labelsHidden()
-            Text(presetCaption(persona.samplingPreset))
-                .font(Theme.fontXS).foregroundStyle(Theme.textSecondary)
+            SamplingPresetPicker(selection: presetBinding(index))
         }
         .padding(Theme.space2)
         .background(Theme.bgSecondary)
@@ -316,10 +310,6 @@ struct EnsembleCastEditorSheet: View {
         )
     }
 
-    private func presetCaption(_ preset: SamplingPreset) -> String {
-        "temp \(preset.temperature) · top-p \(preset.topP) · top-k \(preset.topK)"
-    }
-
     /// Stock built-ins + the user's imported Pocket-TTS voices (mirrors the setup wizard's voiceOptions so the same picker list appears here).
     private var voiceOptions: [VoiceOption] {
         let builtIn = voices
@@ -330,5 +320,31 @@ struct EnsembleCastEditorSheet: View {
             .filter { $0.pocketTTSKVPath != nil }
             .map { VoiceOption(id: "imported:\($0.id)", name: $0.isEnhanced ? "✨ \($0.name)" : $0.name) }
         return builtIn + imported
+    }
+}
+
+// MARK: - SamplingPresetPicker
+
+/// Per-speaker sampling preset picker, shared by the new-cast wizard and Cast & Settings. Claude accepts no sampling settings (MAVS-52), so while Claude runs the conversation the picker is disabled and the caption says why, rather than listing numbers that would do nothing. The saved preset is kept for when the conversation runs locally again.
+struct SamplingPresetPicker: View {
+    @Binding var selection: SamplingPreset
+    private let claudeRunsConversation = PersonaProviderStore.load().usesClaudeForConversations
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.space2) {
+            Picker("", selection: $selection) {
+                ForEach(SamplingPreset.allCases, id: \.self) { preset in
+                    Text(preset.displayName).tag(preset)
+                }
+            }
+            .pickerStyle(.segmented).labelsHidden()
+            .disabled(claudeRunsConversation)
+            Text(claudeRunsConversation
+                 ? "Not used while Claude runs the conversation — Claude doesn't accept sampling settings. Applies again on the local model."
+                 : "temp \(selection.temperature) · top-p \(selection.topP) · top-k \(selection.topK)")
+                .font(Theme.fontXS)
+                .foregroundStyle(claudeRunsConversation ? Theme.warningFG : Theme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }

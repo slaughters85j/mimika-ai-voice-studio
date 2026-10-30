@@ -182,7 +182,8 @@ final class EnsembleViewModel {
             engine: engine,
             player: player,
             makeClient: { [appState, session] in
-                LocalLLMClient(baseURL: URL(string: appState.currentEndpointBaseURL) ?? Self.fallbackURL, session: session)
+                LLMChatClient.make(localBaseURL: URL(string: appState.currentEndpointBaseURL) ?? Self.fallbackURL, session: session,
+                                   useClaude: PersonaProviderStore.load().usesClaudeForConversations)
             }
         )
         loadDefaultCastIfNeeded()
@@ -201,12 +202,24 @@ final class EnsembleViewModel {
         invitedUserTimeoutTask?.cancel()
     }
 
-    func makeClient() -> LocalLLMClient {
+    /// Where this Ensemble's model calls go: Claude when the user opted into Claude conversations, else the local endpoint (MAVS-52).
+    func makeClient() -> LLMChatClient {
+        LLMChatClient.make(localBaseURL: URL(string: appState.currentEndpointBaseURL) ?? Self.fallbackURL, session: session,
+                           useClaude: PersonaProviderStore.load().usesClaudeForConversations)
+    }
+
+    /// The local endpoint only — for the LM Studio connection and metadata probe, which have no Claude equivalent.
+    private func makeLocalClient() -> LocalLLMClient {
         LocalLLMClient(baseURL: URL(string: appState.currentEndpointBaseURL) ?? Self.fallbackURL, session: session)
     }
 
+    /// Context window reported for the Compact meter while Claude runs the conversation. Every model in the picker has a 1M-token window.
+    static let claudeContextTokens = 1_000_000
+
     /// The model id to send: the user's pinned model, else the model the connection probe resolved (mirrors ChatViewModel.send()'s fallback so a default LM Studio setup with no pinned model still works instead of POSTing an empty model id).
     var resolvedModel: String {
+        let provider = PersonaProviderStore.load()
+        if provider.usesClaudeForConversations { return provider.conversationModel }
         // The app-level model preference is the single source of truth — but honour it only if the endpoint actually serves it (otherwise it's a stale name from before the loaded model was swapped). Fall back to the loaded model so the live turns track reality.
         let saved = appState.chatSettings.model
         if !availableModels.isEmpty {
@@ -259,9 +272,20 @@ final class EnsembleViewModel {
         }
     }
 
+    /// Stop the poll when the Ensemble surface leaves the screen. This view model lives for the whole process, so without it one visit to Ensemble left two requests a second running for days, menu-bar idle included (MAVS-33). A run still in progress keeps the last known connection state; the next `startHealthChecks()` refreshes it.
+    func stopHealthChecks() {
+        healthCheckTask?.cancel()
+        healthCheckTask = nil
+    }
+
     func checkConnection() async {
+        let provider = PersonaProviderStore.load()
+        if provider.usesClaudeForConversations {
+            applyClaudeConnectionState(provider)
+            return
+        }
         do {
-            let client = makeClient()
+            let client = makeLocalClient()
             // Loaded/serving only — LM Studio catalog entries must not light the pill.
             let models = try await client.listServingModels()
             if availableModels != models {
@@ -311,6 +335,18 @@ final class EnsembleViewModel {
                 .disconnected(reason: LocalLLMClient.friendlyConnectionError(error))
             )
         }
+    }
+
+    /// Claude conversations: no network call on the 1 s poll (that would bill a request every second). A saved key counts as connected; a bad key surfaces on the first turn as the API's own error. Every picker model takes images and has a 1M-token window. Clearing `contextMetadataProbedModel` makes the local probe run again if the user switches back.
+    private func applyClaudeConnectionState(_ provider: PersonaProviderConfig) {
+        contextMetadataProbedModel = nil
+        guard !PersonaProviderStore.anthropicAPIKey().isEmpty else {
+            setConnectionStateIfChanged(.disconnected(reason: "no Claude API key"))
+            return
+        }
+        setConnectionStateIfChanged(.connected(model: provider.conversationModel))
+        if modelContextLimitTokens != Self.claudeContextTokens { modelContextLimitTokens = Self.claudeContextTokens }
+        if !modelSupportsVision { modelSupportsVision = true }
     }
 
     /// Effective Vision support for Ensemble image attach (probe + App Settings force).

@@ -4,7 +4,9 @@
 //
 //  Minimal native Anthropic Messages API client. There is no official Swift SDK, so this is raw HTTP against POST /v1/messages with `x-api-key` + `anthropic-version` headers. When a JSON Schema is supplied it sends structured outputs (`output_config.format`), which guarantees schema-valid JSON back — the whole reason the persona-writer can trust this path more than a local model's free-form output.
 //
-//  NOTE: temperature is intentionally NOT sent — Opus 4.8/4.7 reject sampling params (400), and the persona-writer doesn't need it.
+//  NOTE: temperature / top_p / top_k are never sent. API version 2026-10-21 rejects them with a 400 on every model, and the 5.5 family rejects them on any version.
+//
+//  Streaming chat for Ensemble conversations lives in AnthropicMessagesClient+Chat.swift.
 //
 
 import Foundation
@@ -43,15 +45,16 @@ nonisolated struct AnthropicMessagesClient: Sendable {
     let session: URLSession
 
     static let defaultBaseURL = URL(string: "https://api.anthropic.com")!
-    private static let version = "2023-06-01"
+    /// Moved from 2023-06-01 with the Ensemble conversation work. The persona writer already sent none of the fields this version removes (sampling params, documents in assistant turns, citations in user turns).
+    static let version = "2026-10-21"
 
-    init(apiKey: String, baseURL: URL = AnthropicMessagesClient.defaultBaseURL, session: URLSession = .shared) {
+    init(apiKey: String, baseURL: URL = AnthropicMessagesClient.defaultBaseURL, session: URLSession = .llm) {
         self.apiKey = apiKey
         self.baseURL = baseURL
         self.session = session
     }
 
-    private func authorized(_ url: URL, method: String) -> URLRequest {
+    func authorized(_ url: URL, method: String) -> URLRequest {
         var req = URLRequest(url: url)
         req.httpMethod = method
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -61,7 +64,9 @@ nonisolated struct AnthropicMessagesClient: Sendable {
     }
 
     /// POST /v1/messages. `schemaJSON` (a JSON Schema string) enables structured outputs when non-nil. Returns the first text block's text (with structured outputs that block is guaranteed-valid JSON).
-    func complete(model: String, system: String, user: String, schemaJSON: String?, maxTokens: Int = 4096) async throws -> String {
+    ///
+    /// `maxTokens` covers thinking as well as the answer, and thinking is always on for the 5.5 family — 16,000 leaves a persona's JSON room after it. That is the largest value that is still safe without streaming.
+    func complete(model: String, system: String, user: String, schemaJSON: String?, maxTokens: Int = 16_000) async throws -> String {
         var req = authorized(baseURL.appendingPathComponent("v1/messages"), method: "POST")
 
         var body: [String: Any] = [
@@ -112,6 +117,16 @@ nonisolated struct AnthropicMessagesClient: Sendable {
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let entries = obj["data"] as? [[String: Any]] else { return [] }
         return entries.compactMap { $0["id"] as? String }
+    }
+
+    /// GET /v1/models/{model}: proves both that the key is valid and that it can use the chosen model, before the key is saved. Throws the API's own message (e.g. 401 invalid key, 404 unknown model).
+    func validate(model: String) async throws {
+        let req = authorized(baseURL.appendingPathComponent("v1/models").appendingPathComponent(model), method: "GET")
+        let (data, response) = try await session.data(for: req)
+        guard let http = response as? HTTPURLResponse else { throw ClientError.http(status: -1, message: nil) }
+        guard (200..<300).contains(http.statusCode) else {
+            throw ClientError.http(status: http.statusCode, message: Self.errorMessage(from: data))
+        }
     }
 
     /// Pull `error.message` out of an Anthropic error body, if present.

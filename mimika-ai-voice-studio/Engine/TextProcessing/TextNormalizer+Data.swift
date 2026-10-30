@@ -59,6 +59,5 @@ extension TextNormalizer {
     nonisolated static let spokenAcronyms: Set<String> = [
         "NASA", "NATO", "ASAP", "LASER", "RADAR", "SCUBA",
         "LIDAR", "SONAR", "FLIR", "NADIR", "OK",
-        "TARS", "PSHS", "GSHS",
     ]
 }

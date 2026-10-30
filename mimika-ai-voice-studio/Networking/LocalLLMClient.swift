@@ -10,6 +10,18 @@
 
 import Foundation
 
+// MARK: - Uncached session
+
+extension URLSession {
+    /// The session every LLM client uses by default (local endpoint, persona writer, Anthropic). `.shared` writes every response into the on-disk URL cache, and the 1 s health poll's model lists alone dirtied 2.1 GB in 10 hours on 1.5.12 — enough for macOS to file a disk-writes resource report (MAVS-34). These responses are live server state, so caching them was never useful. Ephemeral keeps no disk cache and no persistent cookies; per-request `timeoutInterval` values still apply.
+    nonisolated static let llm: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.urlCache = nil
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        return URLSession(configuration: config)
+    }()
+}
+
 // MARK: - LocalLLMClient
 
 actor LocalLLMClient {
@@ -44,7 +56,7 @@ actor LocalLLMClient {
     private let baseURL: URL
     private let session: URLSession
 
-    init(baseURL: URL, session: URLSession = .shared) {
+    init(baseURL: URL, session: URLSession = .llm) {
         self.baseURL = baseURL
         self.session = session
     }

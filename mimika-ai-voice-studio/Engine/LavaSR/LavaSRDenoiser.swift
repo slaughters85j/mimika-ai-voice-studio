@@ -2,7 +2,7 @@
 //  LavaSRDenoiser.swift
 //  mimika-ai-voice-studio
 //
-//  Phase 10b / Commit 2 — Swift wrapper for the Core ML ULUNAS denoiser produced by `scripts/convert_lavasr_denoiser_to_coreml.py`.
+//  Swift wrapper for the Core ML ULUNAS denoiser produced by `scripts/convert_lavasr_denoiser_to_coreml.py`. Upstream: the denoiser weights are `denoiser.bin` from huggingface.co/YatharthS/LavaSR (MIT); the surrounding pipeline follows github.com/ysharma3501/LavaSR (Apache-2.0). See ACKNOWLEDGMENTS.md.
 //
 //  The .mlpackage takes raw 16 kHz mono audio of fixed length 128000 samples and outputs the masked complex spectrogram of shape `(1, 257, 501, 2)` — last dim is `[real, imag]`. This wrapper runs the iSTFT in Swift (via MLXFFT) to reconstruct audio, sidestepping the fact that coremltools 9.0 has no `torch.istft` lowering.
 //

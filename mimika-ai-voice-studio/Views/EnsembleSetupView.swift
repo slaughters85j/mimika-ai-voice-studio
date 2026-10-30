@@ -237,15 +237,7 @@ struct EnsembleSetupView: View {
                                 .labelsHidden()
                                 .frame(width: 180)
                             }
-                            Picker("", selection: presetBinding(for: persona, index: index)) {
-                                ForEach(SamplingPreset.allCases, id: \.self) { preset in
-                                    Text(preset.displayName).tag(preset)
-                                }
-                            }
-                            .pickerStyle(.segmented)
-                            .labelsHidden()
-                            Text(presetCaption(resolvedPreset(for: persona, index: index)))
-                                .font(Theme.fontXS).foregroundStyle(Theme.textSecondary)
+                            SamplingPresetPicker(selection: presetBinding(for: persona, index: index))
                         }
                         .padding(Theme.space2)
                         .background(Theme.bgSecondary)
@@ -359,10 +351,6 @@ struct EnsembleSetupView: View {
             get: { resolvedPreset(for: persona, index: index) },
             set: { presetSelections[index] = $0 }
         )
-    }
-
-    private func presetCaption(_ preset: SamplingPreset) -> String {
-        "temp \(preset.temperature) · top-p \(preset.topP) · top-k \(preset.topK)"
     }
 
     private func startEnsemble() {
