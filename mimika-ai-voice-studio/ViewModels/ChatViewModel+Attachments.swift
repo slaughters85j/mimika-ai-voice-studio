@@ -306,10 +306,13 @@ extension ChatViewModel {
                 )
             )
             guard !speakable.isEmpty else { continue }
-            let stream = engine.synthesize(
-                text: speakable,
-                voiceID: voiceID,
-                options: currentSynthesisOptions(for: voiceID)
+            let stream = VoiceLevel.applyingGain(
+                to: engine.synthesize(
+                    text: speakable,
+                    voiceID: voiceID,
+                    options: currentSynthesisOptions(for: voiceID)
+                ),
+                forVoice: voiceID
             )
             do {
                 try await player.play(stream: stream)

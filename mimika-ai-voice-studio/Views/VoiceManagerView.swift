@@ -41,7 +41,7 @@ struct VoiceManagerView: View {
     @State private var dropError: String?
     @State private var voiceName = ""
     @State private var voiceDescription = ""
-    // Default OFF until the LavaSR audio-quality fixes (ULUNAS denoiser port + artifact tuning) land. Enhancement can still introduce perceptible artifacts on clean source audio, which is a worse default UX than leaving the user's recording untouched. Users who want LavaSR can opt in per voice.
+    // Default OFF: enhancement can still introduce perceptible artifacts on clean source audio, which is a worse default than leaving the user's recording untouched. Users who want LavaSR opt in per voice. Revisit after the clean-vs-noisy listening pass (MAVS-31).
     @State private var enableEnhancement = false
     @State private var enableDenoise = true
     @State private var rmsTargetDB: Float = -16.0

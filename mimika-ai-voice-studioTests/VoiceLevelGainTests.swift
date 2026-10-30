@@ -83,4 +83,37 @@ final class VoiceLevelGainTests: XCTestCase {
         XCTAssertEqual(analysis.totalSamples, 0)
         XCTAssertEqual(analysis.limitedFraction(atGain: 2.0), 0)
     }
+
+    // MARK: - applyingGain(to:) stream wrapper (MAVS-23)
+
+    func testStreamGain_scalesFramesAndKeepsFinalFlag() async {
+        let (source, cont) = AsyncStream<PCMFrame>.makeStream()
+        cont.yield(PCMFrame(samples: [0.2, -0.2], isFinal: false))
+        cont.yield(PCMFrame(samples: [0.1], isFinal: true))
+        cont.finish()
+
+        var frames: [PCMFrame] = []
+        for await f in VoiceLevel.applyingGain(to: source, gain: 2.0) { frames.append(f) }
+
+        XCTAssertEqual(frames.count, 2)
+        XCTAssertEqual(frames[0].samples, VoiceLevel.applyGain([0.2, -0.2], gain: 2.0))
+        XCTAssertFalse(frames[0].isFinal)
+        XCTAssertTrue(frames[1].isFinal)
+    }
+
+    /// The engine stops synthesizing only when its stream's `onTermination` fires. When the player abandons the wrapped stream, that must still reach the source — otherwise a stopped Chat turn keeps the engine busy.
+    func testStreamGain_consumerStopPropagatesToSource() async {
+        let sourceEnded = expectation(description: "source stream terminated")
+        let (source, cont) = AsyncStream<PCMFrame>.makeStream()
+        cont.onTermination = { _ in sourceEnded.fulfill() }
+        cont.yield(PCMFrame(samples: [0.1], isFinal: false))
+
+        let consumer = Task {
+            for await _ in VoiceLevel.applyingGain(to: source, gain: 2.0) {}
+        }
+        try? await Task.sleep(for: .milliseconds(50))
+        consumer.cancel()
+
+        await fulfillment(of: [sourceEnded], timeout: 2.0)
+    }
 }

@@ -47,7 +47,8 @@ nonisolated enum MultiTalkScriptParser {
 
         // Regex matches {Name} or [Xs] tokens. Anything between matches is text. ⚠️ This is a single-line scan; newlines are folded into text bodies, matching the Electron behavior.
         let pattern = #"\{([^{}]+)\}|\[(\d+(?:\.\d+)?)s\]"#
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+        // Case-insensitive so `[2S]` is a pause, matching Single Voice's `TextNormalizer.parsePauseMarkers` and Python's `re.IGNORECASE`. The `{Name}` branch already accepts any case.
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) else {
             // Defensive: pattern is static, this should never happen.
             return [.text(speakerVoiceID: currentSpeaker.voiceID,
                           speakerName: currentSpeaker.name,
@@ -78,7 +79,8 @@ nonisolated enum MultiTalkScriptParser {
                 // [Xs] pause — flush current buffer, emit pause.
                 let raw = ns.substring(with: match.range(at: 2))
                 flushText(into: &chunks, buffer: &currentBuffer, speaker: currentSpeaker)
-                if let dur = Double(raw), dur > 0 {
+                // Same clamp as Single Voice: cap at `TextNormalizer.maxPauseSeconds`, drop zero.
+                if let dur = Double(raw).map({ min($0, TextNormalizer.maxPauseSeconds) }), dur > 0 {
                     chunks.append(.pause(seconds: dur))
                 }
             }

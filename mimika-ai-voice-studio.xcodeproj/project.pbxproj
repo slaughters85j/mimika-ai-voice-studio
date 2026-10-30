@@ -53,6 +53,8 @@
 		790A018FA49817318A61DA03 /* CapabilityOverrideSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B614731AE3D0AB74BE85AFEB /* CapabilityOverrideSettingsSection.swift */; };
 		791033D19C5F70A0424A954F /* SoloChatNetworkingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14DA4BEE403B952E900BB5F0 /* SoloChatNetworkingTests.swift */; };
 		791312E1662ACD556A094935 /* PersonaWriterProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA57A04680A7A9C7EE53AED1 /* PersonaWriterProvider.swift */; };
+		4027791CECE4154C47C8AB2B /* AnthropicMessagesClient+Chat.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17232D9844514AFF630C6677 /* AnthropicMessagesClient+Chat.swift */; };
+		402CAB89DECC8FCACC332B41 /* LLMChatClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88F8B77B9E509FB7F049B99D /* LLMChatClient.swift */; };
 		81CF5D6A0CE94A3CB65AAD71 /* MultiTalkViewModel+BackendSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2412089BD2E4126ADE03040 /* MultiTalkViewModel+BackendSync.swift */; };
 		836066D264F54A9BB3C5011E /* ReviewPromptGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F22A17754554F82BE663FDD /* ReviewPromptGateTests.swift */; };
 		84374F4D139241CF9223E082 /* EnsembleCharacterPickerBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9565AAD3AFC4D7782FAF885 /* EnsembleCharacterPickerBar.swift */; };
@@ -268,6 +270,7 @@
 		D53CE9B12FD2FADC0071832E /* AppUpdateChecker.swift in Sources */ = {isa = PBXBuildFile; fileRef = D53CE9B22FD2FADC0071832E /* AppUpdateChecker.swift */; };
 		D53CE9B32FD2FADC0071832E /* UpdateAvailableBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D53CE9B42FD2FADC0071832E /* UpdateAvailableBadge.swift */; };
 		D53CE9B52FD2FADC0071832E /* AppInformationSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = D53CE9B62FD2FADC0071832E /* AppInformationSection.swift */; };
+		0A8EEBA92250DE3DB63BDCF9 /* ClaudeSettingsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 097FC380A366CA2F33B358DA /* ClaudeSettingsSection.swift */; };
 		D53CE9C12FD2FADC0071832E /* ThinkTagFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D53CE9C22FD2FADC0071832E /* ThinkTagFilter.swift */; };
 		D53CE9C32FD2FADC0071832E /* ThinkTagFilterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D53CE9C42FD2FADC0071832E /* ThinkTagFilterTests.swift */; };
 		D53CEA012FD2FADC0071832E /* htdemucs_vocals_golden.wav in Resources */ = {isa = PBXBuildFile; fileRef = D53CE6192FD2FADC0071832E /* htdemucs_vocals_golden.wav */; };
@@ -585,6 +588,7 @@
 		D53CE9B22FD2FADC0071832E /* AppUpdateChecker.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppUpdateChecker.swift; sourceTree = "<group>"; };
 		D53CE9B42FD2FADC0071832E /* UpdateAvailableBadge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UpdateAvailableBadge.swift; sourceTree = "<group>"; };
 		D53CE9B62FD2FADC0071832E /* AppInformationSection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppInformationSection.swift; sourceTree = "<group>"; };
+		097FC380A366CA2F33B358DA /* ClaudeSettingsSection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ClaudeSettingsSection.swift; sourceTree = "<group>"; };
 		D53CE9C22FD2FADC0071832E /* ThinkTagFilter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ThinkTagFilter.swift; sourceTree = "<group>"; };
 		D53CE9C42FD2FADC0071832E /* ThinkTagFilterTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ThinkTagFilterTests.swift; sourceTree = "<group>"; };
 		D5B7DDB53007F0E1006FE124 /* SeededGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SeededGenerator.swift; sourceTree = "<group>"; };
@@ -610,6 +614,8 @@
 		F4F8A6E0ED724284D82C590B /* ChatImageAttachmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatImageAttachmentTests.swift; sourceTree = "<group>"; };
 		F9565AAD3AFC4D7782FAF885 /* EnsembleCharacterPickerBar.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EnsembleCharacterPickerBar.swift; sourceTree = "<group>"; };
 		FA57A04680A7A9C7EE53AED1 /* PersonaWriterProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PersonaWriterProvider.swift; sourceTree = "<group>"; };
+		17232D9844514AFF630C6677 /* AnthropicMessagesClient+Chat.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AnthropicMessagesClient+Chat.swift"; sourceTree = "<group>"; };
+		88F8B77B9E509FB7F049B99D /* LLMChatClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LLMChatClient.swift; sourceTree = "<group>"; };
 		FE3D617C12DF4B7E8175338A /* MultiTalkBackendSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultiTalkBackendSyncTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -873,6 +879,8 @@
 				AD88380CD0677E849D049018 /* DirectorPrompt.swift */,
 				357B46FC95DFDCF061168CFD /* AnthropicMessagesClient.swift */,
 				FA57A04680A7A9C7EE53AED1 /* PersonaWriterProvider.swift */,
+				17232D9844514AFF630C6677 /* AnthropicMessagesClient+Chat.swift */,
+				88F8B77B9E509FB7F049B99D /* LLMChatClient.swift */,
 			);
 			path = Networking;
 			sourceTree = "<group>";
@@ -956,6 +964,7 @@
 				D53CE5F32FD2FADC0071832E /* SpeakerIsolator */,
 				D53CE5F42FD2FADC0071832E /* AppSettingsView.swift */,
 				D53CE9B62FD2FADC0071832E /* AppInformationSection.swift */,
+				097FC380A366CA2F33B358DA /* ClaudeSettingsSection.swift */,
 				D53CE5F52FD2FADC0071832E /* ChatSettingsView.swift */,
 				D53CE5F62FD2FADC0071832E /* ChatView.swift */,
 				D53CE9A22FD2FADC0071832E /* ChatViewChrome.swift */,
@@ -1423,6 +1432,7 @@
 				D53CE9B12FD2FADC0071832E /* AppUpdateChecker.swift in Sources */,
 				D53CE9B32FD2FADC0071832E /* UpdateAvailableBadge.swift in Sources */,
 				D53CE9B52FD2FADC0071832E /* AppInformationSection.swift in Sources */,
+				0A8EEBA92250DE3DB63BDCF9 /* ClaudeSettingsSection.swift in Sources */,
 				D53CE6BD2FD2FADC0071832E /* MimiEncoder.swift in Sources */,
 				D53CE6BE2FD2FADC0071832E /* ChatView.swift in Sources */,
 				D53CE9A12FD2FADC0071832E /* ChatViewChrome.swift in Sources */,
@@ -1504,6 +1514,8 @@
 				9DED98B73CC5CD304F80E552 /* PersonaProviderStore.swift in Sources */,
 				5AE7C0489BE46297DB384FA1 /* AnthropicMessagesClient.swift in Sources */,
 				791312E1662ACD556A094935 /* PersonaWriterProvider.swift in Sources */,
+				4027791CECE4154C47C8AB2B /* AnthropicMessagesClient+Chat.swift in Sources */,
+				402CAB89DECC8FCACC332B41 /* LLMChatClient.swift in Sources */,
 				C6897E6B58F373C6E60A87A5 /* EnsemblePersonaEditorSheet.swift in Sources */,
 				A0480CDCD6300E60AEF23D82 /* ReadAloudController.swift in Sources */,
 				B2D61E5F956C207E61EC2FE7 /* ReadAloudService.swift in Sources */,

@@ -49,6 +49,25 @@ final class MultiTalkScriptParserTests: XCTestCase {
         XCTAssertEqual(pauseCount, 3)
     }
 
+    // MARK: - Pause parity with Single Voice (MAVS-22)
+
+    func test_pause_clampedToMax() {
+        let chunks = MultiTalkScriptParser.parse("{Alice} hi [15s] there.", speakers: [alice])
+        XCTAssertTrue(chunks.contains(.pause(seconds: TextNormalizer.maxPauseSeconds)))
+        XCTAssertFalse(chunks.contains(.pause(seconds: 15)))
+    }
+
+    func test_pause_uppercaseSuffixParses() {
+        let chunks = MultiTalkScriptParser.parse("{Alice} hi [2S] there.", speakers: [alice])
+        XCTAssertTrue(chunks.contains(.pause(seconds: 2)))
+        XCTAssertFalse(chunks.contains { if case let .text(_, _, body) = $0 { return body.contains("[2S]") } else { return false } })
+    }
+
+    func test_pause_zeroDropped() {
+        let chunks = MultiTalkScriptParser.parse("{Alice} hi [0s] there.", speakers: [alice])
+        XCTAssertFalse(chunks.contains { if case .pause = $0 { return true } else { return false } })
+    }
+
     func test_emptyScript_returnsNoChunks() {
         let chunks = MultiTalkScriptParser.parse("", speakers: [alice])
         XCTAssertEqual(chunks.count, 0)

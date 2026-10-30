@@ -348,31 +348,13 @@ final class SpeakerIsolatorTests: XCTestCase {
 
 // MARK: - DiarizationSettings tests
 
-/// Unit coverage for the backend-agnostic settings struct that the Speaker Isolator UI surfaces and `SpeakerKitDiarizationProvider` translates into `PyannoteDiarizationOptions`. Pure value-type arithmetic — no diarizer involved.
+/// Unit coverage for the backend-agnostic settings struct that the Speaker Isolator UI surfaces and `FluidAudioDiarizationProvider` translates into a `DiarizerConfig`. Pure value-type arithmetic — no diarizer involved.
 final class DiarizationSettingsTests: XCTestCase {
 
     func test_defaultInit_isAutoDetectAtDefaultSensitivity() {
         let s = DiarizationSettings()
         XCTAssertNil(s.numberOfSpeakers)
         XCTAssertEqual(s.sensitivity, DiarizationSettings.defaultSensitivity, accuracy: 0.0001)
-    }
-
-    func test_defaultSensitivity_mapsToPyannoteDefaultThreshold() {
-        // SpeakerKit's pyannote default for clusterDistanceThreshold is 0.6 (see SpeakerClustering.swift in the package). Our default sensitivity (0.5) must map onto 0.6 so the v1 behavior is unchanged when the user doesn't touch the slider.
-        let s = DiarizationSettings()
-        XCTAssertEqual(s.pyannoteClusterDistanceThreshold, 0.6, accuracy: 0.0001)
-    }
-
-    func test_maxSensitivity_mapsToSmallestThreshold() {
-        // Pulling the slider all the way up should request the tightest clusters (most aggressive splits).
-        let s = DiarizationSettings(sensitivity: 1.0)
-        XCTAssertEqual(s.pyannoteClusterDistanceThreshold, 0.3, accuracy: 0.0001)
-    }
-
-    func test_zeroSensitivity_mapsToLargestThreshold() {
-        // Pulling all the way down should request the loosest clusters (most aggressive merges).
-        let s = DiarizationSettings(sensitivity: 0.0)
-        XCTAssertEqual(s.pyannoteClusterDistanceThreshold, 0.9, accuracy: 0.0001)
     }
 
     func test_init_clampsSensitivityToValidRange() {

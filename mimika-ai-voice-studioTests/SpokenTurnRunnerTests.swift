@@ -48,7 +48,7 @@ final class SpokenTurnRunnerTests: XCTestCase {
         let runner = SpokenTurnRunner(
             engine: StubEngine(),
             player: player,
-            makeClient: { [self] in makeStubClient() }
+            makeClient: { [self] in .local(makeStubClient()) }
         )
 
         var deltas = ""

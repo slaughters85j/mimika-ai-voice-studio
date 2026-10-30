@@ -98,7 +98,7 @@ final class ChatViewModel {
         player: any ChatAudioPlaying,
         settings: ChatSettings,
         appState: AppState,
-        llmSession: URLSession = .shared
+        llmSession: URLSession = .llm
     ) {
         self.engine = engine
         self.player = player
@@ -171,8 +171,17 @@ final class ChatViewModel {
 
     // MARK: Shared helpers
 
-    /// Build a fresh client against the current persisted endpoint.
-    func makeClient() -> LocalLLMClient {
+    /// Build a fresh client for Solo's replies and thread title: Claude when the user turned on "Run Solo chat on Claude" (MAVS-53), else the current persisted local endpoint.
+    func makeClient() -> LLMChatClient {
+        LLMChatClient.make(
+            localBaseURL: URL(string: appState.currentEndpointBaseURL) ?? Self.fallbackURL,
+            session: llmSession,
+            useClaude: PersonaProviderStore.load().usesClaudeForSolo
+        )
+    }
+
+    /// The local endpoint only — for the LM Studio capability probe, which has no Claude equivalent.
+    func makeLocalClient() -> LocalLLMClient {
         LocalLLMClient(
             baseURL: URL(string: appState.currentEndpointBaseURL) ?? Self.fallbackURL,
             session: llmSession

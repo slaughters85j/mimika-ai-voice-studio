@@ -271,8 +271,7 @@ nonisolated enum TextNormalizer {
         var t = stripEmojis(text)
         // Smart-punctuation normalization runs next. The SentencePiece tokenizer maps ASCII apostrophes / quotes / hyphens / ellipsis to single canonical pieces; the Unicode "smart" equivalents byte-fallback into 3-4 separate tokens (e.g. curly `’` → `<0xE2><0x80><0x99>`), which the model wasn't trained on and reliably distorts on. This is the most common source of "every contraction sounds garbled" reports because macOS smart-quote substitution + LLM-generated scripts (AI Writer) emit curly punctuation by default. Cheap fix here, audible improvement everywhere downstream.
         t = normalizeSmartPunctuation(t)
-        // Ellipsis: now handled above (curly … → "...") and otherwise passed through. The Python reference uses `...` as an end-of-sentence token inside its SentencePiece-based chunker and the model handles it correctly. Earlier versions substituted `...` → `,` (broke chunking) or `. ` (broke token semantics) to work around audio distortion; that distortion is now believed to be a CoreML/sampler/token-feeding bug rather than something text normalization can fix, so we stop masking it. Pronunciation overrides the model struggles with
-        t = applyPronunciationFixes(t)
+        // Ellipsis: now handled above (curly … → "...") and otherwise passed through. The Python reference uses `...` as an end-of-sentence token inside its SentencePiece-based chunker and the model handles it correctly. Earlier versions substituted `...` → `,` (broke chunking) or `. ` (broke token semantics) to work around audio distortion; that distortion is now believed to be a CoreML/sampler/token-feeding bug rather than something text normalization can fix, so we stop masking it.
         // Digit-grouping commas, removed BEFORE any numeric expander runs. None of the numeric patterns below tolerate them, so "45,607" was read as two numbers ("forty-five" + "six hundred and seven") and "$1,500" as "one dollar" + "five hundred". Stripping the separator once here lets every existing expander see the plain digit run it already handles correctly, instead of teaching four regexes and their expanders about commas.
         //
         // The lookarounds require exactly three digits followed by a non-digit, so real grouping ("1,234,567") collapses while "items 1,2,3" and "January 1, 2026" are left alone.
@@ -282,6 +281,8 @@ nonisolated enum TextNormalizer {
             options: .regularExpression
         )
         t = replace(t, abbrevPattern) { m, s in expandAbbreviation(m, in: s) }
+        // Pronunciation overrides for words the model mispronounces. Must run AFTER abbreviation expansion, or "Capt." only becomes "Captain" once the Captain → Kaptin fix has already run, and the fix never applies (MAVS-21).
+        t = applyPronunciationFixes(t)
         t = replace(t, listItemPattern) { m, s in expandListItem(m, in: s) }
         t = replace(t, currencyMagnitudePattern) { m, s in expandCurrencyMagnitude(m, in: s) }
         t = replace(t, currencyPattern) { m, s in expandCurrency(m, in: s) }
@@ -509,7 +510,8 @@ nonisolated enum TextNormalizer {
         guard let numStr = group(m, 1, in: s), let n = Int(numStr) else {
             return group(m, 0, in: s) ?? ""
         }
-        return "\(NumberToWords.ordinal(n).prefix(1).uppercased())\(NumberToWords.ordinal(n).dropFirst()), "
+        let ordinal = NumberToWords.ordinal(n)
+        return "\(ordinal.prefix(1).uppercased())\(ordinal.dropFirst()), "
     }
 
     private static func expandNumber(_ m: NSTextCheckingResult, in s: String) -> String {

@@ -39,6 +39,11 @@ extension ChatViewModel {
 
     /// Publish connectivity first, then probe richer capability metadata. Polls every second; skips Observation writes and capability probes when the serving model set is unchanged.
     func checkConnection() async {
+        let provider = PersonaProviderStore.load()
+        if provider.usesClaudeForSolo {
+            applyClaudeConnection(model: provider.soloModel)
+            return
+        }
         let requestID = UUID()
         connectionRequestID = requestID
         let requestedEndpoint = appState.currentEndpointBaseURL
@@ -128,6 +133,30 @@ extension ChatViewModel {
         }
     }
 
+    /// Endpoint label for the Claude capability selection, so it never equals a local endpoint/model pair.
+    static let claudeEndpoint = "https://api.anthropic.com"
+    /// Claude can't switch thinking off, so the Thinking control offers effort levels only.
+    static let claudeReasoning = ModelReasoningConfiguration(allowedOptions: [.low, .medium, .high], defaultOption: .low)
+
+    /// Solo on Claude (MAVS-53). The 1 s poll makes no network call (that would bill a request every second): a saved key counts as connected, and a bad key surfaces on the first reply as the API's own error. Every picker model takes images and can reason, so the badges and the Thinking control are set once per model rather than probed. The early return in `checkConnection` keeps this ahead of the local selection comparison that once blinked the toolbar every second.
+    private func applyClaudeConnection(model: String) {
+        capabilityProbeTask?.cancel()
+        capabilityProbeTask = nil
+        guard !PersonaProviderStore.anthropicAPIKey().isEmpty else {
+            setConnectionStateIfChanged(.disconnected(reason: "no Claude API key"))
+            return
+        }
+        setConnectionStateIfChanged(.connected(model: model))
+        let selection = ChatModelSelection(endpoint: Self.claudeEndpoint, model: model)
+        guard capabilitySelection != selection else { return }
+        capabilitySelection = selection
+        applyCapabilityResolution(
+            ModelCapabilityState(authoritative: [.vision, .reasoning], forced: [], freshness: .current),
+            for: selection
+        )
+        applyReasoningConfiguration(Self.claudeReasoning, for: selection)
+    }
+
     /// Avoid redundant `@Observable` publishes on a 1s poll. Sanitize disconnect reasons at write time (toolbar + composer share this state).
     private func setConnectionStateIfChanged(_ next: ConnectionState) {
         let cleaned: ConnectionState
@@ -148,7 +177,7 @@ extension ChatViewModel {
         capabilityProbeTask?.cancel()
         let requestID = UUID()
         capabilityRequestID = requestID
-        let client = makeClient()
+        let client = makeLocalClient()
         let task = Task { try await client.modelMetadata(for: selection.model) }
         capabilityProbeTask = task
 

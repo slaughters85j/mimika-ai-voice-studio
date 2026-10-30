@@ -75,7 +75,7 @@ WAV → [LavaSR enhancement (optional)] → [Fish DAC encode] + [MimiEncoder →
 
 **Storage:** Saved voices live in the app's sandbox container — `~/Library/Containers/<bundle-id>/Data/Library/Application Support/mimika-ai-voice-studio/saved-voices/`. Each voice is a triplet (`<UUID>.wav`, `<UUID>_codes.npy`, `<UUID>_kv.safetensors`) plus an optional `<UUID>_enhanced.wav`, with a `voices.json` catalog at the same directory. The catalog stores basenames only — paths are resolved against the current container at load time so the catalog survives sandbox migrations, bundle-ID changes, and backup restores. The seven Kyutai stock voices ship in `Resources/voice_kv_states/` in the app bundle; custom voices never enter source.
 
-- **LavaSR Enhancement** — MLX-native port of the Vocos BWE (bandwidth extension) model. Uses a custom ISTFT head matching the Python Vocos pipeline exactly: periodic Hann window, window-squared overlap-add normalization, and "same" padding. Off by default for new voices until the ULUNAS denoiser port + artifact tuning land; can introduce perceptible artifacts on clean source audio. Best suited for noisy or low-quality recordings.
+- **LavaSR Enhancement** — the full LavaSR pipeline: a Core ML port of the ULUNAS denoiser, then an MLX-native port of the Vocos BWE (bandwidth extension) model at 48 kHz, then a Linkwitz-Riley-style merge that keeps the clean low band from the input and the extended high band from the model. The BWE uses a custom ISTFT head matching the Python Vocos pipeline exactly: periodic Hann window, window-squared overlap-add normalization, and "same" padding. Off by default for new voices because it can still introduce perceptible artifacts on clean source audio. Best suited for noisy or low-quality recordings.
 - **RMS Normalization** — All imported voices are automatically RMS-normalized to -16 dB at import time, ensuring consistent volume for encoding regardless of whether enhancement is applied.
 - **Per-voice loudness target** — Each saved voice carries its own RMS target (-30 to -6 dB) configured in the Enhancement Studio. Single Voice applies the target automatically as a streaming-friendly static gain relative to the -16 dB conditioning baseline. Multi-Talk adds a 3-way segmented picker (Per voice / Match loudest / Match quietest) mirroring the Electron reference, so multi-speaker dialogues can be balanced without re-baking voice KV states.
 - **Enhancement Studio** — A/B comparison (Play original vs enhanced), Accept & Save / Reject / Re-enhance flow. Denoise toggle and RMS target level (-30 to -6 dB) configurable per voice.
@@ -148,13 +148,12 @@ xcodebuild archive ...
 # sign + notarize
 ```
 
-No pre-archive strip step. On first launch the user sees a download sheet covering all five `BundledMLModel` cases (the four mlpackages plus the stock-assets bundle).
+No pre-archive strip step. On first launch the user sees a download sheet covering all seven `BundledMLModel` cases (the four TTS mlpackages, the stock-assets bundle, the voice-tools bundle, and the LavaSR denoiser mlpackage).
 
 ## Remaining Work
 
 | Item | Status |
 |------|--------|
-| ULUNAS denoiser port | Planned — currently BWE only |
 | iOS variant | Deferred to v2 |
 
 ## Related Projects

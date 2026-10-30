@@ -40,6 +40,27 @@ nonisolated final class StreamingPlaybackTests: XCTestCase {
         print("✓ playback completed in \(String(format: "%.2f", elapsed))s")
     }
 
+    // MARK: - Stalled-output recovery
+    /// Drives the watchdog's restart-and-requeue on a healthy engine partway through an utterance — the path a stalled device takes on macOS 27 after a long idle. The utterance is re-queued from the top, so it must still finish, and `play()` must return once without throwing (a drain callback flushed by the restart must not end it early or hang it).
+    func test_restartAndRequeue_midUtterance_stillDrains() async throws {
+        let engine = try await TTSEngine()
+        let player = try StreamingPlayer()
+
+        let stream = engine.synthesize(text: testPhrase, voiceID: testVoiceID)
+        let start = Date()
+        async let playback: Void = player.play(stream: stream)
+
+        try await Task.sleep(for: .milliseconds(600))
+        await player.restartEngineAndRequeue()
+
+        try await playback
+        let elapsed = Date().timeIntervalSince(start)
+        // ~3.4 s of audio, restarted 0.6 s in and replayed from the top: about 4–5 s. A hang trips the test-plan timeout instead.
+        XCTAssertLessThan(elapsed, 10.0, "recovered playback took unreasonably long: \(elapsed)s")
+        XCTAssertGreaterThan(elapsed, 3.0, "play() returned before the re-queued audio could have played: \(elapsed)s")
+        print("✓ recovered playback completed in \(String(format: "%.2f", elapsed))s")
+    }
+
     // MARK: - AAC file export test
     /// Synthesizes once and writes AAC to the sandbox temp dir, verifying the file is non-trivial and parses cleanly via AVAudioFile.
     ///

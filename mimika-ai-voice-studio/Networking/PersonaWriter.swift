@@ -33,7 +33,7 @@ final class PersonaWriter {
     private var task: Task<Void, Never>?
     private static let fallbackURL = URL(string: "http://localhost:1234")!
 
-    init(appState: AppState, session: URLSession = .shared) {
+    init(appState: AppState, session: URLSession = .llm) {
         self.appState = appState
         self.session = session
     }

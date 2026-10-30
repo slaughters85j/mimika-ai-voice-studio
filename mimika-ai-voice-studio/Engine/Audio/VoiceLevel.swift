@@ -8,7 +8,7 @@
 //
 //  The slider in the Voice Manager lets the user offset that. A voice configured for -10 dB plays ~6 dB louder than baseline; a voice configured for -22 dB plays ~6 dB quieter. Multi-Talk's strategy picker reuses the same per-voice target with three combining rules.
 //
-//  This is a streaming-friendly static-gain approach. A measure-then-normalize pass would be more precise but requires the whole buffer, which would defeat the streaming player. See FIDELITY_BACKLOG P1-N1 for the documented trade-off.
+//  This is a streaming-friendly static-gain approach. A measure-then-normalize pass would be more precise but requires the whole buffer, which would defeat the streaming player. See P1-N1 on the "Fidelity Audit (Python vs Swift)" page in the MAVS Confluence space for the documented trade-off.
 
 import Foundation
 
@@ -75,6 +75,25 @@ enum VoiceLevel {
             out[i] = AudioSoftClip.apply(out[i] * gain)
         }
         return out
+    }
+
+    /// Wrap an engine stream so every frame carries the voice's level. For callers that hand the engine stream straight to the player (Solo Chat, Ensemble) rather than teeing it frame by frame like Single Voice and Read Aloud. Returns the stream untouched at unity gain. Cancellation passes through: when the player stops iterating, the relay task is cancelled, which ends the engine stream and trips its cancel flag.
+    static func applyingGain(to stream: AsyncStream<PCMFrame>, forVoice voiceID: String) -> AsyncStream<PCMFrame> {
+        applyingGain(to: stream, gain: gainFactor(forVoice: voiceID))
+    }
+
+    /// The stream wrapper itself, for an already-resolved gain.
+    nonisolated static func applyingGain(to stream: AsyncStream<PCMFrame>, gain: Float) -> AsyncStream<PCMFrame> {
+        guard gain != 1.0 else { return stream }
+        return AsyncStream { continuation in
+            let relay = Task {
+                for await frame in stream {
+                    continuation.yield(PCMFrame(samples: applyGain(frame.samples, gain: gain), isFinal: frame.isFinal))
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in relay.cancel() }
+        }
     }
 }
 
